@@ -1,0 +1,77 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'" />
+  <title>AI Group Whisper</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="update-banner" class="banner hidden"></div>
+  <div id="pause-banner" class="banner warn hidden"></div>
+  <div class="app">
+    <aside>
+      <div class="brand">AI Group Whisper</div>
+      <div id="status" class="status">Starting…</div>
+      <nav>
+        <button data-view="groups" class="active">Groups</button>
+        <button data-view="queue">Queue</button>
+        <button data-view="settings">Settings</button>
+      </nav>
+      <div id="group-list"></div>
+      <div class="foot"><span id="version"></span> · <a href="#" id="check-updates">Check for updates</a></div>
+    </aside>
+    <main>
+      <section id="view-groups">
+        <div id="group-empty" class="empty">Pick a group on the left. Turn on “Watch” to start collecting messages.</div>
+        <div id="group-detail" class="hidden">
+          <header>
+            <h2 id="g-title"></h2>
+            <label><input type="checkbox" id="g-watch" /> Watch</label>
+            <label><input type="checkbox" id="g-auto" /> Auto-reply when mentioned</label>
+            <button id="g-summarize">Summarize</button>
+            <button id="g-draft">Draft reply</button>
+          </header>
+          <input id="g-persona" placeholder="Persona / reply instructions (e.g. 'casual, short, no emojis')" />
+          <div class="cols">
+            <div><h3>AI notes</h3><div id="g-summaries"></div></div>
+            <div><h3>Recent messages</h3><div id="g-messages"></div></div>
+          </div>
+        </div>
+      </section>
+      <section id="view-queue" class="hidden"><h2>Work queue</h2><table id="queue-table"></table></section>
+      <section id="view-settings" class="hidden">
+        <h2>Telegram</h2>
+        <p class="hint">Get an API ID and hash at my.telegram.org → API development tools.</p>
+        <input id="s-api-id" placeholder="API ID" />
+        <input id="s-api-hash" placeholder="API hash" />
+        <h2>AI (fal.ai)</h2>
+        <p class="hint">Get a key at fal.ai/dashboard/keys. Pick a model from the list or type any model ID fal supports.</p>
+        <input id="s-ai-model" list="model-list" placeholder="Model (default google/gemini-2.5-flash)" />
+        <datalist id="model-list">
+          <option value="google/gemini-2.5-flash">Gemini 2.5 Flash (fast, cheap)</option>
+          <option value="google/gemini-2.5-pro">Gemini 2.5 Pro</option>
+          <option value="anthropic/claude-sonnet-4.5">Claude Sonnet 4.5</option>
+          <option value="anthropic/claude-haiku-4.5">Claude Haiku 4.5</option>
+          <option value="openai/gpt-5">GPT-5</option>
+          <option value="openai/gpt-5-mini">GPT-5 mini</option>
+          <option value="openai/gpt-4o-mini">GPT-4o mini</option>
+          <option value="x-ai/grok-4">Grok 4</option>
+          <option value="deepseek/deepseek-chat">DeepSeek Chat</option>
+          <option value="meta-llama/llama-3.3-70b-instruct">Llama 3.3 70B</option>
+        </datalist>
+        <input id="s-ai-key" type="password" placeholder="fal.ai key (leave blank to keep current)" />
+        <button id="s-save">Save settings</button>
+        <h2>Sign in to Telegram</h2>
+        <input id="l-phone" placeholder="+15551234567" />
+        <button id="l-send">Send code</button>
+        <input id="l-code" placeholder="Login code" />
+        <input id="l-pass" type="password" placeholder="2FA password (if asked)" />
+        <button id="l-verify">Sign in</button>
+        <div id="s-msg" class="hint"></div>
+      </section>
+    </main>
+  </div>
+  <script src="app.js"></script>
+</body>
+</html>
