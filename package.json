@@ -1,7 +1,7 @@
 {
   "name": "ai-group-whisper",
   "productName": "AI Group Whisper",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Standalone macOS app: watches Telegram groups, summarizes and drafts AI replies, stores everything locally in SQLite.",
   "main": "electron/main.cjs",
   "license": "MIT",

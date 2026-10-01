@@ -88,17 +88,29 @@ $('l-verify').onclick = async () => {
 function renderUpdate(info) {
   const b = $('update-banner');
   if (info.available) {
-    b.innerHTML = `Version ${esc(info.latest)} is available (you have ${esc(info.current)}). <button id="dl">Download</button>`;
+    b.innerHTML = `Version ${esc(info.latest)} is available (you have ${esc(info.current)}). ` +
+      (info.canInstall ? `<button id="upd-install">Update now</button>` : `<span>Mac build is still being prepared — check again shortly.</span>`) +
+      ` <a href="#" id="upd-notes">What's new</a> <span id="upd-status"></span>`;
     b.classList.remove('hidden');
-    $('dl').onclick = () => window.agw.openExternal(info.url);
+    $('upd-notes').onclick = (e) => { e.preventDefault(); window.agw.openExternal(info.url); };
+    if ($('upd-install')) $('upd-install').onclick = async () => {
+      $('upd-install').disabled = true;
+      const r = await window.agw.installUpdate();
+      if (r && r.error) { $('upd-install').disabled = false; }
+    };
   } else b.classList.add('hidden');
 }
 window.agw.on('update-info', renderUpdate);
+window.agw.on('update-progress', (p) => {
+  const st = $('upd-status'); if (!st) return;
+  st.textContent = p.error ? 'Update failed: ' + p.error : p.stage + (p.pct != null ? ` ${p.pct}%` : '');
+});
 $('check-updates').onclick = async (e) => {
   e.preventDefault();
   const info = await window.agw.checkUpdates();
   if (info.error) alert('Could not check for updates: ' + info.error);
   else if (!info.available) alert(`You're up to date (${info.current}).`);
+  else if (info.canInstall && confirm(`Version ${info.latest} is available. Update now? The app will restart.`)) $('upd-install')?.click();
 };
 
 window.agw.appInfo().then((i) => { $('version').textContent = 'v' + i.version; });
