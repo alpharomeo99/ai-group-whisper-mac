@@ -105,7 +105,16 @@ async function checkForUpdates(manual = false) {
     if (!r.ok) throw new Error(`GitHub responded ${r.status}`);
     const rel = await r.json();
     const latest = rel.tag_name || '0.0.0';
-    const asset = (rel.assets || []).find((a) => a.name.endsWith(`darwin-${process.arch}.zip`));
+    let asset = (rel.assets || []).find((a) => a.name.endsWith(`darwin-${process.arch}.zip`));
+    if (asset) asset = { parts: [asset.browser_download_url], size: asset.size };
+    else {
+      // Builds may also live on the repo's "builds" branch, split into parts.
+      const m = await fetch(`https://raw.githubusercontent.com/${GITHUB_REPO}/builds/${latest}/manifest.json`).catch(() => null);
+      if (m && m.ok) {
+        const man = await m.json(); const a = man[process.arch];
+        if (a) asset = { size: a.size, parts: a.parts.map((f) => `https://raw.githubusercontent.com/${GITHUB_REPO}/builds/${latest}/${f}`) };
+      }
+    }
     latestAsset = asset || null;
     const info = { current: app.getVersion(), latest, url: rel.html_url, notes: rel.body || '',
       available: cmpVer(latest, app.getVersion()) > 0,
@@ -139,14 +148,17 @@ async function installUpdate() {
     if (!latestAsset) throw new Error('This release has no Mac build attached yet. Try again in a few minutes.');
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'agw-update-'));
     const zip = path.join(tmp, 'update.zip');
-    const r = await fetch(latestAsset.browser_download_url, { headers: { 'User-Agent': 'ai-group-whisper' } });
-    if (!r.ok) throw new Error(`Download failed (${r.status})`);
-    const total = Number(r.headers.get('content-length')) || latestAsset.size || 0;
+    const total = latestAsset.size || 0;
     const out = fs.createWriteStream(zip);
     let got = 0;
-    for await (const chunk of r.body) {
-      got += chunk.length; out.write(chunk);
-      if (total) progress('Downloading update…', Math.round((got / total) * 100));
+    for (const url of latestAsset.parts) {
+      const r = await fetch(url, { headers: { 'User-Agent': 'ai-group-whisper' } });
+      if (!r.ok) throw new Error(`Download failed (${r.status})`);
+      for await (const chunk of r.body) {
+        got += chunk.length;
+        if (!out.write(chunk)) await new Promise((res) => out.once('drain', res));
+        if (total) progress('Downloading update…', Math.round((got / total) * 100));
+      }
     }
     await new Promise((res) => out.end(res));
     progress('Installing…', 100);
