@@ -10,6 +10,7 @@ from aiohttp import web
 from telethon import TelegramClient, events, errors
 
 import ai
+import updater
 from store import Store
 
 log = logging.getLogger("whisperd")
@@ -275,6 +276,13 @@ async def main():
 
     app = web.Application(middlewares=[errors_mw])
     app.add_routes(d.routes())
+    app.add_routes(updater.routes())
+    renderer_dir = os.path.join(updater.APP_ROOT, "renderer")
+
+    async def index_handler(_):
+        return web.FileResponse(os.path.join(renderer_dir, "index.html"))
+    app.router.add_get("/", index_handler)
+    app.router.add_static("/", renderer_dir)
     runner = web.AppRunner(app)
     await runner.setup()
     await web.TCPSite(runner, "127.0.0.1", a.port).start()

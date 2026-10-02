@@ -1,43 +1,27 @@
 # AI Group Whisper (macOS)
 
-A standalone macOS app that watches your Telegram groups, keeps everything in a local SQLite database, writes AI summaries and reply drafts, and can auto-reply when you're mentioned.
+A Mac app that watches your Telegram groups, writes AI summaries and draft replies (fal.ai, choose your model), and keeps everything on your Mac in a local database.
 
-## Architecture
+## Install
 
-```text
-Electron (electron/main.cjs)
-  ├─ window → renderer/ (plain HTML/JS, no build step)
-  ├─ spawns  → daemon/whisperd.py  (Python, Telethon, aiohttp on 127.0.0.1:<random port>)
-  ├─ powerMonitor suspend/resume → POST /power  (sleep/wake queue protection)
-  └─ GitHub releases/latest check every 6h + "Check for updates" link
-daemon/
-  store.py   SQLite (WAL): settings, groups, messages, summaries, queue
-  ai.py      fal.ai chat client — pick any model (Claude, GPT, Gemini, Llama…) in Settings
-```
+**Easiest (no security warnings):** open Terminal, paste this, press Enter:
 
-All data lives in `~/Library/Application Support/AI Group Whisper/data/` (`whisper.db`, `telegram.session`, `daemon.log`).
-
-## Sleep / wake queue protection
-- All outgoing work (summaries, drafts, sends) goes through a persistent `queue` table with a unique `dedupe_key`, so a message is never sent twice.
-- On **suspend** the daemon stops claiming work, moves `in_flight` jobs back to `pending`, and disconnects Telegram.
-- On **resume** (3s delay for Wi-Fi) it reconnects, fetches messages missed while asleep, then restarts the queue.
-- On startup any job left `in_flight` by a crash or power loss is recovered.
-- Telegram flood-waits and AI 429/5xx errors back off; AI 402/403 pauses the queue until you press **Resume**.
-
-## Run from source
 ```bash
-npm install
-npm run setup:python      # creates daemon/.venv with Telethon
-npm start
+curl -fsSL https://raw.githubusercontent.com/alpharomeo99/ai-group-whisper-mac/main/install.sh | bash
 ```
-Then open **Settings**: enter your Telegram API ID/hash (my.telegram.org), fal.ai key and model, and sign in with your phone.
 
-## Package a macOS app
-```bash
-npm run setup:python
-npm run package:mac       # → release/AI Group Whisper-darwin-*/
-```
-Unsigned builds: right-click → Open the first time. For distribution, sign and notarize with `@electron/osx-sign` / `@electron/notarize`.
+It puts **AI Group Whisper** in your Applications folder and opens it. From then on, open it like any app (Launchpad, Spotlight, Dock).
+
+**Or download** `AI-Group-Whisper-Mac.zip` from Releases, unzip, drag the app into Applications, then right-click → Open the first time.
+
+The first launch takes about a minute while it sets itself up. It needs Python 3 (macOS offers to install it if missing).
 
 ## Updates
-Updates come from github.com/alpharomeo99/ai-group-whisper-mac. Bump `version` in `package.json`, then publish GitHub releases tagged `v1.0.1` etc.; the app compares the tag with its version and shows a download banner.
+
+Click **Check for updates** at the bottom-left, then **Update now**. The app downloads the new version, installs it and reopens. Your settings and Telegram login are kept.
+
+## How it works
+
+- Native Mac window using Apple's built-in WebKit (no Electron, nothing for macOS to block).
+- Telegram engine (Telethon) with a local SQLite queue: pauses before the Mac sleeps, resumes and catches up on missed messages when it wakes.
+- Data: `~/Library/Application Support/AI Group Whisper/` · Log: `~/Library/Logs/AI Group Whisper.log`

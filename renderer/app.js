@@ -1,3 +1,28 @@
+// Bridge to the local engine (same origin as this window).
+(() => {
+  const call = async (m, r, b) => {
+    const res = await fetch(r, { method: m, headers: { 'Content-Type': 'application/json' }, body: b ? JSON.stringify(b) : undefined });
+    const j = await res.json();
+    if (!res.ok || (j && !Array.isArray(j) && j.error && m !== 'GET')) throw new Error((j && j.error) || res.status);
+    return j;
+  };
+  const subs = {};
+  const emit = (ch, d) => (subs[ch] || []).forEach((cb) => cb(d));
+  window.agw = {
+    api: call,
+    appInfo: () => call('GET', '/app/info'),
+    checkUpdates: async () => { const i = await call('GET', '/app/check-updates'); if (!i.error) emit('update-info', i); return i; },
+    openExternal: (url) => call('POST', '/app/open', { url }),
+    on: (ch, cb) => { (subs[ch] = subs[ch] || []).push(cb); },
+    installUpdate: async () => {
+      const t = setInterval(async () => { try { emit('update-progress', await call('GET', '/app/update-progress')); } catch {} }, 700);
+      try { return await call('POST', '/app/install-update'); }
+      catch (e) { clearInterval(t); emit('update-progress', { error: e.message }); return { error: e.message }; }
+    },
+  };
+  setTimeout(() => window.agw.checkUpdates().catch(() => {}), 3000);
+  setInterval(() => window.agw.checkUpdates().catch(() => {}), 6 * 3600 * 1000);
+})();
 const $ = (id) => document.getElementById(id);
 const api = (m, r, b) => window.agw.api(m, r, b);
 let groups = [], current = null;
