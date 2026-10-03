@@ -20,12 +20,12 @@ for c in /opt/homebrew/bin/python3 /usr/local/bin/python3 /Library/Frameworks/Py
 done
 if [ -z "$PY" ]; then
   xcode-select --install 2>/dev/null
-  fail "AI Group Whisper needs Python 3. A macOS installer window should have opened — finish it, then open the app again."
+  fail "AI Group Whisper needs Python 3. A macOS installer window should have opened - finish it, then open the app again."
 fi
 
 REQ="$RES/daemon/requirements.txt"
 if [ ! -x "$VENV/bin/python3" ]; then
-  osascript -e 'display notification "First launch: setting things up (about a minute)…" with title "AI Group Whisper"'
+  osascript -e 'display notification "First launch: setting things up (about a minute)..." with title "AI Group Whisper"'
   "$PY" -m venv "$VENV" || fail "Could not create the app's Python environment. See ~/Library/Logs/AI Group Whisper.log"
 fi
 if ! cmp -s "$REQ" "$VENV/.req"; then
