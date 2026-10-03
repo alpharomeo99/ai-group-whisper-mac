@@ -21,6 +21,8 @@ PHASES = [
     ("signup", "Telegram sign-up"),
     ("api", "Camoufox API keys"),
     ("link", "Connect account"),
+    ("persona", "Profile & photo"),
+    ("wipe", "Clean cloud phone"),
 ]
 
 
@@ -119,8 +121,25 @@ class Provisioner:
 
             aid = await self.d.adopt_number(phone, api_id, api_hash, tg_code,
                                             proxy_id=proxy["id"] if proxy else None)
-            self._phase("link", "done")
             self.state["account_id"] = aid
+
+            self._phase("persona")
+            try:
+                await self.d.apply_persona(aid, opts.get("persona_style") or st.get("persona_style"),
+                                           opts.get("photo", True), self.log)
+            except Exception as e:  # noqa
+                self.log(f"Profile step skipped ({e})")
+
+            self._phase("wipe")
+            if opts.get("wipe", True):
+                try:
+                    await phone_worker.wipe()
+                    self.log("Cloud phone is clean and ready for the next account")
+                except Exception as e:  # noqa
+                    self.log(f"Wipe skipped ({e})")
+            else:
+                self.log("Wipe turned off: Telegram left signed in on the cloud phone")
+            self._phase("wipe", "done")
             self.log("Done. The account is connected.")
             self.state["done"] = True
         except asyncio.CancelledError:

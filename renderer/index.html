@@ -60,11 +60,15 @@
         <div class="acc-head page-head"><div><h1>Telegram accounts</h1><p class="sub">Each account has its own API keys, session and proxy.</p></div><div class="row"><button id="acc-gen" class="primary">▶ Start generation</button><button id="acc-auto">⚙ Generation settings</button><button id="acc-add" class="primary">+ Add account</button></div></div>
         <div id="prov-card" class="card wizard hidden">
           <h3>Create a new Telegram account</h3>
-          <p class="hint">Rents a number on TextVerified, signs up on your VMOS cloud phone, then Camoufox creates this account's own API keys through a proxy. Takes a few minutes.</p>
+          <p class="hint">Rents a number on TextVerified, signs up on your VMOS cloud phone, then Camoufox creates this account's own API keys through a proxy, sets a name, bio, username and photo, and wipes the cloud phone. Takes a few minutes.</p>
           <label class="hint">Proxy for this account</label>
           <select id="prov-proxy"></select>
           <label class="hint">Number country (2-letter code)</label>
           <input id="prov-country" value="US" maxlength="2">
+          <label class="hint">Persona style (optional, e.g. "crypto trader in his 30s")</label>
+          <input id="prov-style" placeholder="Friendly, ordinary adult">
+          <label class="row hint"><input type="checkbox" id="prov-photo" checked> Give it an AI profile photo</label>
+          <label class="row hint"><input type="checkbox" id="prov-wipe" checked> Wipe the cloud phone after the account is connected</label>
           <div id="prov-phases" class="phases"></div>
           <div class="row"><button id="prov-close">Close</button><button id="prov-cancel">Stop</button><button id="prov-go" class="primary">Start</button></div>
           <ol id="prov-steps" class="steps"></ol>

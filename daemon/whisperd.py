@@ -117,6 +117,42 @@ class Daemon:
         await self.ensure_clients()
         return cur.lastrowid
 
+    async def apply_persona(self, aid, style, want_photo, log):
+        """Set name, bio, username and photo on a connected account via MTProto."""
+        import persona
+        from telethon.tl.functions.account import UpdateProfileRequest, UpdateUsernameRequest
+        from telethon.tl.functions.photos import UploadProfilePhotoRequest
+        settings = {k: self.store.get(k) for k in ("fal_key", "ai_model")}
+        c = (await self.ensure_clients()).get(aid)
+        if not c:
+            raise RuntimeError("Account is not connected")
+        p = await persona.generate(settings, style)
+        await c(UpdateProfileRequest(first_name=p["first_name"], last_name=p.get("last_name") or "", about=p.get("bio") or ""))
+        log(f"Profile set: {p['first_name']} {p.get('last_name') or ''}")
+        for u in persona.usernames(p):
+            try:
+                await c(UpdateUsernameRequest(u))
+                log(f"Username set: @{u}")
+                break
+            except errors.UsernameOccupiedError:
+                continue
+            except errors.RPCError as e:
+                log(f"Username skipped ({e.__class__.__name__})")
+                break
+        if want_photo:
+            try:
+                img = await persona.photo(settings, p)
+                if img:
+                    f = await c.upload_file(img, file_name="avatar.jpg")
+                    await c(UploadProfilePhotoRequest(file=f))
+                    log("Profile photo set")
+                else:
+                    log("Photo skipped (add a fal.ai key in Settings)")
+            except Exception as e:  # noqa
+                log(f"Photo skipped ({e})")
+        me = await c.get_me()
+        self._save_profile(aid, me, me.phone and "+" + me.phone.lstrip("+"))
+
     async def ensure_clients(self):
         """Connect every active account. Returns {account_id: authorized client}."""
         ready = {}

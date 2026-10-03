@@ -303,6 +303,7 @@ async function pollProv() {
   clearTimeout(provTimer);
   if (s.running) provTimer = setTimeout(pollProv, 2000); else if (s.done) { loadAccounts(); loadGroups(); refreshStatus(); }
 }
+const provOpts = () => ({ proxy_id: $('prov-proxy').value ? Number($('prov-proxy').value) : null, country: ($('prov-country').value || 'US').trim(), persona_style: $('prov-style').value.trim(), photo: $('prov-photo').checked, wipe: $('prov-wipe').checked });
 $('acc-auto').onclick = async () => {
   await fetchProxies(); $('prov-proxy').innerHTML = proxyOptions(null, '').replace('No proxy', 'Any working proxy');
   $('prov-card').classList.remove('hidden'); pollProv();
@@ -315,7 +316,7 @@ function setGenBtn(running) {
 async function startGen() {
   await fetchProxies();
   if (!$('prov-proxy').options.length) $('prov-proxy').innerHTML = proxyOptions(null, '').replace('No proxy', 'Any working proxy');
-  await api('POST', '/provision/start', { proxy_id: $('prov-proxy').value ? Number($('prov-proxy').value) : null, country: ($('prov-country').value || 'US').trim() });
+  await api('POST', '/provision/start', provOpts());
 }
 $('acc-gen').onclick = async () => {
   const b = $('acc-gen'); b.disabled = true;
@@ -329,7 +330,7 @@ setInterval(async () => { try { const s = await api('GET', '/provision/status');
 $('prov-close').onclick = () => $('prov-card').classList.add('hidden');
 $('prov-cancel').onclick = async () => { await api('POST', '/provision/cancel'); setTimeout(pollProv, 800); };
 $('prov-go').onclick = async () => {
-  try { await api('POST', '/provision/start', { proxy_id: $('prov-proxy').value ? Number($('prov-proxy').value) : null, country: ($('prov-country').value || 'US').trim() }); pollProv(); }
+  try { await api('POST', '/provision/start', provOpts()); pollProv(); }
   catch (e) { $('prov-msg').textContent = e.message; }
 };
 

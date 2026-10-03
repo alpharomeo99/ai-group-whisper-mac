@@ -36,6 +36,11 @@ class VmosAccountWorker:
         except Exception as e:  # noqa
             self.log(f"SIM step skipped ({e})")
 
+    async def wipe(self):
+        """Erase Telegram from the cloud phone. The Mac's Telethon session stays signed in."""
+        self.log("Wiping Telegram from the cloud phone")
+        await self.vm.sh(f"am force-stop {TG_PKG}; pm clear {TG_PKG}")
+
     async def _retry_tap(self, *labels, cls=None, tries=3):
         for _ in range(tries):
             n = await self.vm.tap(*labels, cls=cls, wait=20)
