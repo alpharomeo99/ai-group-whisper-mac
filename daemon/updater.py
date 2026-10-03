@@ -2,6 +2,7 @@
 import asyncio
 import io
 import os
+import plistlib
 import shutil
 import subprocess
 import tempfile
@@ -77,6 +78,20 @@ async def install():
             if os.path.isdir(src):
                 shutil.rmtree(dst, ignore_errors=True)
                 shutil.copytree(src, dst)
+        # The desktop icon lives beside the app bundle, not in the updateable daemon folder.
+        # Updating its bundle metadata also upgrades installs made before the logo existed.
+        contents = os.path.abspath(os.path.join(APP_ROOT, "..", ".."))
+        plist_path = os.path.join(contents, "Info.plist")
+        icon_src = os.path.join(top, "assets", "logo.icns")
+        if os.path.isfile(plist_path) and os.path.isfile(icon_src):
+            icon_dst = os.path.join(contents, "Resources", "AIGroupWhisper.icns")
+            shutil.copy2(icon_src, icon_dst)
+            with open(plist_path, "rb") as f:
+                bundle_info = plistlib.load(f)
+            bundle_info["CFBundleIconFile"] = "AIGroupWhisper.icns"
+            with open(plist_path, "wb") as f:
+                plistlib.dump(bundle_info, f)
+            os.utime(os.path.dirname(contents), None)
         for name in ("run.py", "VERSION"):
             src = os.path.join(top, name)
             if os.path.exists(src):

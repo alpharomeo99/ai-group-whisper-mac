@@ -8,6 +8,7 @@ VER="$(cat "$SRC/VERSION")"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources/app"
 cp -R "$SRC/daemon" "$SRC/renderer" "$SRC/run.py" "$SRC/VERSION" "$APP/Contents/Resources/app/"
+cp "$SRC/assets/logo.icns" "$APP/Contents/Resources/AIGroupWhisper.icns"
 rm -rf "$APP/Contents/Resources/app/daemon/.venv"
 find "$APP" -name __pycache__ -prune -exec rm -rf {} +
 cp "$SRC/scripts/launcher.sh" "$APP/Contents/MacOS/AI Group Whisper"
@@ -20,6 +21,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundleDisplayName</key><string>AI Group Whisper</string>
   <key>CFBundleIdentifier</key><string>com.alpharomeo99.aigroupwhisper</string>
   <key>CFBundleExecutable</key><string>AI Group Whisper</string>
+  <key>CFBundleIconFile</key><string>AIGroupWhisper.icns</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>$VER</string>
   <key>CFBundleVersion</key><string>$VER</string>

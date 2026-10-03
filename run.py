@@ -103,11 +103,26 @@ def hook_sleep_wake():
         print("sleep/wake hook unavailable:", e)
 
 
+def set_dock_icon():
+    """Set the running Cocoa application's Dock icon, including after in-app updates."""
+    icon = os.path.abspath(os.path.join(ROOT, "..", "AIGroupWhisper.icns"))
+    if not os.path.isfile(icon):
+        return
+    try:
+        from AppKit import NSApplication, NSImage
+        image = NSImage.alloc().initWithContentsOfFile_(icon)
+        if image:
+            NSApplication.sharedApplication().setApplicationIconImage_(image)
+    except Exception as e:  # noqa
+        print("Dock icon unavailable:", e)
+
+
 def main():
     start_engine()
     threading.Thread(target=watch_engine, daemon=True).start()
     wait_ready()
     hook_sleep_wake()
+    set_dock_icon()
     webview.create_window("AI Group Whisper", BASE + "/", width=1180, height=780, min_size=(820, 560))
     webview.start()
     state["quitting"] = True
