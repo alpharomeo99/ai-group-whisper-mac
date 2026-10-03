@@ -299,6 +299,7 @@ async function pollProv() {
   $('prov-steps').innerHTML = s.steps.map((x) => `<li>${esc(x.text)}</li>`).join('');
   $('prov-msg').textContent = s.error ? 'Stopped: ' + s.error : s.done ? 'Account created and connected.' : s.running ? 'Working…' : '';
   $('prov-go').disabled = s.running; $('prov-cancel').disabled = !s.running;
+  setGenBtn(s.running);
   clearTimeout(provTimer);
   if (s.running) provTimer = setTimeout(pollProv, 2000); else if (s.done) { loadAccounts(); loadGroups(); refreshStatus(); }
 }
@@ -306,6 +307,25 @@ $('acc-auto').onclick = async () => {
   await fetchProxies(); $('prov-proxy').innerHTML = proxyOptions(null, '').replace('No proxy', 'Any working proxy');
   $('prov-card').classList.remove('hidden'); pollProv();
 };
+function setGenBtn(running) {
+  const b = $('acc-gen'); if (!b) return;
+  b.textContent = running ? '■ Stop generation' : '▶ Start generation';
+  b.classList.toggle('danger', !!running); b.dataset.running = running ? '1' : '';
+}
+async function startGen() {
+  await fetchProxies();
+  if (!$('prov-proxy').options.length) $('prov-proxy').innerHTML = proxyOptions(null, '').replace('No proxy', 'Any working proxy');
+  await api('POST', '/provision/start', { proxy_id: $('prov-proxy').value ? Number($('prov-proxy').value) : null, country: ($('prov-country').value || 'US').trim() });
+}
+$('acc-gen').onclick = async () => {
+  const b = $('acc-gen'); b.disabled = true;
+  try {
+    if (b.dataset.running) await api('POST', '/provision/cancel');
+    else { await startGen(); $('prov-card').classList.remove('hidden'); }
+  } catch (e) { $('prov-card').classList.remove('hidden'); $('prov-msg').textContent = e.message; }
+  b.disabled = false; setTimeout(pollProv, 600);
+};
+setInterval(async () => { try { const s = await api('GET', '/provision/status'); setGenBtn(s.running); } catch (_) {} }, 3000);
 $('prov-close').onclick = () => $('prov-card').classList.add('hidden');
 $('prov-cancel').onclick = async () => { await api('POST', '/provision/cancel'); setTimeout(pollProv, 800); };
 $('prov-go').onclick = async () => {

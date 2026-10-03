@@ -124,3 +124,5 @@ td button { padding: 4px 10px; font-size: 12px; }
 .phase.done { opacity: 1; } .phase.done span { background: #2bb3a3; color: #fff; }
 .phase.error { opacity: 1; outline: 1px solid #e8604c; } .phase.error span { background: #e8604c; color: #fff; }
 @keyframes pulse { 50% { opacity: .5; } }
+
+button.danger{background:#e5484d;color:#fff;border-color:#e5484d}
