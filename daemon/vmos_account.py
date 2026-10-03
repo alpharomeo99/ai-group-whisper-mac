@@ -1,6 +1,6 @@
 """VMOS worker: owns the cloud phone and the Telegram account that lives on it.
 
-The manager (provisioner.py) asks it to: prepare a fresh phone, register a number,
+The manager (provisioner.py) asks it to: connect to the cloud phone, register a number,
 and read any login code Telegram sends to the app (used by Camoufox and Telethon).
 """
 import asyncio
@@ -26,8 +26,7 @@ class VmosAccountWorker:
         self.seen_codes = set()
 
     async def prepare(self, country):
-        self.log("Giving the cloud phone a fresh device identity")
-        await self.vm.new_device(country)
+        self.log("Connecting to the cloud phone")
         await self.vm.wait_online()
 
     async def set_sim(self, country, phone):
@@ -37,8 +36,8 @@ class VmosAccountWorker:
             self.log(f"SIM step skipped ({e})")
 
     async def wipe(self):
-        """Erase Telegram from the cloud phone. The Mac's Telethon session stays signed in."""
-        self.log("Wiping Telegram from the cloud phone")
+        """Clear the Telegram app's data on the cloud phone. The Mac's Telethon session stays signed in."""
+        self.log("Clearing the Telegram app on the cloud phone")
         await self.vm.sh(f"am force-stop {TG_PKG}; pm clear {TG_PKG}")
 
     async def _retry_tap(self, *labels, cls=None, tries=3):

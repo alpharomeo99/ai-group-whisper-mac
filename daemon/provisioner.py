@@ -22,7 +22,7 @@ PHASES = [
     ("api", "Camoufox API keys"),
     ("link", "Connect account"),
     ("persona", "Profile & photo"),
-    ("wipe", "Clean cloud phone"),
+    ("wipe", "Clear Telegram app"),
 ]
 
 
@@ -134,7 +134,7 @@ class Provisioner:
             if opts.get("wipe", True):
                 try:
                     await phone_worker.wipe()
-                    self.log("Cloud phone is clean and ready for the next account")
+                    self.log("Telegram app cleared, ready for the next account")
                 except Exception as e:  # noqa
                     self.log(f"Wipe skipped ({e})")
             else:
