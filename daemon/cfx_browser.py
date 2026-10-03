@@ -50,7 +50,7 @@ def _run(phone, proxy_line, code_cb, app_title, headless, password):
     try:
         from camoufox.sync_api import Camoufox
     except ImportError:
-        raise CamoufoxError("Camoufox is not installed yet. Open the Camoufox section and press Install.")
+        raise CamoufoxError("Camoufox is still being set up. Give it a minute and try again.")
     proxy = parse_proxy(proxy_line) if proxy_line else None
     opts = {"headless": headless, "humanize": True, "geoip": bool(proxy), "os": ["windows", "macos"]}
     if proxy:
@@ -91,6 +91,29 @@ def _run(phone, proxy_line, code_cb, app_title, headless, password):
         if not (api_id and api_hash):
             raise CamoufoxError("Could not read the API ID and hash from my.telegram.org.")
         return int(api_id.group(1)), api_hash.group(1)
+
+
+def _ip_run(proxy_line):
+    try:
+        from camoufox.sync_api import Camoufox
+    except ImportError:
+        raise CamoufoxError("Camoufox is still being set up. Give it a minute.")
+    proxy = parse_proxy(proxy_line) if proxy_line else None
+    opts = {"headless": True, "geoip": bool(proxy)}
+    if proxy:
+        opts["proxy"] = proxy
+    with Camoufox(**opts) as browser:
+        page = browser.new_page()
+        page.goto("https://api.ipify.org?format=json", timeout=60000)
+        m = re.search(r'"ip"\s*:\s*"([^"]+)"', page.content())
+        if not m:
+            raise CamoufoxError("Camoufox opened but could not read its IP.")
+        return m.group(1)
+
+
+async def browser_ip(proxy_line=None):
+    """Open Camoufox through the proxy and return the IP websites see."""
+    return await asyncio.get_running_loop().run_in_executor(None, _ip_run, proxy_line)
 
 
 async def get_api_credentials(phone, proxy_line, code_getter, app_title="Whisper", headless=True, password=None):

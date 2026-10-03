@@ -12,7 +12,7 @@ from aiohttp import web
 from telethon import TelegramClient, events, errors
 
 import ai
-import camoufox as cfx
+import cfx_browser as cfx
 import updater
 from provisioner import Provisioner
 from textverified import TextVerified
@@ -38,6 +38,32 @@ class Daemon:
         self.prov = Provisioner(self)
         self.autoapi = {}        # token -> {"future": code future, "task": camoufox task}
         self.cfx_install = {"running": False, "log": ""}
+
+    async def ensure_camoufox(self, force=False):
+        """Camoufox ships with the app: install the package and its browser automatically in the background."""
+        if self.cfx_install["running"]:
+            return
+        import importlib.util
+        if not force and importlib.util.find_spec("camoufox") is not None:
+            p = await asyncio.create_subprocess_exec(sys.executable, "-m", "camoufox", "path",
+                                                     stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT, cwd=os.path.expanduser("~"))
+            out = (await p.communicate())[0].decode(errors="ignore")
+            if p.returncode == 0 and "/" in out and os.path.isdir(out.strip().splitlines()[-1].strip()):
+                return
+        self.cfx_install.update(running=True, log="Setting up Camoufox (open-source stealth browser)...\n")
+        ok = True
+        for cmd in ([sys.executable, "-m", "pip", "install", "-q", "-U", "camoufox[geoip]"],
+                    [sys.executable, "-m", "camoufox", "fetch"]):
+            p = await asyncio.create_subprocess_exec(*cmd, stdout=asyncio.subprocess.PIPE,
+                                                     stderr=asyncio.subprocess.STDOUT, cwd=os.path.expanduser("~"))
+            async for line in p.stdout:
+                self.cfx_install["log"] = (self.cfx_install["log"] + line.decode(errors="ignore"))[-4000:]
+            await p.wait()
+            if p.returncode != 0:
+                ok = False
+                break
+        self.cfx_install["log"] += "\nCamoufox is ready.\n" if ok else "\nSetup failed - press Repair to retry.\n"
+        self.cfx_install["running"] = False
 
     # ---------- Telegram accounts ----------
     def _adopt_legacy_session(self):
@@ -282,7 +308,7 @@ class Daemon:
                       "paused_reason": self.paused_reason, "queue": counts})
 
         SECRET_KEYS = ("fal_key", "vmos_sk", "tv_key")
-        PLAIN_KEYS = ("ai_model", "vmos_ak", "vmos_pad", "tv_user", "tv_max_price", "cfx_headless", "cfx_app_title")
+        PLAIN_KEYS = ("ai_model", "vmos_ak", "vmos_pad", "tv_user", "tv_max_price", "cfx_headless", "cfx_app_title", "cfx_proxy_id")
 
         @r.get("/settings")
         async def get_settings(_):
@@ -370,33 +396,29 @@ class Daemon:
             ready = False
             if installed:
                 p = await asyncio.create_subprocess_exec(sys.executable, "-m", "camoufox", "path",
-                                                         stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT)
+                                                         stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT, cwd=os.path.expanduser("~"))
                 out = (await p.communicate())[0].decode(errors="ignore")
                 ready = p.returncode == 0 and "/" in out
             return J({"installed": installed, "ready": ready, **self.cfx_install})
 
         @r.post("/camoufox/install")
         async def cfx_inst(_):
-            if self.cfx_install["running"]:
-                return J({"ok": True})
-
-            async def go():
-                self.cfx_install.update(running=True, log="Installing Camoufox…\n")
-                for cmd in ([sys.executable, "-m", "pip", "install", "-U", "camoufox[geoip]"],
-                            [sys.executable, "-m", "camoufox", "fetch"]):
-                    p = await asyncio.create_subprocess_exec(*cmd, stdout=asyncio.subprocess.PIPE,
-                                                             stderr=asyncio.subprocess.STDOUT)
-                    async for line in p.stdout:
-                        self.cfx_install["log"] = (self.cfx_install["log"] + line.decode(errors="ignore"))[-4000:]
-                    await p.wait()
-                    if p.returncode != 0:
-                        self.cfx_install["log"] += "\nInstall failed."
-                        break
-                else:
-                    self.cfx_install["log"] += "\nCamoufox is ready."
-                self.cfx_install["running"] = False
-            asyncio.create_task(go())
+            asyncio.create_task(self.ensure_camoufox(force=True))
             return J({"ok": True})
+
+        @r.post("/camoufox/test")
+        async def cfx_test(req):
+            b = await req.json()
+            pid = b.get("proxy_id") or self.store.get("cfx_proxy_id")
+            line = None
+            if pid:
+                rr = self.store.rows("SELECT url FROM proxies WHERE id=?", (int(pid),))
+                line = rr[0]["url"] if rr else None
+            try:
+                ip = await cfx.browser_ip(line)
+                return J({"ok": True, "ip": ip, "proxied": bool(line)})
+            except Exception as e:  # noqa
+                return J({"ok": False, "error": (str(e) or "Camoufox could not open").splitlines()[0]})
 
         # Manual add: Camoufox creates the API keys, the user types the my.telegram.org code.
         @r.post("/autoapi/start")
@@ -405,8 +427,8 @@ class Daemon:
             phone = "".join(ch for ch in str(b.get("phone", "")) if ch.isdigit() or ch == "+")
             if len(phone.lstrip("+")) < 7:
                 return J({"error": "Enter the full phone number with country code first."}, status=400)
-            pid = b.get("proxy_id")
-            row = self.store.rows("SELECT url FROM proxies WHERE id=?", (pid,)) if pid else []
+            pid = b.get("proxy_id") or self.store.get("cfx_proxy_id")
+            row = self.store.rows("SELECT url FROM proxies WHERE id=?", (int(pid),)) if pid else []
             token = secrets.token_hex(6)
             loop = asyncio.get_running_loop()
             fut = loop.create_future()
@@ -667,6 +689,7 @@ async def main():
     await runner.setup()
     await web.TCPSite(runner, "127.0.0.1", a.port).start()
     log.info("listening on 127.0.0.1:%d", a.port)
+    asyncio.create_task(d.ensure_camoufox())
     try:
         await d.ensure_clients()
     except Exception as e:  # noqa

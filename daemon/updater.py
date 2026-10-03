@@ -89,6 +89,7 @@ async def install():
             with open(plist_path, "rb") as f:
                 bundle_info = plistlib.load(f)
             bundle_info["CFBundleIconFile"] = "AIGroupWhisper.icns"
+            bundle_info["CFBundleIconName"] = "AIGroupWhisper"
             with open(plist_path, "wb") as f:
                 plistlib.dump(bundle_info, f)
             os.utime(os.path.dirname(contents), None)

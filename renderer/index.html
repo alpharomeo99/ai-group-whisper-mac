@@ -11,21 +11,33 @@
   <div id="pause-banner" class="banner warn hidden"></div>
   <div class="app">
     <aside>
-      <div class="brand">AI Group Whisper</div>
-      <div id="status" class="status">Starting…</div>
+      <div class="brand"><img src="logo.png" alt="" class="logo" /><div><div class="brand-name">AI Group Whisper</div><div id="status" class="status">Starting...</div></div></div>
       <nav>
-        <button data-view="groups" class="active">Groups</button>
-        <button data-view="accounts">Accounts</button>
-        <button data-view="proxies">Proxies</button>
-        <button data-view="camoufox">Camoufox</button>
-        <button data-view="queue">Queue</button>
-        <button data-view="settings">Settings</button>
+        <div class="nav-label">Workspace</div>
+        <button data-view="overview" class="active"><span class="ic">&#9673;</span>Overview</button>
+        <button data-view="groups"><span class="ic">&#9776;</span>Groups</button>
+        <button data-view="queue"><span class="ic">&#8635;</span>Queue</button>
+        <div class="nav-label">Accounts</div>
+        <button data-view="accounts"><span class="ic">&#9786;</span>Telegram accounts</button>
+        <button data-view="proxies"><span class="ic">&#8644;</span>Proxies</button>
+        <button data-view="camoufox"><span class="ic">&#9673;</span>Camoufox <span id="nav-cfx" class="dot-s"></span></button>
+        <div class="nav-label">App</div>
+        <button data-view="settings"><span class="ic">&#9881;</span>Settings</button>
       </nav>
-      <div id="group-list"></div>
-      <div class="foot"><span id="version"></span> · <a href="#" id="check-updates">Check for updates</a></div>
+      <div class="foot"><span id="version"></span><a href="#" id="check-updates">Check for updates</a></div>
     </aside>
     <main>
-      <section id="view-groups">
+      <section id="view-overview">
+        <div class="page-head"><div><h1>Overview</h1><p class="sub">Everything running right now.</p></div></div>
+        <div class="stats" id="ov-stats"></div>
+        <div class="grid2">
+          <div class="panel"><div class="panel-head"><h3>Accounts</h3><button data-go="accounts" class="ghost">Manage</button></div><div id="ov-accounts"></div></div>
+          <div class="panel"><div class="panel-head"><h3>Proxies</h3><button data-go="proxies" class="ghost">Manage</button></div><div id="ov-proxies"></div></div>
+        </div>
+      </section>
+      <section id="view-groups" class="hidden">
+        <div class="page-head"><div><h1>Groups</h1><p class="sub">Pick a group, turn on Watch to collect messages.</p></div></div>
+        <div class="split"><div id="group-list" class="panel list"></div><div class="split-main">
         <div id="group-empty" class="empty">Pick a group on the left. Turn on “Watch” to start collecting messages.</div>
         <div id="group-detail" class="hidden">
           <header>
@@ -41,10 +53,11 @@
             <div><h3>Recent messages</h3><div id="g-messages"></div></div>
           </div>
         </div>
+        </div></div>
       </section>
-      <section id="view-queue" class="hidden"><h2>Work queue</h2><table id="queue-table"></table></section>
+      <section id="view-queue" class="hidden"><div class="page-head"><div><h1>Queue</h1><p class="sub">AI jobs waiting, running and finished.</p></div></div><table id="queue-table"></table></section>
       <section id="view-accounts" class="hidden">
-        <div class="acc-head"><h2>Telegram accounts</h2><div class="row"><button id="acc-auto">⚡ Create account automatically</button><button id="acc-add" class="primary">+ Add account</button></div></div>
+        <div class="acc-head page-head"><div><h1>Telegram accounts</h1><p class="sub">Each account has its own API keys, session and proxy.</p></div><div class="row"><button id="acc-auto">⚡ Create account automatically</button><button id="acc-add" class="primary">+ Add account</button></div></div>
         <div id="prov-card" class="card wizard hidden">
           <h3>Create a new Telegram account</h3>
           <p class="hint">Rents a number on TextVerified, signs up on your VMOS cloud phone, then Camoufox creates this account's own API keys through a proxy. Takes a few minutes.</p>
@@ -79,26 +92,32 @@
         </div>
       </section>
       <section id="view-proxies" class="hidden">
-        <h2>Proxies</h2>
-        <p class="hint">One per line. Formats: host:port, host:port:user:pass, http://user:pass@host:port, socks5://user:pass@host:port. Residential proxies work best. Each account can use its own proxy for Telegram and for Camoufox.</p>
+        <div class="page-head"><div><h1>Proxies</h1><p class="sub">Add proxies once. Accounts and Camoufox use them automatically.</p></div></div>
+        <div class="panel"><h3>Add proxies</h3><p class="hint">One per line. Formats: host:port, host:port:user:pass, http://user:pass@host:port, socks5://user:pass@host:port. Residential proxies work best. Each account can use its own proxy for Telegram and for Camoufox.</p>
         <textarea id="px-text" rows="5" placeholder="socks5://user:pass@1.2.3.4:1080"></textarea>
         <div class="row"><button id="px-add" class="primary">Add proxies</button><button id="px-testall">Test all</button></div>
-        <div id="px-msg" class="hint"></div>
-        <table id="px-table"></table>
+        <div id="px-msg" class="hint"></div></div>
+        <div class="panel"><h3>Your proxies</h3><table id="px-table"></table></div>
       </section>
       <section id="view-camoufox" class="hidden">
-        <h2>Camoufox</h2>
-        <p class="hint">Camoufox is a free, open-source stealth browser. The app uses it to log into my.telegram.org through each account's proxy and create that account's own API ID and hash automatically.</p>
-        <div class="card"><b id="cfx-state">Checking…</b>
-          <div class="row"><button id="cfx-install" class="primary">Install Camoufox</button></div>
+        <div class="page-head"><div><h1>Camoufox</h1><p class="sub">Open-source stealth browser, built in. Creates each account's API keys on my.telegram.org through its proxy.</p></div></div>
+        <div class="panel"><div class="panel-head"><h3>Status</h3><button id="cfx-install" class="ghost">Repair</button></div>
+          <div class="cfx-state"><span id="cfx-dot" class="dot-s"></span><b id="cfx-state">Checking...</b></div>
           <pre id="cfx-log" class="log hidden"></pre></div>
-        <h3>Options</h3>
-        <label><input type="checkbox" id="cfx-headless" /> Run hidden (no browser window)</label>
-        <input id="cfx-title" placeholder="App name used on my.telegram.org (default: Whisper)" />
-        <button id="cfx-save">Save</button> <span id="cfx-msg" class="hint"></span>
+        <div class="panel"><h3>Proxy link</h3>
+          <p class="hint">Accounts with their own proxy always use it. Anything without one uses this default.</p>
+          <label class="field">Default proxy for Camoufox</label>
+          <select id="cfx-proxy"></select>
+          <div class="row left"><button id="cfx-test">Test Camoufox through this proxy</button><span id="cfx-ip" class="hint"></span></div></div>
+        <div class="panel"><h3>Options</h3>
+          <label class="check"><input type="checkbox" id="cfx-headless" /> Run hidden (no browser window)</label>
+          <label class="field">App name used on my.telegram.org</label>
+          <input id="cfx-title" placeholder="Whisper" />
+          <div class="row left"><button id="cfx-save" class="primary">Save</button><span id="cfx-msg" class="hint"></span></div></div>
       </section>
       <section id="view-settings" class="hidden">
-        <h2>AI (fal.ai)</h2>
+        <div class="page-head"><div><h1>Settings</h1><p class="sub">Keys stay on this Mac.</p></div></div>
+        <div class="panel"><h3>AI (fal.ai)</h3>
         <p class="hint">Get a key at fal.ai/dashboard/keys. Pick a model from the list or type any model ID fal supports.</p>
         <input id="s-ai-model" list="model-list" placeholder="Model (default google/gemini-2.5-flash)" />
         <datalist id="model-list">
@@ -114,19 +133,19 @@
           <option value="meta-llama/llama-3.3-70b-instruct">Llama 3.3 70B</option>
         </datalist>
         <input id="s-ai-key" type="password" placeholder="fal.ai key (leave blank to keep current)" />
-        <h2>VMOS Cloud</h2>
+        </div><div class="panel"><h3>VMOS Cloud</h3>
         <p class="hint">VMOS Cloud → Developer → API. Copy the Access Key ID and Secret Access Key. The cloud phone code is filled in automatically when you test.</p>
         <input id="s-vmos-ak" placeholder="Access Key ID" autocomplete="off" />
         <input id="s-vmos-sk" type="password" placeholder="Secret Access Key" />
         <input id="s-vmos-pad" placeholder="Cloud phone code (e.g. AC32010601132)" />
         <div class="row"><button id="s-vmos-test">Test VMOS</button><span id="s-vmos-msg" class="hint"></span></div>
-        <h2>TextVerified</h2>
+        </div><div class="panel"><h3>TextVerified</h3>
         <p class="hint">textverified.com → API. Copy your API key; the username is your TextVerified email.</p>
         <input id="s-tv-user" placeholder="TextVerified username (email)" autocomplete="off" />
         <input id="s-tv-key" type="password" placeholder="TextVerified API key" />
         <input id="s-tv-max" placeholder="Max price per number in USD (optional)" inputmode="decimal" />
         <div class="row"><button id="s-tv-test">Check balance</button><span id="s-tv-msg" class="hint"></span></div>
-        <button id="s-save" class="primary">Save settings</button>
+        </div><div class="row left"><button id="s-save" class="primary">Save settings</button></div>
         <div id="s-msg" class="hint"></div>
       </section>
     </main>

@@ -30,7 +30,8 @@ let groups = [], current = null;
 function esc(s) { const d = document.createElement('div'); d.textContent = s ?? ''; return d.innerHTML; }
 function show(view) {
   document.querySelectorAll('nav button').forEach((b) => b.classList.toggle('active', b.dataset.view === view));
-  ['groups', 'accounts', 'proxies', 'camoufox', 'queue', 'settings'].forEach((v) => $('view-' + v).classList.toggle('hidden', v !== view));
+  ['overview', 'groups', 'accounts', 'proxies', 'camoufox', 'queue', 'settings'].forEach((v) => $('view-' + v).classList.toggle('hidden', v !== view));
+  if (view === 'overview') loadOverview();
   if (view === 'queue') loadQueue();
   if (view === 'settings') loadSettings();
   if (view === 'accounts') loadAccounts();
@@ -38,13 +39,13 @@ function show(view) {
   if (view === 'camoufox') loadCfx();
 }
 document.querySelectorAll('nav button').forEach((b) => b.onclick = () => show(b.dataset.view));
+document.querySelectorAll('[data-go]').forEach((b) => b.onclick = () => show(b.dataset.go));
 
 async function refreshStatus() {
   try {
     const s = await api('GET', '/status');
     const q = s.queue || {};
-    $('status').textContent = !s.configured ? 'Set up Telegram in Settings'
-      : !s.accounts ? 'No accounts yet — open Accounts'
+    $('status').textContent = !s.accounts ? 'No accounts yet — open Accounts'
       : !s.authorized ? 'Accounts not connected'
       : s.suspended ? 'Paused (Mac asleep)'
       : `${s.connected} account${s.connected === 1 ? '' : 's'} · ${q.pending || 0} queued · ${q.failed || 0} failed`;
@@ -62,7 +63,7 @@ async function loadGroups() {
   const multiAcc = new Set(groups.map((g) => g.account_id).filter(Boolean)).size > 1;
   $('group-list').innerHTML = groups.map((g) =>
     `<div class="gitem ${current === g.chat_id ? 'sel' : ''}" data-id="${g.chat_id}"><span>${esc(g.title)}${g.account_name && multiAcc ? ` <small class="hint">· ${esc(g.account_name)}</small>` : ''}</span>${g.watched ? '<span class="dot"></span>' : ''}</div>`).join('');
-  document.querySelectorAll('.gitem').forEach((el) => el.onclick = () => openGroup(Number(el.dataset.id)));
+  document.querySelectorAll('#group-list .gitem').forEach((el) => el.onclick = () => openGroup(Number(el.dataset.id)));
 }
 
 async function openGroup(id) {
@@ -156,22 +157,51 @@ $('px-testall').onclick = async () => {
 
 // ----- Camoufox -----
 let cfxTimer = null;
+function cfxText(st) {
+  return st.running ? 'Setting up Camoufox... (first time downloads about 300 MB)' : st.ready ? 'Camoufox is installed and ready' : 'Camoufox is being prepared';
+}
+async function cfxNav() {
+  try { const st = await api('GET', '/camoufox/status');
+    $('nav-cfx').className = 'dot-s ' + (st.ready ? 'ok' : st.running ? 'busy' : 'bad'); return st; } catch { return {}; }
+}
 async function loadCfx() {
-  const [st, s] = await Promise.all([api('GET', '/camoufox/status'), api('GET', '/settings')]);
-  $('cfx-state').textContent = st.running ? 'Installing… (this downloads about 300 MB)' : st.ready ? 'Camoufox is installed and ready.' : st.installed ? 'Browser not downloaded yet.' : 'Not installed.';
-  $('cfx-install').textContent = st.ready ? 'Reinstall / update' : 'Install Camoufox';
-  $('cfx-install').disabled = st.running;
-  $('cfx-log').classList.toggle('hidden', !st.log); $('cfx-log').textContent = st.log || '';
+  const [st, s] = await Promise.all([cfxNav(), api('GET', '/settings'), fetchProxies()]);
+  $('cfx-state').textContent = cfxText(st);
+  $('cfx-dot').className = 'dot-s ' + (st.ready ? 'ok' : st.running ? 'busy' : 'bad');
+  $('cfx-install').disabled = !!st.running;
+  $('cfx-log').classList.toggle('hidden', !(st.running || (!st.ready && st.log))); $('cfx-log').textContent = (st.log || '').split('\n').map((l) => l.split('\r').pop()).join('\n');
   $('cfx-log').scrollTop = 1e9;
+  $('cfx-proxy').innerHTML = proxyOptions(null, s.cfx_proxy_id);
   $('cfx-headless').checked = s.cfx_headless !== false; $('cfx-title').value = s.cfx_app_title || '';
   clearTimeout(cfxTimer);
-  if (st.running) cfxTimer = setTimeout(loadCfx, 2000);
+  if (st.running || !st.ready) cfxTimer = setTimeout(loadCfx, 3000);
 }
 $('cfx-install').onclick = async () => { await api('POST', '/camoufox/install'); setTimeout(loadCfx, 500); };
+$('cfx-proxy').onchange = async () => { await api('POST', '/settings', { cfx_proxy_id: $('cfx-proxy').value ? Number($('cfx-proxy').value) : null }); $('cfx-ip').textContent = 'Saved.'; };
+$('cfx-test').onclick = async () => {
+  $('cfx-test').disabled = true; $('cfx-ip').textContent = 'Opening Camoufox...';
+  try { const r = await api('POST', '/camoufox/test', { proxy_id: $('cfx-proxy').value ? Number($('cfx-proxy').value) : null });
+    $('cfx-ip').textContent = r.ok ? `Works. Websites see IP ${r.ip}${r.proxied ? ' (through proxy)' : ' (no proxy)'}` : r.error;
+  } catch (e) { $('cfx-ip').textContent = e.message; }
+  $('cfx-test').disabled = false;
+};
 $('cfx-save').onclick = async () => {
   await api('POST', '/settings', { cfx_headless: $('cfx-headless').checked, cfx_app_title: $('cfx-title').value.trim() });
   $('cfx-msg').textContent = 'Saved.';
 };
+
+// ----- Overview -----
+async function loadOverview() {
+  const [s, accs, pxs, st] = await Promise.all([api('GET', '/status').catch(() => ({})), api('GET', '/accounts').catch(() => []), fetchProxies().catch(() => []), cfxNav()]);
+  const q = s.queue || {};
+  const stat = (k, v, sub) => `<div class="stat"><div class="k">${k}</div><div class="v">${v}</div><div class="s">${sub}</div></div>`;
+  $('ov-stats').innerHTML = stat('Accounts connected', `${s.connected || 0}<span class="hint"> / ${accs.length}</span>`, s.suspended ? 'Paused while Mac sleeps' : 'Live on Telegram')
+    + stat('Queued jobs', q.pending || 0, `${q.failed || 0} failed`)
+    + stat('Proxies working', `${pxs.filter((p) => p.ok).length}<span class="hint"> / ${pxs.length}</span>`, 'Tested through Telegram & Camoufox')
+    + stat('Camoufox', st.ready ? 'Ready' : st.running ? 'Setting up' : 'Preparing', 'Built-in stealth browser');
+  $('ov-accounts').innerHTML = accs.map((a) => `<div class="mini"><div class="avatar">${esc((a.name || '?')[0].toUpperCase())}</div><div class="grow"><b>${esc(a.name || 'Account')}</b><div class="hint">${esc(a.phone || '')}</div></div><span class="badge ${!a.active ? 'off' : a.connected ? 'ok' : 'bad'}">${!a.active ? 'Paused' : a.connected ? 'Connected' : 'Signed out'}</span></div>`).join('') || '<div class="hint">No accounts yet.</div>';
+  $('ov-proxies').innerHTML = pxs.map((p) => `<div class="mini"><div class="grow"><b>${esc(p.label)}</b><div class="hint">${esc(p.accounts.join(', ') || 'Not assigned')}</div></div><span class="badge ${p.ok ? 'ok' : p.last_check ? 'bad' : 'off'}">${p.ok ? 'Working' : p.last_check ? 'Failed' : 'Not tested'}</span></div>`).join('') || '<div class="hint">No proxies yet.</div>';
+}
 
 // ----- Accounts -----
 let loginToken = null;
@@ -311,6 +341,7 @@ $('check-updates').onclick = async (e) => {
 };
 
 window.agw.appInfo().then((i) => { $('version').textContent = 'v' + i.version; });
-refreshStatus(); loadGroups();
+refreshStatus(); loadGroups(); loadOverview(); cfxNav();
+setInterval(() => { cfxNav(); if (!$('view-overview').classList.contains('hidden')) loadOverview(); }, 10000);
 setInterval(refreshStatus, 4000);
 setInterval(() => { loadFeed(); if (!$('view-queue').classList.contains('hidden')) loadQueue(); }, 8000);

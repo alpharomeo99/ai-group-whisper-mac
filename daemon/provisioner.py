@@ -4,7 +4,7 @@ import random
 import re
 import time
 
-import camoufox as cfx
+import cfx_browser as cfx
 import vmos as vmos_mod
 from textverified import TextVerified, TvError
 
