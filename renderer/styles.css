@@ -47,3 +47,13 @@ button.primary { background: #3b6cff; border-color: #3b6cff; }
 .hint.err { color: #ff9b9b; }
 nav { flex-wrap: wrap; }
 .wizard, .acc { white-space: normal; }
+
+select, textarea { width: 100%; margin: 4px 0 8px; padding: 8px; border-radius: 8px; border: 1px solid rgba(127,127,127,.35); background: transparent; color: inherit; font: inherit; }
+.acc select { width: auto; max-width: 160px; margin: 0 6px; }
+.acc-head .row { gap: 8px; }
+.autoapi { margin: 6px 0 10px; }
+.steps { margin: 10px 0 0 18px; padding: 0; white-space: normal; }
+.steps li { margin: 3px 0; }
+.log { max-height: 220px; overflow: auto; font-size: 11px; background: rgba(127,127,127,.12); padding: 8px; border-radius: 8px; white-space: pre-wrap; }
+#px-table { width: 100%; margin-top: 12px; border-collapse: collapse; }
+#px-table td, #px-table th { padding: 6px; text-align: left; border-bottom: 1px solid rgba(127,127,127,.2); }

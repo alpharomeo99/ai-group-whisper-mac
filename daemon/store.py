@@ -30,6 +30,10 @@ CREATE TABLE IF NOT EXISTS accounts (
   id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER UNIQUE, phone TEXT, name TEXT,
   username TEXT, session TEXT, active INTEGER DEFAULT 1, created INTEGER
 );
+CREATE TABLE IF NOT EXISTS proxies (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, label TEXT, url TEXT, last_ip TEXT,
+  last_check INTEGER, ok INTEGER DEFAULT 0, created INTEGER
+);
 CREATE INDEX IF NOT EXISTS idx_queue_status ON queue(status, not_before);
 """
 
@@ -42,7 +46,8 @@ class Store:
         self.db.executescript(SCHEMA)
         for ddl in ("ALTER TABLE groups ADD COLUMN account_id INTEGER",
                     "ALTER TABLE accounts ADD COLUMN api_id INTEGER",
-                    "ALTER TABLE accounts ADD COLUMN api_hash TEXT"):
+                    "ALTER TABLE accounts ADD COLUMN api_hash TEXT",
+                    "ALTER TABLE accounts ADD COLUMN proxy_id INTEGER"):
             try:
                 self.db.execute(ddl)
             except sqlite3.OperationalError:

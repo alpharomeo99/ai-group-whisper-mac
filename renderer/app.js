@@ -30,10 +30,12 @@ let groups = [], current = null;
 function esc(s) { const d = document.createElement('div'); d.textContent = s ?? ''; return d.innerHTML; }
 function show(view) {
   document.querySelectorAll('nav button').forEach((b) => b.classList.toggle('active', b.dataset.view === view));
-  ['groups', 'accounts', 'queue', 'settings'].forEach((v) => $('view-' + v).classList.toggle('hidden', v !== view));
+  ['groups', 'accounts', 'proxies', 'camoufox', 'queue', 'settings'].forEach((v) => $('view-' + v).classList.toggle('hidden', v !== view));
   if (view === 'queue') loadQueue();
   if (view === 'settings') loadSettings();
   if (view === 'accounts') loadAccounts();
+  if (view === 'proxies') loadProxies();
+  if (view === 'camoufox') loadCfx();
 }
 document.querySelectorAll('nav button').forEach((b) => b.onclick = () => show(b.dataset.view));
 
@@ -96,11 +98,79 @@ async function loadSettings() {
   const s = await api('GET', '/settings');
   $('s-ai-model').value = s.ai_model || '';
   $('s-ai-key').placeholder = s.fal_key_set ? 'fal.ai key saved (leave blank to keep)' : 'fal.ai key';
+  $('s-vmos-ak').value = s.vmos_ak || ''; $('s-vmos-pad').value = s.vmos_pad || '';
+  $('s-vmos-sk').placeholder = s.vmos_sk_set ? 'Secret key saved (leave blank to keep)' : 'Secret Access Key';
+  $('s-tv-user').value = s.tv_user || ''; $('s-tv-max').value = s.tv_max_price || '';
+  $('s-tv-key').placeholder = s.tv_key_set ? 'API key saved (leave blank to keep)' : 'TextVerified API key';
 }
 const msg = (t) => { $('s-msg').textContent = t; };
-$('s-save').onclick = async () => {
-  await api('POST', '/settings', { ai_model: $('s-ai-model').value, fal_key: $('s-ai-key').value });
-  $('s-ai-key').value = ''; msg('Saved.'); loadSettings();
+async function saveSettings() {
+  await api('POST', '/settings', { ai_model: $('s-ai-model').value, fal_key: $('s-ai-key').value,
+    vmos_ak: $('s-vmos-ak').value.trim(), vmos_sk: $('s-vmos-sk').value.trim(), vmos_pad: $('s-vmos-pad').value.trim(),
+    tv_user: $('s-tv-user').value.trim(), tv_key: $('s-tv-key').value.trim(), tv_max_price: $('s-tv-max').value.trim() });
+  ['s-ai-key', 's-vmos-sk', 's-tv-key'].forEach((id) => { $(id).value = ''; });
+}
+$('s-save').onclick = async () => { await saveSettings(); msg('Saved.'); loadSettings(); };
+$('s-vmos-test').onclick = async () => {
+  $('s-vmos-msg').textContent = 'Testing…';
+  try { await saveSettings(); const r = await api('POST', '/integrations/vmos/test');
+    $('s-vmos-msg').textContent = `Connected. ${r.pads.length} cloud phone(s)` + (r.pad ? `, using ${r.pad}` : ''); loadSettings();
+  } catch (e) { $('s-vmos-msg').textContent = e.message; }
+};
+$('s-tv-test').onclick = async () => {
+  $('s-tv-msg').textContent = 'Checking…';
+  try { await saveSettings(); const r = await api('POST', '/integrations/textverified/test');
+    $('s-tv-msg').textContent = `Connected. Balance: $${r.balance ?? '?'}`; loadSettings();
+  } catch (e) { $('s-tv-msg').textContent = e.message; }
+};
+
+// ----- Proxies -----
+let proxyList = [];
+function proxyOptions(sel, current) {
+  return `<option value="">No proxy</option>` + proxyList.map((p) =>
+    `<option value="${p.id}" ${String(current) === String(p.id) ? 'selected' : ''}>${esc(p.label)}${p.ok ? ' ✓' : ''}</option>`).join('');
+}
+async function fetchProxies() { proxyList = await api('GET', '/proxies'); return proxyList; }
+async function loadProxies() {
+  await fetchProxies();
+  $('px-table').innerHTML = proxyList.length ? '<tr><th>Proxy</th><th>Status</th><th>Exit IP</th><th>Used by</th><th></th></tr>' +
+    proxyList.map((p) => `<tr><td>${esc(p.label)}</td><td><span class="badge ${p.ok ? 'ok' : p.last_check ? 'bad' : 'off'}">${p.ok ? 'Working' : p.last_check ? 'Failed' : 'Not tested'}</span></td>
+      <td>${esc(p.last_ip || '')}</td><td>${esc(p.accounts.join(', '))}</td>
+      <td><button data-pt="${p.id}">Test</button> <button data-pd="${p.id}">Delete</button></td></tr>`).join('')
+    : '<tr><td class="empty">No proxies yet.</td></tr>';
+  document.querySelectorAll('[data-pt]').forEach((b) => b.onclick = async () => { b.disabled = true; b.textContent = '…';
+    const r = await api('POST', `/proxies/${b.dataset.pt}/test`); if (!r.ok) $('px-msg').textContent = r.error; loadProxies(); });
+  document.querySelectorAll('[data-pd]').forEach((b) => b.onclick = async () => { await api('DELETE', '/proxies/' + b.dataset.pd); loadProxies(); });
+}
+$('px-add').onclick = async () => {
+  try { const r = await api('POST', '/proxies', { text: $('px-text').value });
+    $('px-msg').textContent = `Added ${r.added}.` + (r.bad.length ? ` Could not read: ${r.bad.join(', ')}` : '');
+    $('px-text').value = ''; loadProxies();
+  } catch (e) { $('px-msg').textContent = e.message; }
+};
+$('px-testall').onclick = async () => {
+  $('px-msg').textContent = 'Testing…';
+  await Promise.all(proxyList.map((p) => api('POST', `/proxies/${p.id}/test`).catch(() => {})));
+  $('px-msg').textContent = 'Done.'; loadProxies();
+};
+
+// ----- Camoufox -----
+let cfxTimer = null;
+async function loadCfx() {
+  const [st, s] = await Promise.all([api('GET', '/camoufox/status'), api('GET', '/settings')]);
+  $('cfx-state').textContent = st.running ? 'Installing… (this downloads about 300 MB)' : st.ready ? 'Camoufox is installed and ready.' : st.installed ? 'Browser not downloaded yet.' : 'Not installed.';
+  $('cfx-install').textContent = st.ready ? 'Reinstall / update' : 'Install Camoufox';
+  $('cfx-install').disabled = st.running;
+  $('cfx-log').classList.toggle('hidden', !st.log); $('cfx-log').textContent = st.log || '';
+  $('cfx-log').scrollTop = 1e9;
+  $('cfx-headless').checked = s.cfx_headless !== false; $('cfx-title').value = s.cfx_app_title || '';
+  clearTimeout(cfxTimer);
+  if (st.running) cfxTimer = setTimeout(loadCfx, 2000);
+}
+$('cfx-install').onclick = async () => { await api('POST', '/camoufox/install'); setTimeout(loadCfx, 500); };
+$('cfx-save').onclick = async () => {
+  await api('POST', '/settings', { cfx_headless: $('cfx-headless').checked, cfx_app_title: $('cfx-title').value.trim() });
+  $('cfx-msg').textContent = 'Saved.';
 };
 
 // ----- Accounts -----
@@ -108,6 +178,7 @@ let loginToken = null;
 const wmsg = (t) => { $('w-msg').textContent = t || ''; };
 async function loadAccounts() {
   const noApi = false;
+  await fetchProxies();
   const list = await api('GET', '/accounts');
   $('acc-list').innerHTML = list.map((a) => `
     <div class="card acc">
@@ -115,9 +186,13 @@ async function loadAccounts() {
       <div class="acc-info"><b>${esc(a.name || 'Account')}</b>
         <div class="hint">${[a.phone, a.username && '@' + a.username, `${a.groups} group${a.groups === 1 ? '' : 's'}`].filter(Boolean).map(esc).join(' · ')}</div></div>
       <span class="badge ${!a.active ? 'off' : a.connected ? 'ok' : 'bad'}">${!a.active ? 'Paused' : a.connected ? 'Connected' : 'Signed out'}</span>
+      <select data-px="${a.id}" title="Proxy">${proxyOptions(null, a.proxy_id)}</select>
       <label><input type="checkbox" data-act="${a.id}" ${a.active ? 'checked' : ''}/> On</label>
       <button data-del="${a.id}" data-name="${esc(a.name || 'this account')}">Remove</button>
     </div>`).join('') || (noApi ? '' : '<div class="empty">No accounts yet. Press “+ Add account”.</div>');
+  document.querySelectorAll('[data-px]').forEach((el) => el.onchange = async () => {
+    await api('POST', '/accounts/' + el.dataset.px, { proxy_id: el.value ? Number(el.value) : null }); loadAccounts();
+  });
   document.querySelectorAll('[data-act]').forEach((el) => el.onchange = async () => {
     await api('POST', '/accounts/' + el.dataset.act, { active: el.checked }); loadAccounts(); refreshStatus();
   });
@@ -138,14 +213,15 @@ async function cancelLogin() {
 }
 $('acc-add').onclick = () => {
   $('w-phone').value = ''; $('w-api-id').value = ''; $('w-api-hash').value = ''; $('w-code').value = ''; $('w-pass').value = '';
-  $('w-pass').classList.add('hidden'); wizard('phone'); $('w-phone').focus();
+  $('w-pass').classList.add('hidden'); $('w-proxy').innerHTML = proxyOptions(null, '');
+  $('w-aa-msg').textContent = ''; $('w-aa-code').classList.add('hidden'); wizard('phone'); $('w-phone').focus();
 };
 $('w-cancel1').onclick = cancelLogin; $('w-cancel2').onclick = cancelLogin;
 $('w-send').onclick = async () => {
   const btn = $('w-send'); btn.disabled = true; wmsg('Sending…');
   try {
     const r = await api('POST', '/accounts/login/code', { phone: $('w-phone').value,
-      api_id: $('w-api-id').value, api_hash: $('w-api-hash').value });
+      api_id: $('w-api-id').value, api_hash: $('w-api-hash').value, proxy_id: $('w-proxy').value ? Number($('w-proxy').value) : null });
     loginToken = r.token; wizard('code'); $('w-code').focus();
   } catch (e) { wmsg(e.message); } finally { btn.disabled = false; }
 };
@@ -162,6 +238,49 @@ $('w-verify').onclick = async () => {
 ['w-phone', 'w-api-id', 'w-api-hash', 'w-code', 'w-pass'].forEach((id) => $(id).addEventListener('keydown', (e) => {
   if (e.key === 'Enter') (id.startsWith('w-phone') || id.startsWith('w-api') ? $('w-send') : $('w-verify')).click();
 }));
+
+// Camoufox creates the API keys for a manually added number
+let aaToken = null, aaTimer = null;
+$('w-autoapi').onclick = async () => {
+  const m = $('w-aa-msg'); m.textContent = 'Opening my.telegram.org in Camoufox…';
+  try {
+    const r = await api('POST', '/autoapi/start', { phone: $('w-phone').value, proxy_id: $('w-proxy').value ? Number($('w-proxy').value) : null });
+    aaToken = r.token; clearInterval(aaTimer);
+    aaTimer = setInterval(async () => {
+      const s = await api('GET', '/autoapi/' + aaToken).catch(() => ({ error: 'stopped' }));
+      if (s.error) { clearInterval(aaTimer); m.textContent = s.error; $('w-aa-code').classList.add('hidden'); }
+      else if (s.api_id) { clearInterval(aaTimer); $('w-api-id').value = s.api_id; $('w-api-hash').value = s.api_hash;
+        $('w-aa-code').classList.add('hidden'); m.textContent = 'API keys created and filled in. Press “Send code”.'; }
+      else if (s.waiting_code) { $('w-aa-code').classList.remove('hidden'); m.textContent = 'Telegram sent a code to this account in the Telegram app. Enter it.'; }
+    }, 1500);
+  } catch (e) { m.textContent = e.message; }
+};
+$('w-aa-send').onclick = async () => {
+  try { await api('POST', `/autoapi/${aaToken}/code`, { code: $('w-aa-input').value });
+    $('w-aa-code').classList.add('hidden'); $('w-aa-msg').textContent = 'Creating the API keys…'; }
+  catch (e) { $('w-aa-msg').textContent = e.message; }
+};
+
+// Fully automatic account creation
+let provTimer = null;
+async function pollProv() {
+  const s = await api('GET', '/provision/status');
+  $('prov-steps').innerHTML = s.steps.map((x) => `<li>${esc(x.text)}</li>`).join('');
+  $('prov-msg').textContent = s.error ? 'Stopped: ' + s.error : s.done ? 'Account created and connected.' : s.running ? 'Working…' : '';
+  $('prov-go').disabled = s.running; $('prov-cancel').disabled = !s.running;
+  clearTimeout(provTimer);
+  if (s.running) provTimer = setTimeout(pollProv, 2000); else if (s.done) { loadAccounts(); loadGroups(); refreshStatus(); }
+}
+$('acc-auto').onclick = async () => {
+  await fetchProxies(); $('prov-proxy').innerHTML = proxyOptions(null, '').replace('No proxy', 'Any working proxy');
+  $('prov-card').classList.remove('hidden'); pollProv();
+};
+$('prov-close').onclick = () => $('prov-card').classList.add('hidden');
+$('prov-cancel').onclick = async () => { await api('POST', '/provision/cancel'); setTimeout(pollProv, 800); };
+$('prov-go').onclick = async () => {
+  try { await api('POST', '/provision/start', { proxy_id: $('prov-proxy').value ? Number($('prov-proxy').value) : null }); pollProv(); }
+  catch (e) { $('prov-msg').textContent = e.message; }
+};
 
 function renderUpdate(info) {
   const b = $('update-banner');

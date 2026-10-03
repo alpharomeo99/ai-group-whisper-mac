@@ -1,3 +1,4 @@
 telethon>=1.36
 aiohttp>=3.9
 pywebview>=5.0
+python-socks[asyncio]>=2.4

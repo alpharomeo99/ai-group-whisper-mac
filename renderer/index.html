@@ -16,6 +16,8 @@
       <nav>
         <button data-view="groups" class="active">Groups</button>
         <button data-view="accounts">Accounts</button>
+        <button data-view="proxies">Proxies</button>
+        <button data-view="camoufox">Camoufox</button>
         <button data-view="queue">Queue</button>
         <button data-view="settings">Settings</button>
       </nav>
@@ -42,7 +44,16 @@
       </section>
       <section id="view-queue" class="hidden"><h2>Work queue</h2><table id="queue-table"></table></section>
       <section id="view-accounts" class="hidden">
-        <div class="acc-head"><h2>Telegram accounts</h2><button id="acc-add" class="primary">+ Add account</button></div>
+        <div class="acc-head"><h2>Telegram accounts</h2><div class="row"><button id="acc-auto">⚡ Create account automatically</button><button id="acc-add" class="primary">+ Add account</button></div></div>
+        <div id="prov-card" class="card wizard hidden">
+          <h3>Create a new Telegram account</h3>
+          <p class="hint">Rents a number on TextVerified, signs up on your VMOS cloud phone, then Camoufox creates this account's own API keys through a proxy. Takes a few minutes.</p>
+          <label class="hint">Proxy for this account</label>
+          <select id="prov-proxy"></select>
+          <div class="row"><button id="prov-close">Close</button><button id="prov-cancel">Stop</button><button id="prov-go" class="primary">Start</button></div>
+          <ol id="prov-steps" class="steps"></ol>
+          <div id="prov-msg" class="hint"></div>
+        </div>
         <div id="acc-list"></div>
         <div id="acc-wizard" class="card wizard hidden">
           <h3 id="w-title">Add a Telegram account</h3>
@@ -51,6 +62,11 @@
             <input id="w-phone" placeholder="Phone, e.g. +212 600 000 000" autocomplete="tel" />
             <input id="w-api-id" placeholder="API ID (numbers)" inputmode="numeric" />
             <input id="w-api-hash" placeholder="API hash" autocomplete="off" />
+            <label class="hint">Proxy for this account</label>
+            <select id="w-proxy"></select>
+            <div class="autoapi"><button id="w-autoapi">Create API keys for me (Camoufox)</button>
+              <div id="w-aa-code" class="hidden row"><input id="w-aa-input" placeholder="Code from the Telegram app (my.telegram.org)" inputmode="numeric" /><button id="w-aa-send">Submit</button></div>
+              <div id="w-aa-msg" class="hint"></div></div>
             <div class="row"><button id="w-cancel1">Cancel</button><button id="w-send" class="primary">Send code</button></div>
           </div>
           <div id="w-step-code" class="hidden">
@@ -61,6 +77,25 @@
           </div>
           <div id="w-msg" class="hint err"></div>
         </div>
+      </section>
+      <section id="view-proxies" class="hidden">
+        <h2>Proxies</h2>
+        <p class="hint">One per line. Formats: host:port, host:port:user:pass, http://user:pass@host:port, socks5://user:pass@host:port. Residential proxies work best. Each account can use its own proxy for Telegram and for Camoufox.</p>
+        <textarea id="px-text" rows="5" placeholder="socks5://user:pass@1.2.3.4:1080"></textarea>
+        <div class="row"><button id="px-add" class="primary">Add proxies</button><button id="px-testall">Test all</button></div>
+        <div id="px-msg" class="hint"></div>
+        <table id="px-table"></table>
+      </section>
+      <section id="view-camoufox" class="hidden">
+        <h2>Camoufox</h2>
+        <p class="hint">Camoufox is a free, open-source stealth browser. The app uses it to log into my.telegram.org through each account's proxy and create that account's own API ID and hash automatically.</p>
+        <div class="card"><b id="cfx-state">Checking…</b>
+          <div class="row"><button id="cfx-install" class="primary">Install Camoufox</button></div>
+          <pre id="cfx-log" class="log hidden"></pre></div>
+        <h3>Options</h3>
+        <label><input type="checkbox" id="cfx-headless" /> Run hidden (no browser window)</label>
+        <input id="cfx-title" placeholder="App name used on my.telegram.org (default: Whisper)" />
+        <button id="cfx-save">Save</button> <span id="cfx-msg" class="hint"></span>
       </section>
       <section id="view-settings" class="hidden">
         <h2>AI (fal.ai)</h2>
@@ -79,7 +114,19 @@
           <option value="meta-llama/llama-3.3-70b-instruct">Llama 3.3 70B</option>
         </datalist>
         <input id="s-ai-key" type="password" placeholder="fal.ai key (leave blank to keep current)" />
-        <button id="s-save">Save settings</button>
+        <h2>VMOS Cloud</h2>
+        <p class="hint">VMOS Cloud → Developer → API. Copy the Access Key ID and Secret Access Key. The cloud phone code is filled in automatically when you test.</p>
+        <input id="s-vmos-ak" placeholder="Access Key ID" autocomplete="off" />
+        <input id="s-vmos-sk" type="password" placeholder="Secret Access Key" />
+        <input id="s-vmos-pad" placeholder="Cloud phone code (e.g. AC32010601132)" />
+        <div class="row"><button id="s-vmos-test">Test VMOS</button><span id="s-vmos-msg" class="hint"></span></div>
+        <h2>TextVerified</h2>
+        <p class="hint">textverified.com → API. Copy your API key; the username is your TextVerified email.</p>
+        <input id="s-tv-user" placeholder="TextVerified username (email)" autocomplete="off" />
+        <input id="s-tv-key" type="password" placeholder="TextVerified API key" />
+        <input id="s-tv-max" placeholder="Max price per number in USD (optional)" inputmode="decimal" />
+        <div class="row"><button id="s-tv-test">Check balance</button><span id="s-tv-msg" class="hint"></span></div>
+        <button id="s-save" class="primary">Save settings</button>
         <div id="s-msg" class="hint"></div>
       </section>
     </main>

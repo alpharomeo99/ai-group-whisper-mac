@@ -5,13 +5,18 @@ import asyncio
 import logging
 import os
 import secrets
+import sys
 import time
 
 from aiohttp import web
 from telethon import TelegramClient, events, errors
 
 import ai
+import camoufox as cfx
 import updater
+from provisioner import Provisioner
+from textverified import TextVerified
+from vmos import Vmos
 from store import Store
 
 log = logging.getLogger("whisperd")
@@ -30,6 +35,9 @@ class Daemon:
         self.paused_reason = self.store.get("paused_reason")  # persisted AI pause (402/403)
         self._adopt_legacy_session()
         self.wake_event = asyncio.Event()
+        self.prov = Provisioner(self)
+        self.autoapi = {}        # token -> {"future": code future, "task": camoufox task}
+        self.cfx_install = {"running": False, "log": ""}
 
     # ---------- Telegram accounts ----------
     def _adopt_legacy_session(self):
@@ -47,8 +55,41 @@ class Daemon:
         api_id, api_hash = self.store.get("tg_api_id"), self.store.get("tg_api_hash")
         return (int(api_id), api_hash) if api_id and api_hash else None
 
-    def _new_client(self, session, api):
-        return TelegramClient(os.path.join(self.sess_dir, session), api[0], api[1])
+    def _tg_proxy(self, proxy_id):
+        if not proxy_id:
+            return None
+        r = self.store.rows("SELECT url FROM proxies WHERE id=?", (proxy_id,))
+        p = cfx.parse_proxy(r[0]["url"]) if r else None
+        if not p:
+            return None
+        scheme, rest = p["server"].split("://", 1)
+        host, port = rest.rsplit(":", 1)
+        kind = "socks5" if scheme.startswith("socks5") else "socks4" if scheme.startswith("socks4") else "http"
+        return {"proxy_type": kind, "addr": host, "port": int(port), "rdns": True,
+                "username": p.get("username"), "password": p.get("password")}
+
+    def _new_client(self, session, api, proxy_id=None):
+        return TelegramClient(os.path.join(self.sess_dir, session), api[0], api[1], proxy=self._tg_proxy(proxy_id))
+
+    async def adopt_number(self, phone, api_id, api_hash, code_getter, proxy_id=None):
+        """Sign a number into Telethon with its own API keys; the code is read by code_getter()."""
+        session = "acct_" + secrets.token_hex(8)
+        c = self._new_client(session, (int(api_id), api_hash), proxy_id)
+        await asyncio.wait_for(c.connect(), timeout=20)
+        sent = await c.send_code_request(phone)
+        await asyncio.sleep(5)
+        code = await code_getter()
+        if not code:
+            await self._discard(c, session)
+            raise RuntimeError("The Telegram login code did not arrive.")
+        await c.sign_in(phone, code, phone_code_hash=sent.phone_code_hash)
+        me = await c.get_me()
+        await c.disconnect()
+        cur = self.store.q("INSERT INTO accounts(session,api_id,api_hash,proxy_id,created) VALUES(?,?,?,?,?)",
+                           (session, int(api_id), api_hash, proxy_id, int(time.time())))
+        self._save_profile(cur.lastrowid, me, phone)
+        await self.ensure_clients()
+        return cur.lastrowid
 
     async def ensure_clients(self):
         """Connect every active account. Returns {account_id: authorized client}."""
@@ -59,7 +100,7 @@ class Daemon:
                 api = self._api(a)
                 if not api:
                     continue
-                c = self._new_client(a["session"], api)
+                c = self._new_client(a["session"], api, a.get("proxy_id"))
                 c.add_event_handler(self._handler_for(a["id"]), events.NewMessage())
                 self.clients[a["id"]] = c
             try:
@@ -240,27 +281,194 @@ class Daemon:
                       "accounts": n_acc, "connected": len(ready), "suspended": self.suspended,
                       "paused_reason": self.paused_reason, "queue": counts})
 
+        SECRET_KEYS = ("fal_key", "vmos_sk", "tv_key")
+        PLAIN_KEYS = ("ai_model", "vmos_ak", "vmos_pad", "tv_user", "tv_max_price", "cfx_headless", "cfx_app_title")
+
         @r.get("/settings")
         async def get_settings(_):
-            keys = ("tg_api_id", "tg_api_hash", "ai_model")
-            out = {k: self.store.get(k) for k in keys}
-            out["fal_key_set"] = bool(self.store.get("fal_key"))
+            out = {k: self.store.get(k) for k in PLAIN_KEYS}
+            for k in SECRET_KEYS:
+                out[k + "_set"] = bool(self.store.get(k))
             return J(out)
 
         @r.post("/settings")
         async def save_settings(req):
             body = await req.json()
-            for k in ("tg_api_id", "tg_api_hash", "ai_model", "fal_key"):
+            for k in PLAIN_KEYS + SECRET_KEYS:
                 if k in body and body[k] not in (None, ""):
                     self.store.set(k, body[k])
-            await self.drop_clients()
+            return J({"ok": True})
+
+        # ----- integrations -----
+        @r.post("/integrations/vmos/test")
+        async def vmos_test(_):
+            try:
+                v = Vmos(self.store.get("vmos_ak"), self.store.get("vmos_sk"), self.store.get("vmos_pad"))
+                pads = await v.pads()
+            except Exception as e:  # noqa
+                return J({"error": str(e)}, status=400)
+            pad = self.store.get("vmos_pad")
+            if not pad and pads:
+                self.store.set("vmos_pad", pads[0]); pad = pads[0]
+            return J({"ok": True, "pads": pads, "pad": pad})
+
+        @r.post("/integrations/textverified/test")
+        async def tv_test(_):
+            try:
+                bal = await TextVerified(self.store.get("tv_key"), self.store.get("tv_user")).balance()
+            except Exception as e:  # noqa
+                return J({"error": str(e)}, status=400)
+            return J({"ok": True, "balance": bal})
+
+        # ----- proxies -----
+        @r.get("/proxies")
+        async def proxies(_):
+            rows = self.store.rows("SELECT * FROM proxies ORDER BY id")
+            for p in rows:
+                p["accounts"] = [a["name"] or a["phone"] for a in
+                                 self.store.rows("SELECT name,phone FROM accounts WHERE proxy_id=?", (p["id"],))]
+            return J(rows)
+
+        @r.post("/proxies")
+        async def add_proxies(req):
+            lines = [l.strip() for l in str((await req.json()).get("text", "")).splitlines() if l.strip()]
+            added, bad = 0, []
+            for l in lines:
+                if not cfx.parse_proxy(l):
+                    bad.append(l); continue
+                self.store.q("INSERT INTO proxies(label,url,created) VALUES(?,?,?)",
+                             (cfx.parse_proxy(l)["server"].split("://")[1], l, int(time.time())))
+                added += 1
+            return J({"added": added, "bad": bad})
+
+        @r.post("/proxies/{pid}/test")
+        async def test_proxy(req):
+            pid = int(req.match_info["pid"])
+            r = self.store.rows("SELECT url FROM proxies WHERE id=?", (pid,))
+            if not r:
+                return J({"error": "Not found"}, status=404)
+            try:
+                ip = await cfx.check_proxy(r[0]["url"])
+                self.store.q("UPDATE proxies SET ok=1,last_ip=?,last_check=? WHERE id=?", (ip, int(time.time()), pid))
+                return J({"ok": True, "ip": ip})
+            except Exception as e:  # noqa
+                self.store.q("UPDATE proxies SET ok=0,last_check=? WHERE id=?", (int(time.time()), pid))
+                return J({"ok": False, "error": str(e) or "Proxy did not respond"})
+
+        @r.delete("/proxies/{pid}")
+        async def del_proxy(req):
+            pid = int(req.match_info["pid"])
+            self.store.q("DELETE FROM proxies WHERE id=?", (pid,))
+            self.store.q("UPDATE accounts SET proxy_id=NULL WHERE proxy_id=?", (pid,))
+            return J({"ok": True})
+
+        # ----- camoufox -----
+        @r.get("/camoufox/status")
+        async def cfx_status(_):
+            import importlib.util
+            installed = importlib.util.find_spec("camoufox") is not None
+            ready = False
+            if installed:
+                p = await asyncio.create_subprocess_exec(sys.executable, "-m", "camoufox", "path",
+                                                         stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT)
+                out = (await p.communicate())[0].decode(errors="ignore")
+                ready = p.returncode == 0 and "/" in out
+            return J({"installed": installed, "ready": ready, **self.cfx_install})
+
+        @r.post("/camoufox/install")
+        async def cfx_inst(_):
+            if self.cfx_install["running"]:
+                return J({"ok": True})
+
+            async def go():
+                self.cfx_install.update(running=True, log="Installing Camoufox…\n")
+                for cmd in ([sys.executable, "-m", "pip", "install", "-U", "camoufox[geoip]"],
+                            [sys.executable, "-m", "camoufox", "fetch"]):
+                    p = await asyncio.create_subprocess_exec(*cmd, stdout=asyncio.subprocess.PIPE,
+                                                             stderr=asyncio.subprocess.STDOUT)
+                    async for line in p.stdout:
+                        self.cfx_install["log"] = (self.cfx_install["log"] + line.decode(errors="ignore"))[-4000:]
+                    await p.wait()
+                    if p.returncode != 0:
+                        self.cfx_install["log"] += "\nInstall failed."
+                        break
+                else:
+                    self.cfx_install["log"] += "\nCamoufox is ready."
+                self.cfx_install["running"] = False
+            asyncio.create_task(go())
+            return J({"ok": True})
+
+        # Manual add: Camoufox creates the API keys, the user types the my.telegram.org code.
+        @r.post("/autoapi/start")
+        async def autoapi_start(req):
+            b = await req.json()
+            phone = "".join(ch for ch in str(b.get("phone", "")) if ch.isdigit() or ch == "+")
+            if len(phone.lstrip("+")) < 7:
+                return J({"error": "Enter the full phone number with country code first."}, status=400)
+            pid = b.get("proxy_id")
+            row = self.store.rows("SELECT url FROM proxies WHERE id=?", (pid,)) if pid else []
+            token = secrets.token_hex(6)
+            loop = asyncio.get_running_loop()
+            fut = loop.create_future()
+            entry = {"future": fut, "result": None, "error": None, "waiting_code": False}
+
+            async def getter():
+                entry["waiting_code"] = True
+                return await fut
+
+            async def run():
+                try:
+                    entry["result"] = await cfx.get_api_credentials(
+                        phone, row[0]["url"] if row else None, getter,
+                        app_title=self.store.get("cfx_app_title") or "Whisper",
+                        headless=bool(self.store.get("cfx_headless", True)))
+                except Exception as e:  # noqa
+                    entry["error"] = str(e) or "Camoufox failed"
+            entry["task"] = asyncio.create_task(run())
+            self.autoapi[token] = entry
+            return J({"token": token})
+
+        @r.get("/autoapi/{token}")
+        async def autoapi_status(req):
+            e = self.autoapi.get(req.match_info["token"])
+            if not e:
+                return J({"error": "expired"}, status=404)
+            res = e["result"]
+            return J({"waiting_code": e["waiting_code"] and not e["future"].done(), "error": e["error"],
+                      "api_id": res[0] if res else None, "api_hash": res[1] if res else None})
+
+        @r.post("/autoapi/{token}/code")
+        async def autoapi_code(req):
+            e = self.autoapi.get(req.match_info["token"])
+            if not e or e["future"].done():
+                return J({"error": "Nothing is waiting for a code."}, status=400)
+            e["future"].set_result(str((await req.json()).get("code", "")).strip())
+            return J({"ok": True})
+
+        # ----- autonomous provisioning -----
+        @r.post("/provision/start")
+        async def prov_start(req):
+            try:
+                self.prov.start(await req.json())
+            except RuntimeError as e:
+                return J({"error": str(e)}, status=400)
+            return J({"ok": True})
+
+        @r.get("/provision/status")
+        async def prov_status(_):
+            return J(self.prov.state)
+
+        @r.post("/provision/cancel")
+        async def prov_cancel(_):
+            self.prov.cancel()
             return J({"ok": True})
 
         # ----- accounts -----
         @r.get("/accounts")
         async def accounts(_):
             ready = await self.ensure_clients()
-            rows = self.store.rows("SELECT id,user_id,phone,name,username,active,api_id FROM accounts ORDER BY id")
+            rows = self.store.rows("SELECT a.id,a.user_id,a.phone,a.name,a.username,a.active,a.api_id,a.proxy_id,p.label proxy_label "
+                                   "FROM accounts a LEFT JOIN proxies p ON p.id=a.proxy_id ORDER BY a.id")
             for a in rows:
                 a["connected"] = a["id"] in ready
                 a["groups"] = self.store.q("SELECT COUNT(*) FROM groups WHERE account_id=?", (a["id"],)).fetchone()[0]
@@ -278,7 +486,8 @@ class Daemon:
             api = (int(api_id), api_hash)
             token = secrets.token_hex(8)
             session = "acct_" + token
-            c = self._new_client(session, api)
+            proxy_id = b.get("proxy_id") or None
+            c = self._new_client(session, api, proxy_id)
             try:
                 await asyncio.wait_for(c.connect(), timeout=15)
                 sent = await c.send_code_request(phone)
@@ -294,7 +503,7 @@ class Daemon:
             except Exception as e:  # noqa
                 await self._discard(c, session)
                 return J({"error": f"Could not reach Telegram: {e}"}, status=400)
-            self.pending[token] = {"client": c, "phone": phone, "hash": sent.phone_code_hash, "session": session, "api": api}
+            self.pending[token] = {"client": c, "phone": phone, "hash": sent.phone_code_hash, "session": session, "api": api, "proxy_id": proxy_id}
             return J({"token": token})
 
         @r.post("/accounts/login/verify")
@@ -326,8 +535,8 @@ class Daemon:
                 await self._discard(c, p["session"], logout=False)
                 return J({"error": "This account is already added."}, status=400)
             await c.disconnect()  # ensure_clients reopens it with the message handler
-            cur = self.store.q("INSERT INTO accounts(session,api_id,api_hash,created) VALUES(?,?,?,?)",
-                             (p["session"], p["api"][0], p["api"][1], int(time.time())))
+            cur = self.store.q("INSERT INTO accounts(session,api_id,api_hash,proxy_id,created) VALUES(?,?,?,?,?)",
+                             (p["session"], p["api"][0], p["api"][1], p.get("proxy_id"), int(time.time())))
             self._save_profile(cur.lastrowid, me, p["phone"])
             await self.ensure_clients()
             return J({"ok": True, "id": cur.lastrowid})
@@ -344,6 +553,11 @@ class Daemon:
             aid, b = int(req.match_info["aid"]), await req.json()
             if "active" in b:
                 self.store.q("UPDATE accounts SET active=? WHERE id=?", (1 if b["active"] else 0, aid))
+                c = self.clients.pop(aid, None)
+                if c:
+                    await c.disconnect()
+            if "proxy_id" in b:
+                self.store.q("UPDATE accounts SET proxy_id=? WHERE id=?", (b["proxy_id"] or None, aid))
                 c = self.clients.pop(aid, None)
                 if c:
                     await c.disconnect()
