@@ -115,3 +115,12 @@ td button { padding: 4px 10px; font-size: 12px; }
 .log { max-height: 220px; overflow: auto; font: 11px/1.5 ui-monospace, Menlo, monospace; background: #0b0e14; border: 1px solid var(--line); padding: 10px; border-radius: 8px; white-space: pre-wrap; margin: 10px 0 0; }
 .cfx-state { display: flex; align-items: center; gap: 10px; }
 .cfx-state .dot-s { margin: 0; }
+
+.phases { display: flex; gap: 6px; margin: 14px 0 4px; flex-wrap: wrap; }
+.phase { flex: 1; min-width: 110px; display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 10px; background: rgba(127,127,127,.08); font-size: 12px; opacity: .6; }
+.phase span { width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; background: rgba(127,127,127,.2); font-weight: 600; font-size: 11px; }
+.phase.active { opacity: 1; outline: 1px solid #2bb3a3; }
+.phase.active span { background: #2bb3a3; color: #fff; animation: pulse 1.2s infinite; }
+.phase.done { opacity: 1; } .phase.done span { background: #2bb3a3; color: #fff; }
+.phase.error { opacity: 1; outline: 1px solid #e8604c; } .phase.error span { background: #e8604c; color: #fff; }
+@keyframes pulse { 50% { opacity: .5; } }

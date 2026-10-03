@@ -295,6 +295,7 @@ $('w-aa-send').onclick = async () => {
 let provTimer = null;
 async function pollProv() {
   const s = await api('GET', '/provision/status');
+  $('prov-phases').innerHTML = (s.phases || []).map((p, i) => `<div class="phase ${p.status}"><span>${p.status === 'done' ? '✓' : p.status === 'error' ? '!' : i + 1}</span>${esc(p.label)}</div>`).join('');
   $('prov-steps').innerHTML = s.steps.map((x) => `<li>${esc(x.text)}</li>`).join('');
   $('prov-msg').textContent = s.error ? 'Stopped: ' + s.error : s.done ? 'Account created and connected.' : s.running ? 'Working…' : '';
   $('prov-go').disabled = s.running; $('prov-cancel').disabled = !s.running;
@@ -308,7 +309,7 @@ $('acc-auto').onclick = async () => {
 $('prov-close').onclick = () => $('prov-card').classList.add('hidden');
 $('prov-cancel').onclick = async () => { await api('POST', '/provision/cancel'); setTimeout(pollProv, 800); };
 $('prov-go').onclick = async () => {
-  try { await api('POST', '/provision/start', { proxy_id: $('prov-proxy').value ? Number($('prov-proxy').value) : null }); pollProv(); }
+  try { await api('POST', '/provision/start', { proxy_id: $('prov-proxy').value ? Number($('prov-proxy').value) : null, country: ($('prov-country').value || 'US').trim() }); pollProv(); }
   catch (e) { $('prov-msg').textContent = e.message; }
 };
 

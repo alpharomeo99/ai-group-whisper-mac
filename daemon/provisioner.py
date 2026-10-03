@@ -1,16 +1,27 @@
-"""Autonomous Telegram account creation: TextVerified number + VMOS cloud phone + Camoufox API keys."""
+"""Account manager: orchestrates the workers that build a new Telegram account.
+
+  TextVerified  -> rents the number and receives the SMS
+  VMOS worker   -> owns the cloud phone and the Telegram account on it (vmos_account.py)
+  Camoufox      -> creates this account's own API ID/hash on my.telegram.org (cfx_browser.py)
+  Telethon      -> signs in with those keys and saves the account (whisperd.adopt_number)
+
+The manager only routes data between them (number, codes, proxy) and cleans up on failure.
+"""
 import asyncio
 import random
-import re
 import time
 
 import cfx_browser as cfx
-import vmos as vmos_mod
 from textverified import TextVerified, TvError
+from vmos_account import VmosAccountWorker
 
-TG_PKG = "org.telegram.messenger"
-FIRST = ["Alex", "Sam", "Jordan", "Riley", "Casey", "Taylor", "Jamie", "Morgan"]
-LAST = ["Reed", "Hayes", "Brooks", "Shaw", "Ellis", "Quinn", "Barnes", "Flynn"]
+PHASES = [
+    ("phone", "Cloud phone"),
+    ("number", "Number & SMS"),
+    ("signup", "Telegram sign-up"),
+    ("api", "Camoufox API keys"),
+    ("link", "Connect account"),
+]
 
 
 class Provisioner:
@@ -19,137 +30,120 @@ class Provisioner:
     def __init__(self, daemon):
         self.d = daemon
         self.task = None
-        self.state = {"running": False, "step": "", "steps": [], "error": None, "done": False, "account_id": None}
+        self.state = self._blank(False)
+
+    @staticmethod
+    def _blank(running):
+        return {"running": running, "step": "", "steps": [], "error": None, "done": False,
+                "account_id": None, "phase": None, "phases": [{"id": p, "label": l, "status": "todo"} for p, l in PHASES],
+                "phone": None, "proxy": None}
 
     def log(self, step):
         self.state["step"] = step
         self.state["steps"].append({"t": int(time.time()), "text": step})
 
+    def _phase(self, pid, status="active"):
+        for p in self.state["phases"]:
+            if p["id"] == pid:
+                p["status"] = status
+            elif status == "active" and p["status"] == "active":
+                p["status"] = "done"
+        if status == "active":
+            self.state["phase"] = pid
+
     def start(self, opts):
         if self.task and not self.task.done():
             raise RuntimeError("An account is already being created.")
-        self.state = {"running": True, "step": "Starting", "steps": [], "error": None, "done": False, "account_id": None}
-        self.task = asyncio.create_task(self._run(opts))
+        self.state = self._blank(True)
+        self.task = asyncio.create_task(self._run(opts or {}))
 
     def cancel(self):
         if self.task and not self.task.done():
             self.task.cancel()
 
-    # ---------- helpers ----------
-    def _vmos(self):
-        s = self.d.store
-        return vmos_mod.Vmos(s.get("vmos_ak"), s.get("vmos_sk"), s.get("vmos_pad"))
+    def _pick_proxy(self, opts):
+        st = self.d.store
+        if opts.get("proxy_id"):
+            r = st.rows("SELECT * FROM proxies WHERE id=?", (opts["proxy_id"],))
+            return r[0] if r else None
+        ok = st.rows("SELECT * FROM proxies WHERE ok=1")
+        return random.choice(ok) if ok else None
 
-    def _tv(self):
-        s = self.d.store
-        return TextVerified(s.get("tv_key"), s.get("tv_user"))
-
-    async def _phone_code(self, vm, since, patterns=("Telegram code", "login code", "code:")):
-        """Read the newest Telegram login code shown on the cloud phone."""
-        end = time.time() + 300
-        while time.time() < end:
-            try:
-                txt = await vm.sh("dumpsys notification --noredact | grep -i -o 'code[^\"]\\{0,40\\}' | head -20", timeout=40)
-                txt += " " + await vm.screen_text()
-            except Exception:  # noqa
-                txt = ""
-            m = re.search(r"\b(\d{5,6})\b", txt)
-            if m:
-                return m.group(1)
-            await asyncio.sleep(6)
-        return None
-
-    # ---------- main flow ----------
     async def _run(self, opts):
         st = self.d.store
         vid = None
+        tv = None
         country = (opts.get("country") or "US").upper()
-        proxy_row = None
-        if opts.get("proxy_id"):
-            r = st.rows("SELECT * FROM proxies WHERE id=?", (opts["proxy_id"],))
-            proxy_row = r[0] if r else None
-        elif st.rows("SELECT id FROM proxies WHERE ok=1"):
-            proxy_row = random.choice(st.rows("SELECT * FROM proxies WHERE ok=1"))
+        proxy = self._pick_proxy(opts)
+        self.state["proxy"] = proxy["url"].split("@")[-1] if proxy else None
         try:
-            tv = self._tv()
-            vm = self._vmos()
+            tv = TextVerified(st.get("tv_key"), st.get("tv_user"))
+            phone_worker = VmosAccountWorker(st.get("vmos_ak"), st.get("vmos_sk"), st.get("vmos_pad"), self.log)
+            self.log(f"Proxy: {self.state['proxy'] or 'none'}")
 
-            self.log("Giving the cloud phone a fresh device identity")
-            await vm.new_device(country)
-            await vm.wait_online()
+            self._phase("phone")
+            await phone_worker.prepare(country)
 
-            self.log("Renting a phone number")
+            self._phase("number")
+            self.log("Renting a Telegram number")
             vid, phone = await tv.rent_telegram(st.get("tv_max_price"))
+            self.state["phone"] = phone
             self.log(f"Number rented: {phone}")
+            await phone_worker.set_sim(country, phone)
 
-            self.log("Writing the number onto the cloud phone SIM")
-            try:
-                await vm.set_sim(country, phone)
-            except Exception as e:  # noqa
-                self.log(f"SIM step skipped ({e})")
+            self._phase("signup")
+            await phone_worker.register(phone, lambda: tv.wait_code(vid, timeout=300))
+            vid = None  # SMS used: the rental is consumed, don't cancel it anymore
 
-            self.log("Opening Telegram on the cloud phone")
-            await vm.sh(f"am force-stop {TG_PKG}; monkey -p {TG_PKG} -c android.intent.category.LAUNCHER 1")
-            await asyncio.sleep(8)
-            await vm.tap("start messaging", "continue", "start")
-            await asyncio.sleep(3)
+            self._phase("api")
+            self.log("Camoufox is opening my.telegram.org through the proxy")
 
-            self.log("Entering the phone number")
-            n = await vm.tap(cls="EditText")
-            if n:
-                await vm.sh("input keyevent KEYCODE_MOVE_END")
-            await vm.type(phone)
-            await asyncio.sleep(1)
-            await vm.tap("next", "continue", "start messaging")
-
-            self.log("Waiting for the SMS code")
-            code = await tv.wait_code(vid, timeout=300)
-            self.log("Code received, signing in")
-            await vm.type(code)
-            await asyncio.sleep(8)
-
-            screen = (await vm.screen_text()).lower()
-            if "your name" in screen or "first name" in screen:
-                self.log("Setting a profile name")
-                name = f"{random.choice(FIRST)} {random.choice(LAST)}"
-                await vm.tap(cls="EditText")
-                await vm.type(name.split()[0])
-                await vm.tap("next", "done", "continue")
-                await asyncio.sleep(5)
-            elif "password" in screen:
-                raise RuntimeError("That number already has a Telegram account with a password.")
-
-            self.log("Creating this account's own Telegram API keys")
-            proxy_line = proxy_row["url"] if proxy_row else None
-
-            async def code_getter():
-                return await self._phone_code(vm, time.time())
+            async def web_code():
+                self.log("Waiting for Telegram to send the web login code to the phone")
+                c = await phone_worker.read_code()
+                self.log("Code found on the phone, handing it to Camoufox" if c else "No code arrived on the phone")
+                return c
 
             api_id, api_hash = await cfx.get_api_credentials(
-                phone, proxy_line, code_getter,
+                phone, proxy["url"] if proxy else None, web_code,
                 app_title=st.get("cfx_app_title") or "Whisper",
                 headless=bool(st.get("cfx_headless", True)))
-            self.log("API keys created")
+            self.log(f"API keys created (API ID {api_id})")
 
-            self.log("Linking the account to this app")
-            aid = await self.d.adopt_number(phone, api_id, api_hash,
-                                            lambda: self._phone_code(vm, time.time()),
-                                            proxy_id=proxy_row["id"] if proxy_row else None)
+            self._phase("link")
+            self.log("Signing in with Telethon using this account's own keys")
+
+            async def tg_code():
+                self.log("Waiting for the Telethon login code on the phone")
+                return await phone_worker.read_code()
+
+            aid = await self.d.adopt_number(phone, api_id, api_hash, tg_code,
+                                            proxy_id=proxy["id"] if proxy else None)
+            self._phase("link", "done")
             self.state["account_id"] = aid
             self.log("Done. The account is connected.")
             self.state["done"] = True
         except asyncio.CancelledError:
             self.state["error"] = "Cancelled."
-            if vid:
-                await self._tv().cancel(vid)
+            self._fail_phase()
+            await self._release(tv, vid)
             raise
         except Exception as e:  # noqa
             self.state["error"] = str(e)
+            self._fail_phase()
             self.log("Stopped: " + str(e))
-            if vid:
-                try:
-                    await self._tv().cancel(vid)
-                except TvError:
-                    pass
+            await self._release(tv, vid)
         finally:
             self.state["running"] = False
+
+    def _fail_phase(self):
+        if self.state["phase"]:
+            self._phase(self.state["phase"], "error")
+
+    async def _release(self, tv, vid):
+        if tv and vid:
+            try:
+                await tv.cancel(vid)
+                self.log("Number rental cancelled (credit protected)")
+            except (TvError, Exception):  # noqa
+                pass
