@@ -94,14 +94,12 @@ async function loadQueue() {
 
 async function loadSettings() {
   const s = await api('GET', '/settings');
-  $('s-api-id').value = s.tg_api_id || ''; $('s-api-hash').value = s.tg_api_hash || '';
   $('s-ai-model').value = s.ai_model || '';
   $('s-ai-key').placeholder = s.fal_key_set ? 'fal.ai key saved (leave blank to keep)' : 'fal.ai key';
 }
 const msg = (t) => { $('s-msg').textContent = t; };
 $('s-save').onclick = async () => {
-  await api('POST', '/settings', { tg_api_id: $('s-api-id').value, tg_api_hash: $('s-api-hash').value,
-    ai_model: $('s-ai-model').value, fal_key: $('s-ai-key').value });
+  await api('POST', '/settings', { ai_model: $('s-ai-model').value, fal_key: $('s-ai-key').value });
   $('s-ai-key').value = ''; msg('Saved.'); loadSettings();
 };
 
@@ -109,10 +107,7 @@ $('s-save').onclick = async () => {
 let loginToken = null;
 const wmsg = (t) => { $('w-msg').textContent = t || ''; };
 async function loadAccounts() {
-  const st = await api('GET', '/settings');
-  const noApi = !st.tg_api_id || !st.tg_api_hash;
-  $('acc-noapi').classList.toggle('hidden', !noApi);
-  $('acc-add').disabled = noApi;
+  const noApi = false;
   const list = await api('GET', '/accounts');
   $('acc-list').innerHTML = list.map((a) => `
     <div class="card acc">
@@ -142,15 +137,15 @@ async function cancelLogin() {
   loginToken = null; wizard(null);
 }
 $('acc-add').onclick = () => {
-  $('w-phone').value = ''; $('w-code').value = ''; $('w-pass').value = '';
+  $('w-phone').value = ''; $('w-api-id').value = ''; $('w-api-hash').value = ''; $('w-code').value = ''; $('w-pass').value = '';
   $('w-pass').classList.add('hidden'); wizard('phone'); $('w-phone').focus();
 };
-$('acc-go-settings').onclick = (e) => { e.preventDefault(); show('settings'); };
 $('w-cancel1').onclick = cancelLogin; $('w-cancel2').onclick = cancelLogin;
 $('w-send').onclick = async () => {
   const btn = $('w-send'); btn.disabled = true; wmsg('Sending…');
   try {
-    const r = await api('POST', '/accounts/login/code', { phone: $('w-phone').value });
+    const r = await api('POST', '/accounts/login/code', { phone: $('w-phone').value,
+      api_id: $('w-api-id').value, api_hash: $('w-api-hash').value });
     loginToken = r.token; wizard('code'); $('w-code').focus();
   } catch (e) { wmsg(e.message); } finally { btn.disabled = false; }
 };
@@ -164,8 +159,8 @@ $('w-verify').onclick = async () => {
     } else { loginToken = null; $('w-code').disabled = false; wizard(null); loadAccounts(); loadGroups(); refreshStatus(); }
   } catch (e) { wmsg(e.message); } finally { btn.disabled = false; }
 };
-['w-phone', 'w-code', 'w-pass'].forEach((id) => $(id).addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') (id === 'w-phone' ? $('w-send') : $('w-verify')).click();
+['w-phone', 'w-api-id', 'w-api-hash', 'w-code', 'w-pass'].forEach((id) => $(id).addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') (id.startsWith('w-phone') || id.startsWith('w-api') ? $('w-send') : $('w-verify')).click();
 }));
 
 function renderUpdate(info) {

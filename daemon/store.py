@@ -40,10 +40,13 @@ class Store:
         self.db.row_factory = sqlite3.Row
         self.lock = threading.Lock()
         self.db.executescript(SCHEMA)
-        try:
-            self.db.execute("ALTER TABLE groups ADD COLUMN account_id INTEGER")
-        except sqlite3.OperationalError:
-            pass  # already migrated
+        for ddl in ("ALTER TABLE groups ADD COLUMN account_id INTEGER",
+                    "ALTER TABLE accounts ADD COLUMN api_id INTEGER",
+                    "ALTER TABLE accounts ADD COLUMN api_hash TEXT"):
+            try:
+                self.db.execute(ddl)
+            except sqlite3.OperationalError:
+                pass  # already migrated
         self.db.commit()
 
     def q(self, sql, args=()):

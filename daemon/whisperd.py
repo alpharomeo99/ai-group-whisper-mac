@@ -40,23 +40,26 @@ class Daemon:
             self.store.q("INSERT INTO accounts(session,name,created) VALUES(?,?,?)",
                          ("legacy", "Account", int(time.time())))
 
-    def _api(self):
+    def _api(self, acct=None):
+        """Each account has its own Telethon api_id/api_hash. Old installs fall back to the global one."""
+        if acct is not None and acct["api_id"] and acct["api_hash"]:
+            return int(acct["api_id"]), acct["api_hash"]
         api_id, api_hash = self.store.get("tg_api_id"), self.store.get("tg_api_hash")
         return (int(api_id), api_hash) if api_id and api_hash else None
 
-    def _new_client(self, session):
-        api = self._api()
+    def _new_client(self, session, api):
         return TelegramClient(os.path.join(self.sess_dir, session), api[0], api[1])
 
     async def ensure_clients(self):
         """Connect every active account. Returns {account_id: authorized client}."""
-        if not self._api():
-            return {}
         ready = {}
         for a in self.store.rows("SELECT * FROM accounts WHERE active=1"):
             c = self.clients.get(a["id"])
             if c is None:
-                c = self._new_client(a["session"])
+                api = self._api(a)
+                if not api:
+                    continue
+                c = self._new_client(a["session"], api)
                 c.add_event_handler(self._handler_for(a["id"]), events.NewMessage())
                 self.clients[a["id"]] = c
             try:
@@ -233,7 +236,7 @@ class Daemon:
             ready = await self.ensure_clients()
             n_acc = len(self.store.rows("SELECT id FROM accounts WHERE active=1"))
             counts = {x["status"]: x["n"] for x in self.store.rows("SELECT status, COUNT(*) n FROM queue GROUP BY status")}
-            return J({"configured": self._api() is not None, "authorized": bool(ready),
+            return J({"configured": n_acc > 0, "authorized": bool(ready),
                       "accounts": n_acc, "connected": len(ready), "suspended": self.suspended,
                       "paused_reason": self.paused_reason, "queue": counts})
 
@@ -257,7 +260,7 @@ class Daemon:
         @r.get("/accounts")
         async def accounts(_):
             ready = await self.ensure_clients()
-            rows = self.store.rows("SELECT id,user_id,phone,name,username,active FROM accounts ORDER BY id")
+            rows = self.store.rows("SELECT id,user_id,phone,name,username,active,api_id FROM accounts ORDER BY id")
             for a in rows:
                 a["connected"] = a["id"] in ready
                 a["groups"] = self.store.q("SELECT COUNT(*) FROM groups WHERE account_id=?", (a["id"],)).fetchone()[0]
@@ -265,24 +268,33 @@ class Daemon:
 
         @r.post("/accounts/login/code")
         async def acc_code(req):
-            phone = "".join(ch for ch in str((await req.json()).get("phone", "")) if ch.isdigit() or ch == "+")
+            b = await req.json()
+            phone = "".join(ch for ch in str(b.get("phone", "")) if ch.isdigit() or ch == "+")
             if len(phone.lstrip("+")) < 7:
                 return J({"error": "Enter the full phone number with country code, like +212600000000."}, status=400)
-            if not self._api():
-                return J({"error": "Add your Telegram API ID and hash in Settings first."}, status=400)
+            api_id, api_hash = str(b.get("api_id", "")).strip(), str(b.get("api_hash", "")).strip()
+            if not api_id.isdigit() or len(api_hash) < 16:
+                return J({"error": "Enter this account's API ID (numbers) and API hash from my.telegram.org."}, status=400)
+            api = (int(api_id), api_hash)
             token = secrets.token_hex(8)
             session = "acct_" + token
-            c = self._new_client(session)
-            await c.connect()
+            c = self._new_client(session, api)
             try:
+                await asyncio.wait_for(c.connect(), timeout=15)
                 sent = await c.send_code_request(phone)
+            except errors.ApiIdInvalidError:
+                await self._discard(c, session)
+                return J({"error": "Telegram rejected that API ID / hash. Copy them again from my.telegram.org."}, status=400)
             except errors.PhoneNumberInvalidError:
                 await self._discard(c, session)
                 return J({"error": "Telegram says that phone number is invalid."}, status=400)
             except errors.FloodWaitError as e:
                 await self._discard(c, session)
                 return J({"error": f"Too many tries. Telegram asks you to wait {e.seconds} seconds."}, status=429)
-            self.pending[token] = {"client": c, "phone": phone, "hash": sent.phone_code_hash, "session": session}
+            except Exception as e:  # noqa
+                await self._discard(c, session)
+                return J({"error": f"Could not reach Telegram: {e}"}, status=400)
+            self.pending[token] = {"client": c, "phone": phone, "hash": sent.phone_code_hash, "session": session, "api": api}
             return J({"token": token})
 
         @r.post("/accounts/login/verify")
@@ -314,7 +326,8 @@ class Daemon:
                 await self._discard(c, p["session"], logout=False)
                 return J({"error": "This account is already added."}, status=400)
             await c.disconnect()  # ensure_clients reopens it with the message handler
-            cur = self.store.q("INSERT INTO accounts(session,created) VALUES(?,?)", (p["session"], int(time.time())))
+            cur = self.store.q("INSERT INTO accounts(session,api_id,api_hash,created) VALUES(?,?,?,?)",
+                             (p["session"], p["api"][0], p["api"][1], int(time.time())))
             self._save_profile(cur.lastrowid, me, p["phone"])
             await self.ensure_clients()
             return J({"ok": True, "id": cur.lastrowid})
@@ -342,7 +355,8 @@ class Daemon:
             a = self.store.rows("SELECT * FROM accounts WHERE id=?", (aid,))
             if not a:
                 return J({"ok": True})
-            c = self.clients.pop(aid, None) or (self._new_client(a[0]["session"]) if self._api() else None)
+            api = self._api(a[0])
+            c = self.clients.pop(aid, None) or (self._new_client(a[0]["session"], api) if api else None)
             if c:
                 await self._discard(c, a[0]["session"], logout=True)
             self.store.q("DELETE FROM accounts WHERE id=?", (aid,))

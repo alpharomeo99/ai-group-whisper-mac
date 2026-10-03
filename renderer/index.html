@@ -47,8 +47,10 @@
         <div id="acc-wizard" class="card wizard hidden">
           <h3 id="w-title">Add a Telegram account</h3>
           <div id="w-step-phone">
-            <p class="hint">Step 1 of 2 — the phone number of the Telegram account, with country code.</p>
-            <input id="w-phone" placeholder="+212 600 000 000" autocomplete="tel" />
+            <p class="hint">Step 1 of 2 — this account's own phone number and its own Telethon keys. Get the API ID and hash by logging into <b>my.telegram.org</b> with this account → API development tools.</p>
+            <input id="w-phone" placeholder="Phone, e.g. +212 600 000 000" autocomplete="tel" />
+            <input id="w-api-id" placeholder="API ID (numbers)" inputmode="numeric" />
+            <input id="w-api-hash" placeholder="API hash" autocomplete="off" />
             <div class="row"><button id="w-cancel1">Cancel</button><button id="w-send" class="primary">Send code</button></div>
           </div>
           <div id="w-step-code" class="hidden">
@@ -59,13 +61,8 @@
           </div>
           <div id="w-msg" class="hint err"></div>
         </div>
-        <div id="acc-noapi" class="card hidden">First add your Telegram API ID and hash in <a href="#" id="acc-go-settings">Settings</a>. You only do this once — every account uses them.</div>
       </section>
       <section id="view-settings" class="hidden">
-        <h2>Telegram</h2>
-        <p class="hint">Get an API ID and hash at my.telegram.org → API development tools.</p>
-        <input id="s-api-id" placeholder="API ID" />
-        <input id="s-api-hash" placeholder="API hash" />
         <h2>AI (fal.ai)</h2>
         <p class="hint">Get a key at fal.ai/dashboard/keys. Pick a model from the list or type any model ID fal supports.</p>
         <input id="s-ai-model" list="model-list" placeholder="Model (default google/gemini-2.5-flash)" />
