@@ -30,9 +30,10 @@ let groups = [], current = null;
 function esc(s) { const d = document.createElement('div'); d.textContent = s ?? ''; return d.innerHTML; }
 function show(view) {
   document.querySelectorAll('nav button').forEach((b) => b.classList.toggle('active', b.dataset.view === view));
-  ['groups', 'queue', 'settings'].forEach((v) => $('view-' + v).classList.toggle('hidden', v !== view));
+  ['groups', 'accounts', 'queue', 'settings'].forEach((v) => $('view-' + v).classList.toggle('hidden', v !== view));
   if (view === 'queue') loadQueue();
   if (view === 'settings') loadSettings();
+  if (view === 'accounts') loadAccounts();
 }
 document.querySelectorAll('nav button').forEach((b) => b.onclick = () => show(b.dataset.view));
 
@@ -41,9 +42,10 @@ async function refreshStatus() {
     const s = await api('GET', '/status');
     const q = s.queue || {};
     $('status').textContent = !s.configured ? 'Set up Telegram in Settings'
-      : !s.authorized ? 'Not signed in to Telegram'
+      : !s.accounts ? 'No accounts yet — open Accounts'
+      : !s.authorized ? 'Accounts not connected'
       : s.suspended ? 'Paused (Mac asleep)'
-      : `Connected · ${q.pending || 0} queued · ${q.failed || 0} failed`;
+      : `${s.connected} account${s.connected === 1 ? '' : 's'} · ${q.pending || 0} queued · ${q.failed || 0} failed`;
     const pb = $('pause-banner');
     if (s.paused_reason) {
       pb.innerHTML = `${esc(s.paused_reason)} <button id="resume-ai">Resume</button>`;
@@ -55,8 +57,9 @@ async function refreshStatus() {
 
 async function loadGroups() {
   try { groups = await api('GET', '/groups'); } catch { return; }
+  const multiAcc = new Set(groups.map((g) => g.account_id).filter(Boolean)).size > 1;
   $('group-list').innerHTML = groups.map((g) =>
-    `<div class="gitem ${current === g.chat_id ? 'sel' : ''}" data-id="${g.chat_id}"><span>${esc(g.title)}</span>${g.watched ? '<span class="dot"></span>' : ''}</div>`).join('');
+    `<div class="gitem ${current === g.chat_id ? 'sel' : ''}" data-id="${g.chat_id}"><span>${esc(g.title)}${g.account_name && multiAcc ? ` <small class="hint">· ${esc(g.account_name)}</small>` : ''}</span>${g.watched ? '<span class="dot"></span>' : ''}</div>`).join('');
   document.querySelectorAll('.gitem').forEach((el) => el.onclick = () => openGroup(Number(el.dataset.id)));
 }
 
@@ -101,14 +104,69 @@ $('s-save').onclick = async () => {
     ai_model: $('s-ai-model').value, fal_key: $('s-ai-key').value });
   $('s-ai-key').value = ''; msg('Saved.'); loadSettings();
 };
-$('l-send').onclick = () => api('POST', '/login/code', { phone: $('l-phone').value }).then(() => msg('Code sent — check Telegram.')).catch((e) => msg(e.message));
-$('l-verify').onclick = async () => {
-  try {
-    const r = await api('POST', '/login/verify', { code: $('l-code').value, password: $('l-pass').value });
-    msg(r.need_password ? 'Enter your 2FA password and press Sign in again.' : 'Signed in!');
-    loadGroups();
-  } catch (e) { msg(e.message); }
+
+// ----- Accounts -----
+let loginToken = null;
+const wmsg = (t) => { $('w-msg').textContent = t || ''; };
+async function loadAccounts() {
+  const st = await api('GET', '/settings');
+  const noApi = !st.tg_api_id || !st.tg_api_hash;
+  $('acc-noapi').classList.toggle('hidden', !noApi);
+  $('acc-add').disabled = noApi;
+  const list = await api('GET', '/accounts');
+  $('acc-list').innerHTML = list.map((a) => `
+    <div class="card acc">
+      <div class="avatar">${esc((a.name || '?')[0].toUpperCase())}</div>
+      <div class="acc-info"><b>${esc(a.name || 'Account')}</b>
+        <div class="hint">${[a.phone, a.username && '@' + a.username, `${a.groups} group${a.groups === 1 ? '' : 's'}`].filter(Boolean).map(esc).join(' · ')}</div></div>
+      <span class="badge ${!a.active ? 'off' : a.connected ? 'ok' : 'bad'}">${!a.active ? 'Paused' : a.connected ? 'Connected' : 'Signed out'}</span>
+      <label><input type="checkbox" data-act="${a.id}" ${a.active ? 'checked' : ''}/> On</label>
+      <button data-del="${a.id}" data-name="${esc(a.name || 'this account')}">Remove</button>
+    </div>`).join('') || (noApi ? '' : '<div class="empty">No accounts yet. Press “+ Add account”.</div>');
+  document.querySelectorAll('[data-act]').forEach((el) => el.onchange = async () => {
+    await api('POST', '/accounts/' + el.dataset.act, { active: el.checked }); loadAccounts(); refreshStatus();
+  });
+  document.querySelectorAll('[data-del]').forEach((el) => el.onclick = async () => {
+    if (!confirm(`Remove ${el.dataset.name}? It will be signed out of this app. Its collected messages stay.`)) return;
+    await api('DELETE', '/accounts/' + el.dataset.del); loadAccounts(); loadGroups(); refreshStatus();
+  });
+}
+function wizard(step) {
+  $('acc-wizard').classList.toggle('hidden', !step);
+  $('w-step-phone').classList.toggle('hidden', step !== 'phone');
+  $('w-step-code').classList.toggle('hidden', step !== 'code');
+  wmsg('');
+}
+async function cancelLogin() {
+  if (loginToken) api('POST', '/accounts/login/cancel', { token: loginToken }).catch(() => {});
+  loginToken = null; wizard(null);
+}
+$('acc-add').onclick = () => {
+  $('w-phone').value = ''; $('w-code').value = ''; $('w-pass').value = '';
+  $('w-pass').classList.add('hidden'); wizard('phone'); $('w-phone').focus();
 };
+$('acc-go-settings').onclick = (e) => { e.preventDefault(); show('settings'); };
+$('w-cancel1').onclick = cancelLogin; $('w-cancel2').onclick = cancelLogin;
+$('w-send').onclick = async () => {
+  const btn = $('w-send'); btn.disabled = true; wmsg('Sending…');
+  try {
+    const r = await api('POST', '/accounts/login/code', { phone: $('w-phone').value });
+    loginToken = r.token; wizard('code'); $('w-code').focus();
+  } catch (e) { wmsg(e.message); } finally { btn.disabled = false; }
+};
+$('w-verify').onclick = async () => {
+  const btn = $('w-verify'); btn.disabled = true; wmsg('Connecting…');
+  try {
+    const r = await api('POST', '/accounts/login/verify', { token: loginToken, code: $('w-code').value, password: $('w-pass').value });
+    if (r.need_password) {
+      $('w-pass').classList.remove('hidden'); $('w-code').disabled = true; $('w-pass').focus();
+      wmsg('This account has two-step verification. Enter its password.');
+    } else { loginToken = null; $('w-code').disabled = false; wizard(null); loadAccounts(); loadGroups(); refreshStatus(); }
+  } catch (e) { wmsg(e.message); } finally { btn.disabled = false; }
+};
+['w-phone', 'w-code', 'w-pass'].forEach((id) => $(id).addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') (id === 'w-phone' ? $('w-send') : $('w-verify')).click();
+}));
 
 function renderUpdate(info) {
   const b = $('update-banner');

@@ -4,6 +4,7 @@ import argparse
 import asyncio
 import logging
 import os
+import secrets
 import time
 
 from aiohttp import web
@@ -21,36 +22,112 @@ class Daemon:
     def __init__(self, data_dir):
         self.data_dir = data_dir
         self.store = Store(os.path.join(data_dir, "whisper.db"))
-        self.client = None
+        self.clients = {}        # account_id -> TelegramClient
+        self.pending = {}        # login token -> {"client", "phone", "hash", "session"}
+        self.sess_dir = os.path.join(data_dir, "sessions")
+        os.makedirs(self.sess_dir, exist_ok=True)
         self.suspended = False
         self.paused_reason = self.store.get("paused_reason")  # persisted AI pause (402/403)
-        self.pending_login = {}
+        self._adopt_legacy_session()
         self.wake_event = asyncio.Event()
 
-    # ---------- Telegram ----------
-    async def ensure_client(self):
-        api_id, api_hash = self.store.get("tg_api_id"), self.store.get("tg_api_hash")
-        if not api_id or not api_hash:
-            return None
-        if self.client is None:
-            self.client = TelegramClient(os.path.join(self.data_dir, "telegram"), int(api_id), api_hash)
-            self.client.add_event_handler(self.on_message, events.NewMessage())
-        if not self.client.is_connected():
-            await self.client.connect()
-        return self.client
+    # ---------- Telegram accounts ----------
+    def _adopt_legacy_session(self):
+        """v2.0 used one data/telegram.session; turn it into the first account."""
+        old = os.path.join(self.data_dir, "telegram.session")
+        if os.path.exists(old) and not self.store.rows("SELECT id FROM accounts"):
+            os.replace(old, os.path.join(self.sess_dir, "legacy.session"))
+            self.store.q("INSERT INTO accounts(session,name,created) VALUES(?,?,?)",
+                         ("legacy", "Account", int(time.time())))
 
-    async def on_message(self, event):
+    def _api(self):
+        api_id, api_hash = self.store.get("tg_api_id"), self.store.get("tg_api_hash")
+        return (int(api_id), api_hash) if api_id and api_hash else None
+
+    def _new_client(self, session):
+        api = self._api()
+        return TelegramClient(os.path.join(self.sess_dir, session), api[0], api[1])
+
+    async def ensure_clients(self):
+        """Connect every active account. Returns {account_id: authorized client}."""
+        if not self._api():
+            return {}
+        ready = {}
+        for a in self.store.rows("SELECT * FROM accounts WHERE active=1"):
+            c = self.clients.get(a["id"])
+            if c is None:
+                c = self._new_client(a["session"])
+                c.add_event_handler(self._handler_for(a["id"]), events.NewMessage())
+                self.clients[a["id"]] = c
+            try:
+                if not c.is_connected():
+                    await asyncio.wait_for(c.connect(), timeout=10)
+                if await c.is_user_authorized():
+                    ready[a["id"]] = c
+                    if not a["user_id"]:
+                        me = await c.get_me()
+                        self._save_profile(a["id"], me, me.phone and "+" + me.phone.lstrip("+"))
+            except Exception as e:  # noqa
+                log.warning("account %s connect failed: %s", a["id"], e)
+        return ready
+
+    def _save_profile(self, aid, me, phone):
+        name = " ".join(x for x in (me.first_name, me.last_name) if x) or "Account"
+        self.store.q("UPDATE accounts SET user_id=?, phone=?, name=?, username=? WHERE id=?",
+                     (me.id, phone, name, me.username, aid))
+
+    async def drop_clients(self):
+        for c in list(self.clients.values()):
+            try:
+                await c.disconnect()
+            except Exception:  # noqa
+                pass
+        self.clients = {}
+
+    def _handler_for(self, aid):
+        async def h(event):
+            await self.on_message(event, aid)
+        return h
+
+    async def client_for(self, chat_id):
+        ready = await self.ensure_clients()
+        g = self.store.rows("SELECT account_id FROM groups WHERE chat_id=?", (chat_id,))
+        aid = g[0]["account_id"] if g else None
+        if aid in ready:
+            return ready[aid]
+        if ready:
+            return next(iter(ready.values()))
+        raise ConnectionError("No signed-in Telegram account")
+
+    async def _discard(self, c, session, logout=False):
+        try:
+            if logout:
+                if not c.is_connected():
+                    await c.connect()
+                await c.log_out()
+            await c.disconnect()
+        except Exception:  # noqa
+            pass
+        for ext in (".session", ".session-journal"):
+            try:
+                os.remove(os.path.join(self.sess_dir, session + ext))
+            except FileNotFoundError:
+                pass
+
+    async def on_message(self, event, aid):
         if not event.is_group or not event.raw_text:
             return
         chat_id = event.chat_id
         g = self.store.rows("SELECT * FROM groups WHERE chat_id=?", (chat_id,))
+        if g and g[0]["account_id"] not in (None, aid) and g[0]["account_id"] in self.clients:
+            return  # another account owns this group; avoid duplicates
         if not g or not g[0]["watched"]:
             return
         sender = await event.get_sender()
         name = getattr(sender, "first_name", None) or getattr(sender, "title", None) or "unknown"
         self.store.add_message(chat_id, event.id, name, event.raw_text, int(event.date.timestamp()))
         if g[0]["auto_reply"] and not event.out:
-            me = await self.client.get_me()
+            me = await event.client.get_me()
             if event.mentioned or (event.is_reply and (await event.get_reply_message()).sender_id == me.id):
                 # dedupe per triggering message so restarts/wakes never double-send
                 self.store.enqueue("draft_reply", chat_id, {"trigger": event.id, "auto_send": True},
@@ -67,8 +144,7 @@ class Daemon:
             self.wake_event.clear()
             if self.suspended or self.paused_reason:
                 continue
-            client = await self.ensure_client()
-            if not client or not await client.is_user_authorized():
+            if not await self.ensure_clients():
                 continue
             for job in self.store.claim(limit=3):
                 await self.run_job(job)
@@ -95,7 +171,7 @@ class Daemon:
                     self.store.q("INSERT INTO summaries(chat_id,body,created) VALUES(?,?,?)",
                                  (job["chat_id"], "Draft reply:\n" + text, int(time.time())))
             elif job["kind"] == "send":
-                await self.client.send_message(job["chat_id"], p["text"], reply_to=p.get("reply_to"))
+                await (await self.client_for(job["chat_id"])).send_message(job["chat_id"], p["text"], reply_to=p.get("reply_to"))
             self.store.finish(job["id"], True)
         except asyncio.CancelledError:
             self.store.finish(job["id"], False, "interrupted by sleep", retry_in=5)
@@ -122,14 +198,12 @@ class Daemon:
             self.suspended = True
             n = self.store.requeue_in_flight()
             log.info("suspend (%s): paused queue, requeued %d", reason, n)
-            if self.client:
-                await self.client.disconnect()
+            await self.drop_clients()
         else:
             n = self.store.requeue_in_flight(delay=2)
             self.suspended = False
             log.info("resume (%s): reconnecting, requeued %d", reason, n)
             try:
-                await self.ensure_client()
                 await self.catch_up()
             except Exception as e:  # network may lag after wake; worker retries
                 log.warning("reconnect after wake failed: %s", e)
@@ -137,11 +211,13 @@ class Daemon:
 
     async def catch_up(self):
         """Fetch messages missed while the Mac slept."""
-        if not self.client or not await self.client.is_user_authorized():
+        ready = await self.ensure_clients()
+        if not ready:
             return
         for g in self.store.rows("SELECT * FROM groups WHERE watched=1"):
+            c = ready.get(g["account_id"]) or next(iter(ready.values()))
             last = self.store.q("SELECT MAX(msg_id) FROM messages WHERE chat_id=?", (g["chat_id"],)).fetchone()[0] or 0
-            async for m in self.client.iter_messages(g["chat_id"], min_id=last, limit=200):
+            async for m in c.iter_messages(g["chat_id"], min_id=last, limit=200):
                 if m.raw_text:
                     s = await m.get_sender()
                     self.store.add_message(g["chat_id"], m.id, getattr(s, "first_name", None) or "unknown",
@@ -154,10 +230,11 @@ class Daemon:
 
         @r.get("/status")
         async def status(_):
-            c = await self.ensure_client() if self.store.get("tg_api_id") else None
-            authed = bool(c and await c.is_user_authorized())
+            ready = await self.ensure_clients()
+            n_acc = len(self.store.rows("SELECT id FROM accounts WHERE active=1"))
             counts = {x["status"]: x["n"] for x in self.store.rows("SELECT status, COUNT(*) n FROM queue GROUP BY status")}
-            return J({"configured": c is not None, "authorized": authed, "suspended": self.suspended,
+            return J({"configured": self._api() is not None, "authorized": bool(ready),
+                      "accounts": n_acc, "connected": len(ready), "suspended": self.suspended,
                       "paused_reason": self.paused_reason, "queue": counts})
 
         @r.get("/settings")
@@ -173,40 +250,115 @@ class Daemon:
             for k in ("tg_api_id", "tg_api_hash", "ai_model", "fal_key"):
                 if k in body and body[k] not in (None, ""):
                     self.store.set(k, body[k])
-            self.client = None
+            await self.drop_clients()
             return J({"ok": True})
 
-        @r.post("/login/code")
-        async def login_code(req):
-            phone = (await req.json())["phone"]
-            c = await self.ensure_client()
-            if not c:
-                return J({"error": "Save your Telegram API ID and hash first."}, status=400)
-            sent = await c.send_code_request(phone)
-            self.pending_login = {"phone": phone, "hash": sent.phone_code_hash}
-            return J({"ok": True})
+        # ----- accounts -----
+        @r.get("/accounts")
+        async def accounts(_):
+            ready = await self.ensure_clients()
+            rows = self.store.rows("SELECT id,user_id,phone,name,username,active FROM accounts ORDER BY id")
+            for a in rows:
+                a["connected"] = a["id"] in ready
+                a["groups"] = self.store.q("SELECT COUNT(*) FROM groups WHERE account_id=?", (a["id"],)).fetchone()[0]
+            return J(rows)
 
-        @r.post("/login/verify")
-        async def login_verify(req):
-            b = await req.json()
+        @r.post("/accounts/login/code")
+        async def acc_code(req):
+            phone = "".join(ch for ch in str((await req.json()).get("phone", "")) if ch.isdigit() or ch == "+")
+            if len(phone.lstrip("+")) < 7:
+                return J({"error": "Enter the full phone number with country code, like +212600000000."}, status=400)
+            if not self._api():
+                return J({"error": "Add your Telegram API ID and hash in Settings first."}, status=400)
+            token = secrets.token_hex(8)
+            session = "acct_" + token
+            c = self._new_client(session)
+            await c.connect()
             try:
-                await self.client.sign_in(self.pending_login["phone"], b["code"],
-                                          phone_code_hash=self.pending_login["hash"])
+                sent = await c.send_code_request(phone)
+            except errors.PhoneNumberInvalidError:
+                await self._discard(c, session)
+                return J({"error": "Telegram says that phone number is invalid."}, status=400)
+            except errors.FloodWaitError as e:
+                await self._discard(c, session)
+                return J({"error": f"Too many tries. Telegram asks you to wait {e.seconds} seconds."}, status=429)
+            self.pending[token] = {"client": c, "phone": phone, "hash": sent.phone_code_hash, "session": session}
+            return J({"token": token})
+
+        @r.post("/accounts/login/verify")
+        async def acc_verify(req):
+            b = await req.json()
+            p = self.pending.get(b.get("token"))
+            if not p:
+                return J({"error": "This sign-in expired. Start again."}, status=400)
+            c = p["client"]
+            try:
+                if p.get("need_password"):
+                    if not b.get("password"):
+                        return J({"need_password": True})
+                    await c.sign_in(password=b["password"])
+                else:
+                    await c.sign_in(p["phone"], str(b.get("code", "")).strip(), phone_code_hash=p["hash"])
             except errors.SessionPasswordNeededError:
-                if not b.get("password"):
-                    return J({"need_password": True})
-                await self.client.sign_in(password=b["password"])
+                p["need_password"] = True
+                return J({"need_password": True})
+            except errors.PhoneCodeInvalidError:
+                return J({"error": "That code is wrong. Check Telegram and try again."}, status=400)
+            except errors.PhoneCodeExpiredError:
+                return J({"error": "That code expired. Press Cancel and start again."}, status=400)
+            except errors.PasswordHashInvalidError:
+                return J({"error": "Wrong 2FA password."}, status=400)
+            me = await c.get_me()
+            self.pending.pop(b["token"], None)
+            if self.store.rows("SELECT id FROM accounts WHERE user_id=?", (me.id,)):
+                await self._discard(c, p["session"], logout=False)
+                return J({"error": "This account is already added."}, status=400)
+            await c.disconnect()  # ensure_clients reopens it with the message handler
+            cur = self.store.q("INSERT INTO accounts(session,created) VALUES(?,?)", (p["session"], int(time.time())))
+            self._save_profile(cur.lastrowid, me, p["phone"])
+            await self.ensure_clients()
+            return J({"ok": True, "id": cur.lastrowid})
+
+        @r.post("/accounts/login/cancel")
+        async def acc_cancel(req):
+            p = self.pending.pop((await req.json()).get("token"), None)
+            if p:
+                await self._discard(p["client"], p["session"], logout=False)
+            return J({"ok": True})
+
+        @r.post("/accounts/{aid}")
+        async def acc_update(req):
+            aid, b = int(req.match_info["aid"]), await req.json()
+            if "active" in b:
+                self.store.q("UPDATE accounts SET active=? WHERE id=?", (1 if b["active"] else 0, aid))
+                c = self.clients.pop(aid, None)
+                if c:
+                    await c.disconnect()
+            return J({"ok": True})
+
+        @r.delete("/accounts/{aid}")
+        async def acc_delete(req):
+            aid = int(req.match_info["aid"])
+            a = self.store.rows("SELECT * FROM accounts WHERE id=?", (aid,))
+            if not a:
+                return J({"ok": True})
+            c = self.clients.pop(aid, None) or (self._new_client(a[0]["session"]) if self._api() else None)
+            if c:
+                await self._discard(c, a[0]["session"], logout=True)
+            self.store.q("DELETE FROM accounts WHERE id=?", (aid,))
+            self.store.q("UPDATE groups SET account_id=NULL WHERE account_id=?", (aid,))
             return J({"ok": True})
 
         @r.get("/groups")
         async def groups(_):
-            c = await self.ensure_client()
-            if c and await c.is_user_authorized():
+            for aid, c in (await self.ensure_clients()).items():
                 async for d in c.iter_dialogs():
                     if d.is_group:
-                        self.store.q("INSERT INTO groups(chat_id,title) VALUES(?,?) ON CONFLICT(chat_id) DO UPDATE SET title=excluded.title",
-                                     (d.id, d.name))
-            return J(self.store.rows("SELECT * FROM groups ORDER BY watched DESC, title"))
+                        self.store.q("INSERT INTO groups(chat_id,title,account_id) VALUES(?,?,?) ON CONFLICT(chat_id) "
+                                     "DO UPDATE SET title=excluded.title, account_id=COALESCE(groups.account_id, excluded.account_id)",
+                                     (d.id, d.name, aid))
+            return J(self.store.rows("SELECT g.*, a.name account_name FROM groups g LEFT JOIN accounts a ON a.id=g.account_id "
+                                     "ORDER BY g.watched DESC, g.title"))
 
         @r.post("/groups/{cid}")
         async def update_group(req):
@@ -288,7 +440,7 @@ async def main():
     await web.TCPSite(runner, "127.0.0.1", a.port).start()
     log.info("listening on 127.0.0.1:%d", a.port)
     try:
-        await d.ensure_client()
+        await d.ensure_clients()
     except Exception as e:  # noqa
         log.warning("telegram connect deferred: %s", e)
     await d.worker()

@@ -25,6 +25,11 @@ CREATE TABLE IF NOT EXISTS queue (
   not_before INTEGER DEFAULT 0, created INTEGER, updated INTEGER,
   dedupe_key TEXT UNIQUE
 );
+-- Telegram accounts; each has its own session file in data/sessions/
+CREATE TABLE IF NOT EXISTS accounts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER UNIQUE, phone TEXT, name TEXT,
+  username TEXT, session TEXT, active INTEGER DEFAULT 1, created INTEGER
+);
 CREATE INDEX IF NOT EXISTS idx_queue_status ON queue(status, not_before);
 """
 
@@ -35,6 +40,10 @@ class Store:
         self.db.row_factory = sqlite3.Row
         self.lock = threading.Lock()
         self.db.executescript(SCHEMA)
+        try:
+            self.db.execute("ALTER TABLE groups ADD COLUMN account_id INTEGER")
+        except sqlite3.OperationalError:
+            pass  # already migrated
         self.db.commit()
 
     def q(self, sql, args=()):

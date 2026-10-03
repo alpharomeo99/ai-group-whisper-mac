@@ -15,6 +15,7 @@
       <div id="status" class="status">Starting…</div>
       <nav>
         <button data-view="groups" class="active">Groups</button>
+        <button data-view="accounts">Accounts</button>
         <button data-view="queue">Queue</button>
         <button data-view="settings">Settings</button>
       </nav>
@@ -40,6 +41,26 @@
         </div>
       </section>
       <section id="view-queue" class="hidden"><h2>Work queue</h2><table id="queue-table"></table></section>
+      <section id="view-accounts" class="hidden">
+        <div class="acc-head"><h2>Telegram accounts</h2><button id="acc-add" class="primary">+ Add account</button></div>
+        <div id="acc-list"></div>
+        <div id="acc-wizard" class="card wizard hidden">
+          <h3 id="w-title">Add a Telegram account</h3>
+          <div id="w-step-phone">
+            <p class="hint">Step 1 of 2 — the phone number of the Telegram account, with country code.</p>
+            <input id="w-phone" placeholder="+212 600 000 000" autocomplete="tel" />
+            <div class="row"><button id="w-cancel1">Cancel</button><button id="w-send" class="primary">Send code</button></div>
+          </div>
+          <div id="w-step-code" class="hidden">
+            <p class="hint" id="w-code-hint">Step 2 of 2 — Telegram sent a code to the Telegram app on your phone (not SMS).</p>
+            <input id="w-code" placeholder="Login code" inputmode="numeric" autocomplete="one-time-code" />
+            <input id="w-pass" type="password" placeholder="Two-step verification password" class="hidden" />
+            <div class="row"><button id="w-cancel2">Cancel</button><button id="w-verify" class="primary">Connect</button></div>
+          </div>
+          <div id="w-msg" class="hint err"></div>
+        </div>
+        <div id="acc-noapi" class="card hidden">First add your Telegram API ID and hash in <a href="#" id="acc-go-settings">Settings</a>. You only do this once — every account uses them.</div>
+      </section>
       <section id="view-settings" class="hidden">
         <h2>Telegram</h2>
         <p class="hint">Get an API ID and hash at my.telegram.org → API development tools.</p>
@@ -62,12 +83,6 @@
         </datalist>
         <input id="s-ai-key" type="password" placeholder="fal.ai key (leave blank to keep current)" />
         <button id="s-save">Save settings</button>
-        <h2>Sign in to Telegram</h2>
-        <input id="l-phone" placeholder="+15551234567" />
-        <button id="l-send">Send code</button>
-        <input id="l-code" placeholder="Login code" />
-        <input id="l-pass" type="password" placeholder="2FA password (if asked)" />
-        <button id="l-verify">Sign in</button>
         <div id="s-msg" class="hint"></div>
       </section>
     </main>

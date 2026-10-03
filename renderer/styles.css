@@ -30,3 +30,20 @@ header h2 { margin: 0 12px 0 0; }
 .banner.warn { background: #7a4b0f; }
 table { width: 100%; border-collapse: collapse; font-size: 12px; }
 td, th { text-align: left; padding: 6px; border-bottom: 1px solid #222634; }
+
+/* accounts */
+.acc-head { display: flex; align-items: center; justify-content: space-between; }
+.acc { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+.acc-info { flex: 1; }
+.avatar { width: 36px; height: 36px; border-radius: 50%; background: #3b6cff; display: flex; align-items: center; justify-content: center; font-weight: 700; }
+.badge { font-size: 11px; padding: 3px 8px; border-radius: 10px; }
+.badge.ok { background: #1d4d2f; color: #7ee2a0; }
+.badge.bad { background: #4d1d1d; color: #ff9b9b; }
+.badge.off { background: #2a2e3a; color: #8a90a2; }
+.wizard { max-width: 420px; margin-top: 12px; }
+.wizard input { display: block; width: 100%; margin: 8px 0; }
+.wizard .row { display: flex; justify-content: flex-end; gap: 8px; }
+button.primary { background: #3b6cff; border-color: #3b6cff; }
+.hint.err { color: #ff9b9b; }
+nav { flex-wrap: wrap; }
+.wizard, .acc { white-space: normal; }
