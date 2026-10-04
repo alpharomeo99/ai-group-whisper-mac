@@ -47,6 +47,44 @@ class VmosAccountWorker:
         dbg("vmos", f"Gave up tapping {list(labels)}{' class=' + cls if cls else ''}", "error")
         return None
 
+    async def _clear_field(self, n):
+        await self.vm.sh(f"input tap {n['x']} {n['y']}; input keyevent KEYCODE_MOVE_END; "
+                         "for i in $(seq 1 30); do input keyevent KEYCODE_DEL; done")
+
+    async def _enter_phone(self, phone):
+        """Telegram has two boxes: country code (+1) and the number. Fill each one, cleared first."""
+        vm = self.vm
+        digits = re.sub(r"\D", "", phone)
+        fields = []
+        for _ in range(5):
+            fields = [n for n in await vm.nodes() if "EditText" in n["cls"]]
+            if fields:
+                break
+            await asyncio.sleep(3)
+        fields.sort(key=lambda n: n["x"])
+        dbg("vmos", f"Phone screen boxes: {[(f['text'], f['x'], f['y']) for f in fields]}")
+        if len(fields) >= 2:
+            cc_box, num_box = fields[0], fields[-1]
+            cc = re.sub(r"\D", "", cc_box["text"]) or ("1" if len(digits) == 11 and digits.startswith("1") else "")
+            if not digits.startswith(cc) or not cc:
+                cc = "1" if digits.startswith("1") else digits[:2]
+            national = digits[len(cc):]
+            await self._clear_field(cc_box)
+            await vm.type(cc)
+            await asyncio.sleep(1)
+            await self._clear_field(num_box)
+            await vm.type(national)
+            dbg("vmos", f"Entered country code {cc} and number {national}")
+        elif fields:
+            await self._clear_field(fields[0])
+            await vm.type(digits[1:] if len(digits) == 11 and digits.startswith("1") else digits)
+        else:
+            dbg("vmos", "No number box found on screen", "error")
+            await vm.type(digits)
+        await asyncio.sleep(1)
+        shown = [n["text"] for n in await vm.nodes() if "EditText" in n["cls"]]
+        dbg("vmos", f"Number boxes now show: {shown}")
+
     async def register(self, phone, sms_code):
         """Sign the number up inside Telegram on the phone. sms_code() -> awaitable code."""
         vm = self.vm
@@ -76,9 +114,7 @@ class VmosAccountWorker:
         await vm.dismiss_popups()
 
         self.log("Entering the phone number")
-        if await self._retry_tap(cls="EditText"):
-            await vm.sh("input keyevent KEYCODE_MOVE_END; for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16; do input keyevent KEYCODE_DEL; done")
-        await vm.type(phone)
+        await self._enter_phone(phone)
         await asyncio.sleep(1)
         await self._retry_tap("next", "continue", "done")
         await asyncio.sleep(2)
