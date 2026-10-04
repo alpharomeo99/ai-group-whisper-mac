@@ -20,6 +20,11 @@ class AccountExists(Exception):
     pass
 
 
+class NumberBanned(Exception):
+    """Telegram says this phone number is banned."""
+    pass
+
+
 class VmosAccountWorker:
     def __init__(self, ak, sk, pad, log):
         self.vm = vmos_mod.Vmos(ak, sk, pad)
@@ -135,6 +140,14 @@ class VmosAccountWorker:
         await asyncio.sleep(2)
         await vm.tap("yes", "ok", "continue", wait=6)  # "Is this number correct?" dialog
         await vm.dismiss_popups()
+
+        # Telegram may reject the number right here with "this phone number is banned".
+        await asyncio.sleep(3)
+        screen = (await vm.screen_text()).lower()
+        dbg("vmos", f"Screen after submitting the number: {short(screen, 500)}")
+        if "banned" in screen:
+            dbg("vmos", "Telegram says this phone number is banned", "warn")
+            raise NumberBanned(f"Telegram banned the number {phone}.")
 
         self.log("Waiting for the SMS code")
         code = await sms_code()

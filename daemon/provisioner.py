@@ -15,7 +15,9 @@ import cfx_browser as cfx
 import debuglog
 from debuglog import dbg, exc
 from textverified import TextVerified, TvError
-from vmos_account import VmosAccountWorker
+from vmos_account import VmosAccountWorker, NumberBanned
+
+MAX_NUMBERS = 3  # how many numbers to try when Telegram bans one
 
 PHASES = [
     ("phone", "Cloud phone"),
@@ -96,15 +98,31 @@ class Provisioner:
             self._phase("phone")
             await phone_worker.prepare(country)
 
-            self._phase("number")
-            self.log("Renting a Telegram number")
-            vid, phone = await tv.rent_telegram(st.get("tv_max_price"))
-            self.state["phone"] = phone
-            self.log(f"Number rented: {phone}")
+            # Telegram bans some rented numbers. When that happens, cancel the
+            # TextVerified rental (credit comes back) and try a fresh number.
+            phone = None
+            for attempt in range(1, MAX_NUMBERS + 1):
+                self._phase("number")
+                self.log("Renting a Telegram number" if attempt == 1
+                         else f"Renting another Telegram number (try {attempt} of {MAX_NUMBERS})")
+                vid, phone = await tv.rent_telegram(st.get("tv_max_price"))
+                self.state["phone"] = phone
+                self.log(f"Number rented: {phone}")
 
-            self._phase("signup")
-            await phone_worker.register(phone, lambda: tv.wait_code(vid, timeout=300))
-            vid = None  # SMS used: the rental is consumed, don't cancel it anymore
+                self._phase("signup")
+                try:
+                    await phone_worker.register(phone, lambda: tv.wait_code(vid, timeout=300))
+                    vid = None  # SMS used: the rental is consumed, don't cancel it anymore
+                    break
+                except NumberBanned as e:
+                    self.log(f"{e} Cancelling it on TextVerified and getting a new one.")
+                    try:
+                        await tv.cancel(vid)
+                    except Exception as ce:  # noqa
+                        dbg("manager", f"Cancel of banned number failed: {ce}", "warn")
+                    vid = None
+            else:
+                raise RuntimeError(f"Telegram banned {MAX_NUMBERS} numbers in a row; giving up.")
 
             self._phase("api")
             self.log("Camoufox is opening my.telegram.org through the proxy")
