@@ -22,30 +22,49 @@ class Vmos:
     def __init__(self, ak, sk, pad):
         if not (ak and sk):
             raise VmosError("Add your VMOS Access Key and Secret Key in Settings.")
-        self.ak, self.sk, self.pad = ak.strip(), sk.strip(), (pad or "").strip()
+        self.ak, self.sk, self.pad = "".join(ak.split()), "".join(sk.split()), "".join((pad or "").split())
 
-    async def call(self, path, body):
-        raw = json.dumps(body, separators=(",", ":"))
+    def _headers(self, path, raw, sign_body):
         ts = str(int(time.time()))
-        signed = "" if path.endswith(UNSIGNED_BODY) else raw
-        sign = hashlib.sha256((self.sk + ts + path + signed).encode()).hexdigest()
-        headers = {"X-Access-Key": self.ak, "X-Timestamp": ts, "X-Sign": sign, "Content-Type": "application/json"}
+        sign = hashlib.sha256((self.sk + ts + path + (raw if sign_body else "")).encode("utf-8")).hexdigest()
+        return {"X-Access-Key": self.ak, "X-Timestamp": ts, "X-Sign": sign, "Content-Type": "application/json"}
+
+    async def _post(self, path, raw, sign_body):
         t0 = time.time()
-        dbg("vmos", f"POST {path} body={short(raw, 400)}", "debug")
         try:
             async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=40)) as s:
-                async with s.post(BASE + path, data=raw, headers=headers) as r:
+                async with s.post(BASE + path, data=raw.encode("utf-8"), headers=self._headers(path, raw, sign_body)) as r:
                     txt = await r.text()
                     status = r.status
         except Exception as e:  # noqa
             dbg("vmos", f"{path} network error after {time.time() - t0:.1f}s: {e.__class__.__name__}: {e}", "error")
             raise VmosError(f"Could not reach VMOS ({e.__class__.__name__}).")
-        dbg("vmos", f"<- {path} HTTP {status} in {time.time() - t0:.1f}s: {short(txt, 500)}", "debug")
+        dbg("vmos", f"<- {path} HTTP {status} in {time.time() - t0:.1f}s (body signed={sign_body}): {short(txt, 500)}", "debug")
         try:
-            j = json.loads(txt)
+            return json.loads(txt)
         except Exception:  # noqa
             dbg("vmos", f"{path} returned non-JSON (HTTP {status})", "error")
             raise VmosError(f"VMOS answered HTTP {status}")
+
+    async def call(self, path, body):
+        raw = json.dumps(body, separators=(",", ":"), ensure_ascii=False)
+        dbg("vmos", f"POST {path} body={short(raw, 400)}", "debug")
+        sign_body = not path.endswith(UNSIGNED_BODY)
+        j = await self._post(path, raw, sign_body)
+        if j.get("code") == 2019:
+            # Some VMOS servers sign command bodies, some don't: try the other way once.
+            dbg("vmos", f"Signature rejected; retrying {path} with body signed={not sign_body}", "warn")
+            j = await self._post(path, raw, not sign_body)
+        if j.get("code") == 2019:
+            dbg("vmos", f"Signature still rejected. Key check: access key {len(self.ak)} chars "
+                f"(starts '{self.ak[:4]}'), secret key {len(self.sk)} chars. Mac clock unix={int(time.time())}. "
+                "Most likely the Secret Key in Settings -> VMOS is wrong, swapped with the Access Key, or truncated.", "error")
+            raise VmosError("VMOS rejected the keys (signature failed). Re-copy the Access Key and Secret Key from VMOS -> Developer -> API into Settings -> VMOS.")
+        if j.get("code") in (2031, 2033):
+            hint = {2031: "Access Key not found - re-copy it from VMOS -> Developer -> API.",
+                    2033: "Your Mac's clock is off - turn on automatic date & time."}[j["code"]]
+            dbg("vmos", hint, "error")
+            raise VmosError(hint)
         if j.get("code") != 200:
             dbg("vmos", f"{path} error code={j.get('code')} msg={j.get('msg')}", "error")
             raise VmosError(f"VMOS error {j.get('code')}: {j.get('msg')}")
