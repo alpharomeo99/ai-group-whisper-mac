@@ -49,8 +49,7 @@ class Vmos:
     async def call(self, path, body):
         raw = json.dumps(body, separators=(",", ":"), ensure_ascii=False)
         dbg("vmos", f"POST {path} body={short(raw, 400)}", "debug")
-        # Live logs show this VMOS account signs every body, including /asyncCmd.
-        sign_body = True
+        sign_body = not path.endswith(UNSIGNED_BODY)
         j = await self._post(path, raw, sign_body)
         if j.get("code") == 2019:
             # Some VMOS servers sign command bodies, some don't: try the other way once.
@@ -77,14 +76,6 @@ class Vmos:
         items = data if isinstance(data, list) else (data or {}).get("records") or (data or {}).get("list") or []
         return [p.get("padCode") for p in items if isinstance(p, dict) and p.get("padCode")]
 
-    async def set_sim(self, country, phone):
-        dbg("vmos", f"Setting SIM: country={country} phone={phone}")
-        await self.call("/vcpcloud/api/padApi/updateSIMByCountryAndPhone",
-                        {"padCode": self.pad, "countryCode": country, "phoneNumber": phone})
-        # Changing the SIM makes VMOS restart the phone for a short while (error 110031 = not ready).
-        dbg("vmos", "SIM change applied; waiting for the cloud phone to be ready again")
-        await asyncio.sleep(10)
-        await self.wait_online(timeout=300)
 
     async def wait_online(self, timeout=240):
         end = time.time() + timeout
@@ -105,17 +96,7 @@ class Vmos:
     async def sh(self, cmd, timeout=60):
         dbg("vmos", f"shell $ {short(cmd, 300)}")
         t0 = time.time()
-        busy_until = time.time() + 180
-        while True:
-            try:
-                data = await self.call("/vcpcloud/api/padApi/asyncCmd", {"padCodes": [self.pad], "scriptContent": cmd})
-                break
-            except VmosError as e:
-                if "110031" in str(e) and time.time() < busy_until:
-                    dbg("vmos", "Cloud phone not ready yet (110031: restarting/busy); retrying in 8s", "warn")
-                    await asyncio.sleep(8)
-                    continue
-                raise
+        data = await self.call("/vcpcloud/api/padApi/asyncCmd", {"padCodes": [self.pad], "scriptContent": cmd})
         item = data[0] if isinstance(data, list) else data
         if item.get("vmStatus") == 0:
             raise VmosError("The cloud phone is offline.")

@@ -101,7 +101,6 @@ class Provisioner:
             vid, phone = await tv.rent_telegram(st.get("tv_max_price"))
             self.state["phone"] = phone
             self.log(f"Number rented: {phone}")
-            await phone_worker.set_sim(country, phone)
 
             self._phase("signup")
             await phone_worker.register(phone, lambda: tv.wait_code(vid, timeout=300))

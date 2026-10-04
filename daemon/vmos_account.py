@@ -31,11 +31,6 @@ class VmosAccountWorker:
         dbg("vmos", f"Using cloud phone {self.vm.pad} (device identity is never changed)")
         await self.vm.wait_online()
 
-    async def set_sim(self, country, phone):
-        try:
-            await self.vm.set_sim(country, phone)
-        except Exception as e:  # noqa
-            self.log(f"SIM step skipped ({e})")
 
     async def clear_telegram_app(self):
         """Clear the Telegram app's data on the cloud phone. The Mac's Telethon session stays signed in."""
