@@ -15,6 +15,7 @@
       <nav>
         <div class="nav-label">Workspace</div>
         <button data-view="overview" class="active"><span class="ic">&#9673;</span>Overview</button>
+        <button data-view="network"><span class="ic">&#10070;</span>Network</button>
         <button data-view="groups"><span class="ic">&#9776;</span>Groups</button>
         <button data-view="queue"><span class="ic">&#8635;</span>Queue</button>
         <div class="nav-label">Accounts</div>
@@ -34,6 +35,7 @@
           <div class="panel"><div class="panel-head"><h3>Proxies</h3><button data-go="automation" class="ghost">Manage</button></div><div id="ov-proxies"></div></div>
         </div>
       </section>
+      <section id="view-network" class="hidden flush"><div id="gx" class="gx"></div></section>
       <section id="view-groups" class="hidden">
         <div class="page-head"><div><h1>Groups</h1><p class="sub">Pick a group, turn on Watch to collect messages.</p></div></div>
         <div class="split"><div id="group-list" class="panel list"></div><div class="split-main">
@@ -169,6 +171,7 @@
       </section>
     </main>
   </div>
+  <script src="graph.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

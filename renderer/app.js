@@ -30,7 +30,9 @@ let groups = [], current = null;
 function esc(s) { const d = document.createElement('div'); d.textContent = s ?? ''; return d.innerHTML; }
 function show(view) {
   document.querySelectorAll('nav button').forEach((b) => b.classList.toggle('active', b.dataset.view === view));
-  ['overview', 'groups', 'accounts', 'automation', 'queue', 'settings'].forEach((v) => $('view-' + v).classList.toggle('hidden', v !== view));
+  ['overview', 'network', 'groups', 'accounts', 'automation', 'queue', 'settings'].forEach((v) => $('view-' + v).classList.toggle('hidden', v !== view));
+  document.querySelector('main').classList.toggle('flush', view === 'network');
+  if (view === 'network') window.loadNetwork();
   if (view === 'overview') loadOverview();
   if (view === 'queue') loadQueue();
   if (view === 'settings') loadSettings();

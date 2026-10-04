@@ -34,6 +34,9 @@ CREATE TABLE IF NOT EXISTS proxies (
   id INTEGER PRIMARY KEY AUTOINCREMENT, label TEXT, url TEXT, last_ip TEXT,
   last_check INTEGER, ok INTEGER DEFAULT 0, created INTEGER
 );
+CREATE TABLE IF NOT EXISTS personas (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, prompt TEXT DEFAULT '', color TEXT DEFAULT '#2fc4b2', created INTEGER
+);
 CREATE INDEX IF NOT EXISTS idx_queue_status ON queue(status, not_before);
 """
 
@@ -47,7 +50,8 @@ class Store:
         for ddl in ("ALTER TABLE groups ADD COLUMN account_id INTEGER",
                     "ALTER TABLE accounts ADD COLUMN api_id INTEGER",
                     "ALTER TABLE accounts ADD COLUMN api_hash TEXT",
-                    "ALTER TABLE accounts ADD COLUMN proxy_id INTEGER"):
+                    "ALTER TABLE accounts ADD COLUMN proxy_id INTEGER",
+                    "ALTER TABLE accounts ADD COLUMN persona_id INTEGER"):
             try:
                 self.db.execute(ddl)
             except sqlite3.OperationalError:

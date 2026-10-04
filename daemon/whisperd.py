@@ -267,6 +267,14 @@ class Daemon:
             for job in self.store.claim(limit=3):
                 await self.run_job(job)
 
+    def persona_for(self, g):
+        """Group override text wins; otherwise the persona wired to the group's account."""
+        if (g.get("persona") or "").strip():
+            return g["persona"]
+        r = self.store.rows("SELECT p.name,p.prompt FROM accounts a JOIN personas p ON p.id=a.persona_id WHERE a.id=?",
+                            (g.get("account_id"),))
+        return f"You are {r[0]['name']}. {r[0]['prompt']}" if r else ""
+
     async def run_job(self, job):
         import json
         p = json.loads(job["payload"])
@@ -280,7 +288,7 @@ class Daemon:
                 self.store.q("INSERT INTO summaries(chat_id,body,created) VALUES(?,?,?)",
                              (job["chat_id"], body, int(time.time())))
             elif job["kind"] == "draft_reply":
-                text = await ai.draft_reply(settings, g.get("title", ""), g.get("persona", ""),
+                text = await ai.draft_reply(settings, g.get("title", ""), self.persona_for(g),
                                             self.store.recent(job["chat_id"], 30))
                 if p.get("auto_send"):
                     self.store.enqueue("send", job["chat_id"], {"text": text, "reply_to": p.get("trigger")},
@@ -693,6 +701,93 @@ class Daemon:
             self.store.enqueue(act, cid, {}, dedupe_key=f"{act}:{cid}:{int(time.time()) // 10}")
             self.wake_event.set()
             return J({"ok": True})
+
+        # ----- network graph (personas -> accounts -> groups) -----
+        @r.get("/graph")
+        async def graph(_):
+            accs = self.store.rows("SELECT a.id,a.phone,a.name,a.username,a.active,a.persona_id,a.proxy_id,p.label proxy_label "
+                                   "FROM accounts a LEFT JOIN proxies p ON p.id=a.proxy_id ORDER BY a.id")
+            for a in accs:
+                a["connected"] = a["id"] in self.clients
+            grps = self.store.rows("SELECT chat_id,title,watched,auto_reply,persona,account_id FROM groups ORDER BY watched DESC, title")
+            for g in grps:
+                g["chat_id"] = str(g["chat_id"])
+                g["messages"] = self.store.q("SELECT COUNT(*) FROM messages WHERE chat_id=?", (int(g["chat_id"]),)).fetchone()[0]
+            return J({"accounts": accs, "groups": grps,
+                      "personas": self.store.rows("SELECT * FROM personas ORDER BY id"),
+                      "layout": self.store.get("graph_layout", {})})
+
+        @r.post("/graph/layout")
+        async def graph_layout(req):
+            self.store.set("graph_layout", (await req.json()).get("layout", {}))
+            return J({"ok": True})
+
+        @r.post("/graph/sync")
+        async def graph_sync(_):
+            for aid, c in (await self.ensure_clients()).items():
+                async for d in c.iter_dialogs():
+                    if d.is_group:
+                        self.store.q("INSERT INTO groups(chat_id,title,account_id) VALUES(?,?,?) ON CONFLICT(chat_id) "
+                                     "DO UPDATE SET title=excluded.title, account_id=COALESCE(groups.account_id, excluded.account_id)",
+                                     (d.id, d.name, aid))
+            return J({"ok": True})
+
+        def _parse(ref):
+            kind, _, val = str(ref).partition(":")
+            return kind, val
+
+        @r.post("/graph/link")
+        async def graph_link(req):
+            b = await req.json()
+            (fk, fv), (tk, tv) = _parse(b.get("from")), _parse(b.get("to"))
+            on = b.get("on", True)
+            if fk == "per" and tk == "acc":
+                self.store.q("UPDATE accounts SET persona_id=? WHERE id=?", (int(fv) if on else None, int(tv)))
+            elif fk == "acc" and tk == "grp":
+                if on:
+                    self.store.q("UPDATE groups SET account_id=? WHERE chat_id=?", (int(fv), int(tv)))
+                else:
+                    self.store.q("UPDATE groups SET account_id=NULL WHERE chat_id=? AND account_id=?", (int(tv), int(fv)))
+            else:
+                return J({"error": "Connect Persona to Account, or Account to Group."}, status=400)
+            return J({"ok": True})
+
+        @r.post("/personas")
+        async def persona_save(req):
+            b = await req.json()
+            name = (b.get("name") or "New persona").strip()[:60]
+            prompt, color = (b.get("prompt") or "")[:4000], (b.get("color") or "#2fc4b2")[:9]
+            if b.get("id"):
+                self.store.q("UPDATE personas SET name=?,prompt=?,color=? WHERE id=?", (name, prompt, color, int(b["id"])))
+                return J({"ok": True, "id": int(b["id"])})
+            cur = self.store.q("INSERT INTO personas(name,prompt,color,created) VALUES(?,?,?,?)", (name, prompt, color, int(time.time())))
+            return J({"ok": True, "id": cur.lastrowid})
+
+        @r.delete("/personas/{pid}")
+        async def persona_del(req):
+            pid = int(req.match_info["pid"])
+            self.store.q("DELETE FROM personas WHERE id=?", (pid,))
+            self.store.q("UPDATE accounts SET persona_id=NULL WHERE persona_id=?", (pid,))
+            return J({"ok": True})
+
+        @r.post("/personas/{pid}/preview")
+        async def persona_preview(req):
+            pid, b = int(req.match_info["pid"]), await req.json()
+            p = self.store.rows("SELECT * FROM personas WHERE id=?", (pid,))
+            if not p:
+                return J({"error": "Persona not found."}, status=404)
+            settings = {k: self.store.get(k) for k in ("fal_key", "ai_model")}
+            cid = b.get("chat_id")
+            g = (self.store.rows("SELECT * FROM groups WHERE chat_id=?", (int(cid),)) if cid else []) or [{}]
+            msgs = self.store.recent(int(cid), 30) if cid else []
+            if not msgs:
+                msgs = [{"sender": "Alex", "text": "hey everyone, what's new today?", "ts": int(time.time())}]
+            try:
+                text = await ai.draft_reply(settings, g[0].get("title", "Preview group"),
+                                            f"You are {p[0]['name']}. {p[0]['prompt']}", msgs)
+            except ai.AIError as e:
+                return J({"error": f"AI preview failed: {e}"}, status=400)
+            return J({"text": text, "context": msgs[-5:]})
 
         @r.get("/queue")
         async def queue(_):
