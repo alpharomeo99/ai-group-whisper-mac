@@ -30,16 +30,21 @@ let groups = [], current = null;
 function esc(s) { const d = document.createElement('div'); d.textContent = s ?? ''; return d.innerHTML; }
 function show(view) {
   document.querySelectorAll('nav button').forEach((b) => b.classList.toggle('active', b.dataset.view === view));
-  ['overview', 'groups', 'accounts', 'proxies', 'camoufox', 'queue', 'settings'].forEach((v) => $('view-' + v).classList.toggle('hidden', v !== view));
+  ['overview', 'groups', 'accounts', 'automation', 'queue', 'settings'].forEach((v) => $('view-' + v).classList.toggle('hidden', v !== view));
   if (view === 'overview') loadOverview();
   if (view === 'queue') loadQueue();
   if (view === 'settings') loadSettings();
   if (view === 'accounts') loadAccounts();
-  if (view === 'proxies') loadProxies();
-  if (view === 'camoufox') loadCfx();
+  if (view === 'automation') loadAutomation();
 }
 document.querySelectorAll('nav button').forEach((b) => b.onclick = () => show(b.dataset.view));
 document.querySelectorAll('[data-go]').forEach((b) => b.onclick = () => show(b.dataset.go));
+
+function loadAutomation() {
+  loadProxies();
+  loadCfx();
+  pollProv();
+}
 
 async function refreshStatus() {
   try {
@@ -309,7 +314,7 @@ async function pollProv() {
 const provOpts = () => ({ proxy_id: $('prov-proxy').value ? Number($('prov-proxy').value) : null, country: ($('prov-country').value || 'US').trim(), persona_style: $('prov-style').value.trim(), photo: $('prov-photo').checked, clearapp: $('prov-wipe').checked });
 $('acc-auto').onclick = async () => {
   await fetchProxies(); $('prov-proxy').innerHTML = proxyOptions(null, '').replace('No proxy', 'Any working proxy');
-  $('prov-card').classList.remove('hidden'); pollProv();
+  $('prov-settings').classList.toggle('hidden');
 };
 function setGenBtn(running) {
   const b = $('acc-gen'); if (!b) return;
@@ -325,12 +330,12 @@ $('acc-gen').onclick = async () => {
   const b = $('acc-gen'); b.disabled = true;
   try {
     if (b.dataset.running) await api('POST', '/provision/cancel');
-    else { await startGen(); $('prov-card').classList.remove('hidden'); }
-  } catch (e) { $('prov-card').classList.remove('hidden'); $('prov-msg').textContent = e.message; }
+    else { await startGen(); show('automation'); }
+  } catch (e) { show('automation'); $('prov-msg').textContent = e.message; }
   b.disabled = false; setTimeout(pollProv, 600);
 };
 setInterval(async () => { try { const s = await api('GET', '/provision/status'); setGenBtn(s.running); } catch (_) {} }, 3000);
-$('prov-close').onclick = () => $('prov-card').classList.add('hidden');
+$('prov-close').onclick = () => $('prov-settings').classList.add('hidden');
 $('prov-cancel').onclick = async () => { await api('POST', '/provision/cancel'); setTimeout(pollProv, 800); };
 $('prov-go').onclick = async () => {
   try { await api('POST', '/provision/start', provOpts()); pollProv(); }

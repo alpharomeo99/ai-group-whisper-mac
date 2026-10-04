@@ -19,8 +19,7 @@
         <button data-view="queue"><span class="ic">&#8635;</span>Queue</button>
         <div class="nav-label">Accounts</div>
         <button data-view="accounts"><span class="ic">&#9786;</span>Telegram accounts</button>
-        <button data-view="proxies"><span class="ic">&#8644;</span>Proxies</button>
-        <button data-view="camoufox"><span class="ic">&#9673;</span>Camoufox <span id="nav-cfx" class="dot-s"></span></button>
+        <button data-view="automation"><span class="ic">&#9881;</span>Automation <span id="nav-cfx" class="dot-s"></span></button>
         <div class="nav-label">App</div>
         <button data-view="settings"><span class="ic">&#9881;</span>Settings</button>
       </nav>
@@ -32,7 +31,7 @@
         <div class="stats" id="ov-stats"></div>
         <div class="grid2">
           <div class="panel"><div class="panel-head"><h3>Accounts</h3><button data-go="accounts" class="ghost">Manage</button></div><div id="ov-accounts"></div></div>
-          <div class="panel"><div class="panel-head"><h3>Proxies</h3><button data-go="proxies" class="ghost">Manage</button></div><div id="ov-proxies"></div></div>
+          <div class="panel"><div class="panel-head"><h3>Proxies</h3><button data-go="automation" class="ghost">Manage</button></div><div id="ov-proxies"></div></div>
         </div>
       </section>
       <section id="view-groups" class="hidden">
@@ -57,32 +56,7 @@
       </section>
       <section id="view-queue" class="hidden"><div class="page-head"><div><h1>Queue</h1><p class="sub">AI jobs waiting, running and finished.</p></div></div><table id="queue-table"></table></section>
       <section id="view-accounts" class="hidden">
-        <div class="acc-head page-head"><div><h1>Telegram accounts</h1><p class="sub">Each account has its own API keys, session and proxy.</p></div><div class="row"><button id="acc-gen" class="primary">▶ Start generation</button><button id="acc-auto">⚙ Generation settings</button><button id="acc-add" class="primary">+ Add account</button></div></div>
-        <div id="prov-card" class="card wizard hidden">
-          <h3>Create a new Telegram account</h3>
-          <p class="hint">Rents a number on TextVerified, signs up on your VMOS cloud phone, then Camoufox creates this account's own API keys through a proxy, sets a name, bio, username and photo, and clears the Telegram app on the phone (the phone's device identity is never changed). Takes a few minutes.</p>
-          <label class="hint">Proxy for this account</label>
-          <select id="prov-proxy"></select>
-          <label class="hint">Number country (2-letter code)</label>
-          <input id="prov-country" value="US" maxlength="2">
-          <label class="hint">Persona style (optional, e.g. "crypto trader in his 30s")</label>
-          <input id="prov-style" placeholder="Friendly, ordinary adult">
-          <label class="row hint"><input type="checkbox" id="prov-photo" checked> Give it an AI profile photo</label>
-          <label class="row hint"><input type="checkbox" id="prov-wipe" checked> Clear the Telegram app's data after the account is connected (device stays the same)</label>
-          <div id="prov-phases" class="phases"></div>
-          <div class="row"><button id="prov-close">Close</button><button id="prov-cancel">Stop</button><button id="prov-go" class="primary">Start</button></div>
-          <ol id="prov-steps" class="steps"></ol>
-          <div id="prov-msg" class="hint"></div>
-        </div>
-        <div id="dbg-card" class="card">
-          <div class="row dbg-head"><h3>Generation log</h3><span id="dbg-count" class="hint"></span>
-            <select id="dbg-src"><option value="">All sources</option><option value="step">Steps</option><option value="manager">Manager</option><option value="vmos">VMOS phone</option><option value="textverified">TextVerified</option><option value="camoufox">Camoufox</option><option value="telethon">Telethon</option></select>
-            <select id="dbg-level"><option value="">All detail</option><option value="info">Hide raw requests</option><option value="warn">Warnings & errors</option><option value="error">Errors only</option></select>
-            <label class="hint row"><input type="checkbox" id="dbg-follow" checked> Auto-scroll</label>
-            <button id="dbg-copy">Copy</button><button id="dbg-clear">Clear</button></div>
-          <pre id="dbg-log" class="log dbg"></pre>
-          <div id="dbg-file" class="hint"></div>
-        </div>
+        <div class="acc-head page-head"><div><h1>Telegram accounts</h1><p class="sub">Connect and manage accounts manually. Each account keeps its own API keys, session and proxy.</p></div><button id="acc-add" class="primary">+ Add account manually</button></div>
         <div id="acc-list"></div>
         <div id="acc-wizard" class="card wizard hidden">
           <h3 id="w-title">Add a Telegram account</h3>
@@ -107,29 +81,58 @@
           <div id="w-msg" class="hint err"></div>
         </div>
       </section>
-      <section id="view-proxies" class="hidden">
-        <div class="page-head"><div><h1>Proxies</h1><p class="sub">Add proxies once. Accounts and Camoufox use them automatically.</p></div></div>
-        <div class="panel"><h3>Add proxies</h3><p class="hint">One per line. Formats: host:port, host:port:user:pass, http://user:pass@host:port, socks5://user:pass@host:port. Residential proxies work best. Each account can use its own proxy for Telegram and for Camoufox.</p>
-        <textarea id="px-text" rows="5" placeholder="socks5://user:pass@1.2.3.4:1080"></textarea>
-        <div class="row"><button id="px-add" class="primary">Add proxies</button><button id="px-testall">Test all</button></div>
-        <div id="px-msg" class="hint"></div></div>
-        <div class="panel"><h3>Your proxies</h3><table id="px-table"></table></div>
-      </section>
-      <section id="view-camoufox" class="hidden">
-        <div class="page-head"><div><h1>Camoufox</h1><p class="sub">Open-source stealth browser, built in. Creates each account's API keys on my.telegram.org through its proxy.</p></div></div>
-        <div class="panel"><div class="panel-head"><h3>Status</h3><button id="cfx-install" class="ghost">Repair</button></div>
-          <div class="cfx-state"><span id="cfx-dot" class="dot-s"></span><b id="cfx-state">Checking...</b></div>
-          <pre id="cfx-log" class="log hidden"></pre></div>
-        <div class="panel"><h3>Proxy link</h3>
-          <p class="hint">Accounts with their own proxy always use it. Anything without one uses this default.</p>
-          <label class="field">Default proxy for Camoufox</label>
-          <select id="cfx-proxy"></select>
-          <div class="row left"><button id="cfx-test">Test Camoufox through this proxy</button><span id="cfx-ip" class="hint"></span></div></div>
-        <div class="panel"><h3>Options</h3>
-          <label class="check"><input type="checkbox" id="cfx-headless" /> Run hidden (no browser window)</label>
-          <label class="field">App name used on my.telegram.org</label>
-          <input id="cfx-title" placeholder="Whisper" />
-          <div class="row left"><button id="cfx-save" class="primary">Save</button><span id="cfx-msg" class="hint"></span></div></div>
+      <section id="view-automation" class="hidden">
+        <div class="page-head"><div><h1>Automation</h1><p class="sub">Generate accounts, manage Camoufox, and control the proxies used by automation.</p></div><button id="acc-gen" class="primary">▶ Start generation</button></div>
+        <div class="automation-grid">
+          <div>
+            <div id="prov-card" class="panel wizard automation-wizard">
+              <div class="panel-head"><h3>Automatic account generation</h3><button id="acc-auto" class="ghost">Generation settings</button></div>
+              <p class="hint">TextVerified supplies the number, VMOS creates the Telegram account, and Camoufox creates its dedicated API keys through the selected proxy.</p>
+              <div id="prov-settings" class="automation-settings hidden">
+                <label class="field">Proxy for this account</label>
+                <select id="prov-proxy"></select>
+                <label class="field">Number country</label>
+                <input id="prov-country" value="US" maxlength="2">
+                <label class="field">Persona style</label>
+                <input id="prov-style" placeholder="Friendly, ordinary adult">
+                <label class="check"><input type="checkbox" id="prov-photo" checked> Give it an AI profile photo</label>
+                <label class="check"><input type="checkbox" id="prov-wipe" checked> Clear only Telegram's app data after connection</label>
+              </div>
+              <div id="prov-phases" class="phases"></div>
+              <div class="row left"><button id="prov-go" class="primary">Start</button><button id="prov-cancel">Stop</button><button id="prov-close" class="ghost">Hide settings</button></div>
+              <ol id="prov-steps" class="steps"></ol>
+              <div id="prov-msg" class="hint"></div>
+            </div>
+          </div>
+          <div>
+            <div class="panel"><div class="panel-head"><h3>Camoufox</h3><button id="cfx-install" class="ghost">Repair</button></div>
+              <p class="hint">Built-in open-source browser used to create each account's API keys on my.telegram.org.</p>
+              <div class="cfx-state"><span id="cfx-dot" class="dot-s"></span><b id="cfx-state">Checking...</b></div>
+              <pre id="cfx-log" class="log hidden"></pre>
+              <label class="field">Default automation proxy</label>
+              <select id="cfx-proxy"></select>
+              <div class="row left"><button id="cfx-test">Test Camoufox proxy</button><span id="cfx-ip" class="hint"></span></div>
+              <label class="check"><input type="checkbox" id="cfx-headless" /> Run hidden</label>
+              <label class="field">App name used on my.telegram.org</label>
+              <input id="cfx-title" placeholder="Whisper" />
+              <div class="row left"><button id="cfx-save" class="primary">Save Camoufox</button><span id="cfx-msg" class="hint"></span></div>
+            </div>
+          </div>
+        </div>
+        <div id="dbg-card" class="panel">
+          <div class="row dbg-head"><h3>Generation log</h3><span id="dbg-count" class="hint"></span>
+            <select id="dbg-src"><option value="">All sources</option><option value="step">Steps</option><option value="manager">Manager</option><option value="vmos">VMOS phone</option><option value="textverified">TextVerified</option><option value="camoufox">Camoufox</option><option value="telethon">Telethon</option></select>
+            <select id="dbg-level"><option value="">All detail</option><option value="info">Hide raw requests</option><option value="warn">Warnings & errors</option><option value="error">Errors only</option></select>
+            <label class="hint row"><input type="checkbox" id="dbg-follow" checked> Auto-scroll</label>
+            <button id="dbg-copy">Copy</button><button id="dbg-clear">Clear</button></div>
+          <pre id="dbg-log" class="log dbg"></pre>
+          <div id="dbg-file" class="hint"></div>
+        </div>
+        <div class="panel"><h3>Proxies</h3><p class="hint">Add proxies once. Automatic generation and Camoufox use them together; each connected account can keep its own assignment.</p>
+          <textarea id="px-text" rows="4" placeholder="socks5://user:pass@1.2.3.4:1080"></textarea>
+          <div class="row left"><button id="px-add" class="primary">Add proxies</button><button id="px-testall">Test all</button><span id="px-msg" class="hint"></span></div>
+          <table id="px-table"></table>
+        </div>
       </section>
       <section id="view-settings" class="hidden">
         <div class="page-head"><div><h1>Settings</h1><p class="sub">Keys stay on this Mac.</p></div></div>

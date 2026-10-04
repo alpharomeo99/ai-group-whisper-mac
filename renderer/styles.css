@@ -138,3 +138,13 @@ pre.log.dbg { max-height: 460px; min-height: 160px; }
 
 .keybadge{color:#34c759;font-size:12px;font-weight:600;white-space:nowrap}
 .hidden{display:none}
+
+/* automation */
+.automation-grid { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(300px, .75fr); gap: 16px; align-items: start; }
+.automation-wizard { max-width: none; }
+.automation-settings { border-top: 1px solid var(--line); padding-top: 12px; margin-top: 10px; }
+#view-automation #px-table { margin-top: 14px; }
+@media (max-width: 900px) {
+  .automation-grid { grid-template-columns: 1fr; }
+  .page-head { align-items: flex-start; flex-direction: column; }
+}
