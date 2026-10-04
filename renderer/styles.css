@@ -135,3 +135,6 @@ pre.log.dbg { max-height: 460px; min-height: 160px; }
 .l-info { color: #d6deeb; }
 .l-warn { color: #e3b341; }
 .l-error { color: #ff7b72; }
+
+.keybadge{color:#34c759;font-size:12px;font-weight:600;white-space:nowrap}
+.hidden{display:none}

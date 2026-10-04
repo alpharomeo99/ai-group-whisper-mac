@@ -99,17 +99,20 @@ async function loadSettings() {
   const s = await api('GET', '/settings');
   $('s-ai-model').value = s.ai_model || '';
   $('s-ai-key').placeholder = s.fal_key_set ? 'fal.ai key saved (leave blank to keep)' : 'fal.ai key';
+  $('s-ai-key-badge').classList.toggle('hidden', !s.fal_key_set);
   $('s-vmos-ak').value = s.vmos_ak || ''; $('s-vmos-pad').value = s.vmos_pad || '';
   $('s-vmos-sk').placeholder = s.vmos_sk_set ? 'Secret key saved (leave blank to keep)' : 'Secret Access Key';
+  $('s-vmos-sk-badge').classList.toggle('hidden', !s.vmos_sk_set);
   $('s-tv-user').value = s.tv_user || ''; $('s-tv-max').value = s.tv_max_price || '';
   $('s-tv-key').placeholder = s.tv_key_set ? 'API key saved (leave blank to keep)' : 'TextVerified API key';
+  $('s-tv-key-badge').classList.toggle('hidden', !s.tv_key_set);
 }
 const msg = (t) => { $('s-msg').textContent = t; };
 async function saveSettings() {
   await api('POST', '/settings', { ai_model: $('s-ai-model').value, fal_key: $('s-ai-key').value,
     vmos_ak: $('s-vmos-ak').value.trim(), vmos_sk: $('s-vmos-sk').value.trim(), vmos_pad: $('s-vmos-pad').value.trim(),
     tv_user: $('s-tv-user').value.trim(), tv_key: $('s-tv-key').value.trim(), tv_max_price: $('s-tv-max').value.trim() });
-  ['s-ai-key', 's-vmos-sk', 's-tv-key'].forEach((id) => { $(id).value = ''; });
+  ['s-ai-key', 's-vmos-sk', 's-tv-key'].forEach((id) => { $(id).value = ''; $(id).placeholder = 'Saved ✓ (leave blank to keep)'; });
 }
 $('s-save').onclick = async () => { await saveSettings(); msg('Saved.'); loadSettings(); };
 $('s-vmos-test').onclick = async () => {

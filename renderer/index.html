@@ -148,17 +148,17 @@
           <option value="deepseek/deepseek-chat">DeepSeek Chat</option>
           <option value="meta-llama/llama-3.3-70b-instruct">Llama 3.3 70B</option>
         </datalist>
-        <input id="s-ai-key" type="password" placeholder="fal.ai key (leave blank to keep current)" />
+        <div class="row"><input id="s-ai-key" type="password" placeholder="fal.ai key (leave blank to keep current)" /><span id="s-ai-key-badge" class="keybadge hidden">Saved ✓</span></div>
         </div><div class="panel"><h3>VMOS Cloud</h3>
         <p class="hint">VMOS Cloud → Developer → API. Copy the Access Key ID and Secret Access Key. The cloud phone code is filled in automatically when you test.</p>
         <input id="s-vmos-ak" placeholder="Access Key ID" autocomplete="off" />
-        <input id="s-vmos-sk" type="password" placeholder="Secret Access Key" />
+        <div class="row"><input id="s-vmos-sk" type="password" placeholder="Secret Access Key" /><span id="s-vmos-sk-badge" class="keybadge hidden">Saved ✓</span></div>
         <input id="s-vmos-pad" placeholder="Cloud phone code (e.g. AC32010601132)" />
         <div class="row"><button id="s-vmos-test">Test VMOS</button><span id="s-vmos-msg" class="hint"></span></div>
         </div><div class="panel"><h3>TextVerified</h3>
         <p class="hint">textverified.com → API. Copy your API key; the username is your TextVerified email.</p>
         <input id="s-tv-user" placeholder="TextVerified username (email)" autocomplete="off" />
-        <input id="s-tv-key" type="password" placeholder="TextVerified API key" />
+        <div class="row"><input id="s-tv-key" type="password" placeholder="TextVerified API key" /><span id="s-tv-key-badge" class="keybadge hidden">Saved ✓</span></div>
         <input id="s-tv-max" placeholder="Max price per number in USD (optional)" inputmode="decimal" />
         <div class="row"><button id="s-tv-test">Check balance</button><span id="s-tv-msg" class="hint"></span></div>
         </div><div class="row left"><button id="s-save" class="primary">Save settings</button></div>
