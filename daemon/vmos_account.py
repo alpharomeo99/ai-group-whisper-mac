@@ -48,8 +48,13 @@ class VmosAccountWorker:
         return None
 
     async def _clear_field(self, n):
-        await self.vm.sh(f"input tap {n['x']} {n['y']}; input keyevent KEYCODE_MOVE_END; "
-                         "for i in $(seq 1 30); do input keyevent KEYCODE_DEL; done")
+        # Delete exactly what's in the box. Extra deletes in an empty number box make Telegram
+        # jump back to the country code box and erase it, so never press more than needed.
+        cnt = len(n["text"] or "")
+        cmd = f"input tap {n['x']} {n['y']}; sleep 0.5; input keyevent KEYCODE_MOVE_END"
+        if cnt:
+            cmd += f"; for i in $(seq 1 {cnt}); do input keyevent KEYCODE_DEL; done"
+        await self.vm.sh(cmd)
 
     async def _enter_phone(self, phone):
         """Telegram has two boxes: country code (+1) and the number. Fill each one, cleared first."""
@@ -69,10 +74,13 @@ class VmosAccountWorker:
             if not digits.startswith(cc) or not cc:
                 cc = "1" if digits.startswith("1") else digits[:2]
             national = digits[len(cc):]
-            await self._clear_field(cc_box)
-            await vm.type(cc)
-            await asyncio.sleep(1)
+            if cc_box["text"].strip() != cc:
+                await self._clear_field(cc_box)
+                await vm.type(cc)
+                await asyncio.sleep(1)
             await self._clear_field(num_box)
+            await asyncio.sleep(0.5)
+            await vm.sh(f"input tap {num_box['x']} {num_box['y']}")
             await vm.type(national)
             dbg("vmos", f"Entered country code {cc} and number {national}")
         elif fields:
@@ -84,6 +92,13 @@ class VmosAccountWorker:
         await asyncio.sleep(1)
         shown = [n["text"] for n in await vm.nodes() if "EditText" in n["cls"]]
         dbg("vmos", f"Number boxes now show: {shown}")
+        if len(shown) >= 2 and re.sub(r"\D", "", "".join(shown)) != digits and not getattr(self, "_phone_retry", False):
+            dbg("vmos", "Number boxes don't match the rented number, entering it again", "warn")
+            self._phone_retry = True
+            try:
+                await self._enter_phone(phone)
+            finally:
+                self._phone_retry = False
 
     async def register(self, phone, sms_code):
         """Sign the number up inside Telegram on the phone. sms_code() -> awaitable code."""
