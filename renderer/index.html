@@ -60,7 +60,7 @@
         <div class="acc-head page-head"><div><h1>Telegram accounts</h1><p class="sub">Each account has its own API keys, session and proxy.</p></div><div class="row"><button id="acc-gen" class="primary">▶ Start generation</button><button id="acc-auto">⚙ Generation settings</button><button id="acc-add" class="primary">+ Add account</button></div></div>
         <div id="prov-card" class="card wizard hidden">
           <h3>Create a new Telegram account</h3>
-          <p class="hint">Rents a number on TextVerified, signs up on your VMOS cloud phone, then Camoufox creates this account's own API keys through a proxy, sets a name, bio, username and photo, and wipes the cloud phone. Takes a few minutes.</p>
+          <p class="hint">Rents a number on TextVerified, signs up on your VMOS cloud phone, then Camoufox creates this account's own API keys through a proxy, sets a name, bio, username and photo, and clears the Telegram app on the phone (the phone's device identity is never changed). Takes a few minutes.</p>
           <label class="hint">Proxy for this account</label>
           <select id="prov-proxy"></select>
           <label class="hint">Number country (2-letter code)</label>
@@ -68,11 +68,20 @@
           <label class="hint">Persona style (optional, e.g. "crypto trader in his 30s")</label>
           <input id="prov-style" placeholder="Friendly, ordinary adult">
           <label class="row hint"><input type="checkbox" id="prov-photo" checked> Give it an AI profile photo</label>
-          <label class="row hint"><input type="checkbox" id="prov-wipe" checked> Wipe the cloud phone after the account is connected</label>
+          <label class="row hint"><input type="checkbox" id="prov-wipe" checked> Clear the Telegram app's data after the account is connected (device stays the same)</label>
           <div id="prov-phases" class="phases"></div>
           <div class="row"><button id="prov-close">Close</button><button id="prov-cancel">Stop</button><button id="prov-go" class="primary">Start</button></div>
           <ol id="prov-steps" class="steps"></ol>
           <div id="prov-msg" class="hint"></div>
+        </div>
+        <div id="dbg-card" class="card">
+          <div class="row dbg-head"><h3>Generation log</h3><span id="dbg-count" class="hint"></span>
+            <select id="dbg-src"><option value="">All sources</option><option value="step">Steps</option><option value="manager">Manager</option><option value="vmos">VMOS phone</option><option value="textverified">TextVerified</option><option value="camoufox">Camoufox</option><option value="telethon">Telethon</option></select>
+            <select id="dbg-level"><option value="">All detail</option><option value="info">Hide raw requests</option><option value="warn">Warnings & errors</option><option value="error">Errors only</option></select>
+            <label class="hint row"><input type="checkbox" id="dbg-follow" checked> Auto-scroll</label>
+            <button id="dbg-copy">Copy</button><button id="dbg-clear">Clear</button></div>
+          <pre id="dbg-log" class="log dbg"></pre>
+          <div id="dbg-file" class="hint"></div>
         </div>
         <div id="acc-list"></div>
         <div id="acc-wizard" class="card wizard hidden">

@@ -9,6 +9,7 @@ import re
 import time
 
 import vmos as vmos_mod
+from debuglog import dbg, short
 
 TG_PKG = "org.telegram.messenger"
 FIRST = ["Alex", "Sam", "Jordan", "Riley", "Casey", "Taylor", "Jamie", "Morgan"]
@@ -27,6 +28,7 @@ class VmosAccountWorker:
 
     async def prepare(self, country):
         self.log("Connecting to the cloud phone")
+        dbg("vmos", f"Using cloud phone {self.vm.pad} (device identity is never changed)")
         await self.vm.wait_online()
 
     async def set_sim(self, country, phone):
@@ -41,11 +43,13 @@ class VmosAccountWorker:
         await self.vm.sh(f"am force-stop {TG_PKG}; pm clear {TG_PKG}")
 
     async def _retry_tap(self, *labels, cls=None, tries=3):
-        for _ in range(tries):
+        for i in range(tries):
             n = await self.vm.tap(*labels, cls=cls, wait=20)
             if n:
                 return n
+            dbg("vmos", f"Tap attempt {i + 1}/{tries} for {list(labels)} found nothing", "warn")
             await asyncio.sleep(3)
+        dbg("vmos", f"Gave up tapping {list(labels)}{' class=' + cls if cls else ''}", "error")
         return None
 
     async def register(self, phone, sms_code):
@@ -74,6 +78,7 @@ class VmosAccountWorker:
         await asyncio.sleep(8)
 
         screen = (await vm.screen_text()).lower()
+        dbg("vmos", f"Screen after entering the code: {short(screen, 500)}")
         if "password" in screen and "your name" not in screen:
             raise AccountExists("That number already has a Telegram account with a password.")
         if "your name" in screen or "first name" in screen or "profile info" in screen:
@@ -89,15 +94,23 @@ class VmosAccountWorker:
     async def read_code(self, timeout=300):
         """Newest Telegram login code shown on the phone that we haven't used yet."""
         end = time.time() + timeout
+        n = 0
+        dbg("vmos", f"Reading Telegram login code from the phone (up to {timeout}s, ignoring {sorted(self.seen_codes)})")
         while time.time() < end:
+            n += 1
             try:
                 txt = await self.vm.sh("dumpsys notification --noredact | grep -i -o 'code[^\"]\\{0,40\\}' | head -20", timeout=40)
                 txt += " " + await self.vm.screen_text()
-            except Exception:  # noqa
+            except Exception as e:  # noqa
+                dbg("vmos", f"Code check #{n} failed: {e}", "warn")
                 txt = ""
-            for c in re.findall(r"\b(\d{5,6})\b", txt):
+            found = re.findall(r"\b(\d{5,6})\b", txt)
+            dbg("vmos", f"Code check #{n}: numbers seen {found or 'none'}, {int(end - time.time())}s left", "debug")
+            for c in found:
                 if c not in self.seen_codes:
                     self.seen_codes.add(c)
+                    dbg("vmos", f"New login code found: {c}")
                     return c
             await asyncio.sleep(5)
+        dbg("vmos", f"No new code after {n} checks", "error")
         return None

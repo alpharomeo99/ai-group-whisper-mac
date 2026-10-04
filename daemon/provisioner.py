@@ -12,6 +12,8 @@ import random
 import time
 
 import cfx_browser as cfx
+import debuglog
+from debuglog import dbg, exc
 from textverified import TextVerified, TvError
 from vmos_account import VmosAccountWorker
 
@@ -43,6 +45,7 @@ class Provisioner:
     def log(self, step):
         self.state["step"] = step
         self.state["steps"].append({"t": int(time.time()), "text": step})
+        dbg("step", step)
 
     def _phase(self, pid, status="active"):
         for p in self.state["phases"]:
@@ -52,14 +55,18 @@ class Provisioner:
                 p["status"] = "done"
         if status == "active":
             self.state["phase"] = pid
+        dbg("manager", f"Phase '{pid}' -> {status}")
 
     def start(self, opts):
         if self.task and not self.task.done():
             raise RuntimeError("An account is already being created.")
         self.state = self._blank(True)
+        debuglog.mark_run()
+        dbg("manager", f"Start requested with options: {opts}")
         self.task = asyncio.create_task(self._run(opts or {}))
 
     def cancel(self):
+        dbg("manager", "Stop requested by user", "warn")
         if self.task and not self.task.done():
             self.task.cancel()
 
@@ -78,6 +85,9 @@ class Provisioner:
         country = (opts.get("country") or "US").upper()
         proxy = self._pick_proxy(opts)
         self.state["proxy"] = proxy["url"].split("@")[-1] if proxy else None
+        dbg("manager", f"Country={country} proxy_id={proxy['id'] if proxy else None} proxy={self.state['proxy']}")
+        dbg("manager", "Settings present: " + ", ".join(f"{k}={'yes' if st.get(k) else 'NO'}" for k in
+            ("vmos_ak", "vmos_sk", "vmos_pad", "tv_key", "tv_user", "fal_key")) + f", tv_max_price={st.get('tv_max_price')}, cfx_headless={st.get('cfx_headless', True)}")
         try:
             tv = TextVerified(st.get("tv_key"), st.get("tv_user"))
             phone_worker = VmosAccountWorker(st.get("vmos_ak"), st.get("vmos_sk"), st.get("vmos_pad"), self.log)
@@ -119,15 +129,18 @@ class Provisioner:
                 self.log("Waiting for the Telethon login code on the phone")
                 return await phone_worker.read_code()
 
+            dbg("telethon", f"adopt_number phone={phone} api_id={api_id} proxy_id={proxy['id'] if proxy else None}")
             aid = await self.d.adopt_number(phone, api_id, api_hash, tg_code,
                                             proxy_id=proxy["id"] if proxy else None)
             self.state["account_id"] = aid
+            dbg("telethon", f"Account saved with id {aid}")
 
             self._phase("persona")
             try:
                 await self.d.apply_persona(aid, opts.get("persona_style") or st.get("persona_style"),
                                            opts.get("photo", True), self.log)
             except Exception as e:  # noqa
+                exc("telethon", e)
                 self.log(f"Profile step skipped ({e})")
 
             self._phase("wipe")
@@ -136,6 +149,7 @@ class Provisioner:
                     await phone_worker.wipe()
                     self.log("Telegram app cleared, ready for the next account")
                 except Exception as e:  # noqa
+                    exc("vmos", e)
                     self.log(f"Wipe skipped ({e})")
             else:
                 self.log("Wipe turned off: Telegram left signed in on the cloud phone")
@@ -149,11 +163,13 @@ class Provisioner:
             raise
         except Exception as e:  # noqa
             self.state["error"] = str(e)
+            exc("manager", e)
             self._fail_phase()
             self.log("Stopped: " + str(e))
             await self._release(tv, vid)
         finally:
             self.state["running"] = False
+            dbg("manager", f"Run finished: done={self.state['done']} error={self.state['error']}")
 
     def _fail_phase(self):
         if self.state["phase"]:

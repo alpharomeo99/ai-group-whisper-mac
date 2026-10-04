@@ -2,6 +2,9 @@
 import asyncio
 import random
 import re
+import time
+
+from debuglog import dbg, short, exc
 
 AUTH = "https://my.telegram.org/auth"
 APPS = "https://my.telegram.org/apps"
@@ -55,32 +58,65 @@ def _run(phone, proxy_line, code_cb, app_title, headless, password):
     opts = {"headless": headless, "humanize": True, "geoip": bool(proxy), "os": ["windows", "macos"]}
     if proxy:
         opts["proxy"] = proxy
+    C = "camoufox"
+    dbg(C, f"Launching Camoufox headless={headless} proxy={(proxy or {}).get('server') or 'none'} geoip={opts['geoip']}")
+    t0 = time.time()
     with Camoufox(**opts) as browser:
+        dbg(C, f"Browser started in {time.time() - t0:.1f}s")
         page = browser.new_page()
+        page.on("console", lambda m: dbg(C, f"page console [{m.type}]: {short(m.text, 300)}", "debug"))
+        page.on("response", lambda r: dbg(C, f"<- {r.status} {short(r.url, 160)}", "debug") if "telegram.org" in r.url else None)
+        page.on("requestfailed", lambda r: dbg(C, f"request failed: {short(r.url, 160)} {r.failure}", "warn"))
+
+        def snap(label):
+            try:
+                body = page.inner_text("body")
+            except Exception:  # noqa
+                body = ""
+            dbg(C, f"[{label}] url={page.url} title={page.title()!r} text={short(' '.join(body.split()), 500)}")
+
+        dbg(C, f"Opening {AUTH}")
         page.goto(AUTH, wait_until="domcontentloaded", timeout=90000)
+        snap("auth page")
+        dbg(C, f"Filling phone {phone} and clicking Next")
         page.fill("#my_login_phone", phone)
         page.click("button:has-text('Next')")
-        page.wait_for_selector("#my_password", timeout=60000)
+        try:
+            page.wait_for_selector("#my_password", timeout=60000)
+        except Exception:
+            snap("no code field")
+            raise CamoufoxError("my.telegram.org did not show the code field (number refused or too many tries).")
+        snap("code field shown")
+        dbg(C, "Waiting for the login code from the phone")
         code = code_cb()
         if not code:
             raise CamoufoxError("No my.telegram.org login code arrived.")
+        dbg(C, f"Entering code {code} and signing in")
         page.fill("#my_password", str(code))
         page.click("button:has-text('Sign In')")
         page.wait_for_timeout(4000)
+        snap("after sign in")
         if "login" in (page.content() or "").lower() and page.query_selector("#my_password"):
             raise CamoufoxError("my.telegram.org did not accept the login code.")
+        dbg(C, f"Opening {APPS}")
         page.goto(APPS, wait_until="domcontentloaded", timeout=90000)
+        snap("apps page")
         if page.query_selector("#app_title"):
+            dbg(C, f"No app yet, creating '{app_title}'")
             page.fill("#app_title", app_title)
             page.fill("#app_shortname", re.sub(r"\W", "", app_title.lower())[:20] or "whisper%d" % random.randint(10, 99))
             if page.query_selector("#app_platform_other"):
                 page.check("#app_platform_other")
             page.click("button:has-text('Create application')")
             page.wait_for_timeout(3000)
+            snap("after create")
             if page.query_selector("button:has-text('Confirm')"):
                 page.click("button:has-text('Confirm')")
                 page.wait_for_timeout(3000)
             page.goto(APPS, wait_until="domcontentloaded", timeout=90000)
+            snap("apps page after create")
+        else:
+            dbg(C, "App already exists on this account, reading its keys")
         html = page.content()
         api_id = re.search(r"App api_id:.*?<(?:strong|code|span)[^>]*>\s*(\d{4,10})", html, re.S)
         api_hash = re.search(r"App api_hash:.*?<(?:strong|code|span)[^>]*>\s*([0-9a-f]{32})", html, re.S)
@@ -89,7 +125,9 @@ def _run(phone, proxy_line, code_cb, app_title, headless, password):
         if not api_hash:
             api_hash = re.search(r"\b([0-9a-f]{32})\b", html)
         if not (api_id and api_hash):
+            dbg(C, f"Could not find keys. Page HTML: {short(html, 1500)}", "error")
             raise CamoufoxError("Could not read the API ID and hash from my.telegram.org.")
+        dbg(C, f"Keys read: api_id={api_id.group(1)} api_hash={api_hash.group(1)[:4]}...{api_hash.group(1)[-4:]}")
         return int(api_id.group(1)), api_hash.group(1)
 
 
@@ -125,5 +163,9 @@ async def get_api_credentials(phone, proxy_line, code_getter, app_title="Whisper
         fut = asyncio.run_coroutine_threadsafe(code_getter(), loop)
         return fut.result(360)
 
-    box["r"] = await loop.run_in_executor(None, _run, phone, proxy_line, code_cb, app_title, headless, password)
+    try:
+        box["r"] = await loop.run_in_executor(None, _run, phone, proxy_line, code_cb, app_title, headless, password)
+    except Exception as e:  # noqa
+        exc("camoufox", e)
+        raise
     return box["r"]

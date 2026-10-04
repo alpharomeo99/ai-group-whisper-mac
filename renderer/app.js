@@ -367,3 +367,36 @@ refreshStatus(); loadGroups(); loadOverview(); cfxNav();
 setInterval(() => { cfxNav(); if (!$('view-overview').classList.contains('hidden')) loadOverview(); }, 10000);
 setInterval(refreshStatus, 4000);
 setInterval(() => { loadFeed(); if (!$('view-queue').classList.contains('hidden')) loadQueue(); }, 8000);
+
+// ----- detailed generation log -----
+let dbgAll = [], dbgLast = 0;
+const DBG_RANK = { debug: 0, info: 1, warn: 2, error: 3 };
+function dbgLine(e) {
+  const d = new Date(e.t * 1000);
+  const ts = d.toTimeString().slice(0, 8) + '.' + String(d.getMilliseconds()).padStart(3, '0');
+  return `${ts} ${e.level.toUpperCase().padEnd(5)} [${e.src}] ${e.text}`;
+}
+function dbgRender() {
+  const src = $('dbg-src').value, lvl = $('dbg-level').value;
+  const rows = dbgAll.filter((e) => (!src || e.src === src) && (!lvl || DBG_RANK[e.level] >= DBG_RANK[lvl]));
+  $('dbg-log').innerHTML = rows.map((e) => `<span class="l-${e.level}">${esc(dbgLine(e))}</span>`).join('\n');
+  $('dbg-count').textContent = `${rows.length} of ${dbgAll.length} lines`;
+  if ($('dbg-follow').checked) $('dbg-log').scrollTop = $('dbg-log').scrollHeight;
+}
+async function dbgPoll() {
+  try {
+    const r = await api('GET', '/provision/debug?after=' + dbgLast);
+    if (r.entries && r.entries.length) { dbgAll = dbgAll.concat(r.entries).slice(-4000); dbgLast = r.entries[r.entries.length - 1].id; dbgRender(); }
+    if (r.file) $('dbg-file').textContent = 'Also saved to: ' + r.file;
+  } catch (_) {}
+}
+$('dbg-src').onchange = dbgRender; $('dbg-level').onchange = dbgRender;
+$('dbg-copy').onclick = async () => {
+  const src = $('dbg-src').value, lvl = $('dbg-level').value;
+  const txt = dbgAll.filter((e) => (!src || e.src === src) && (!lvl || DBG_RANK[e.level] >= DBG_RANK[lvl])).map(dbgLine).join('\n');
+  try { await navigator.clipboard.writeText(txt); $('dbg-copy').textContent = 'Copied'; }
+  catch (_) { const t = document.createElement('textarea'); t.value = txt; document.body.appendChild(t); t.select(); document.execCommand('copy'); t.remove(); $('dbg-copy').textContent = 'Copied'; }
+  setTimeout(() => ($('dbg-copy').textContent = 'Copy'), 1500);
+};
+$('dbg-clear').onclick = async () => { await api('POST', '/provision/debug/clear'); dbgAll = []; dbgRender(); };
+dbgPoll(); setInterval(dbgPoll, 1500);

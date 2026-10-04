@@ -126,3 +126,12 @@ td button { padding: 4px 10px; font-size: 12px; }
 @keyframes pulse { 50% { opacity: .5; } }
 
 button.danger{background:#e5484d;color:#fff;border-color:#e5484d}
+
+.dbg-head { align-items: center; gap: 8px; flex-wrap: wrap; }
+.dbg-head h3 { margin: 0 auto 0 0; }
+.dbg-head select { width: auto; }
+pre.log.dbg { max-height: 460px; min-height: 160px; }
+.l-debug { color: #7d8590; }
+.l-info { color: #d6deeb; }
+.l-warn { color: #e3b341; }
+.l-error { color: #ff7b72; }

@@ -14,6 +14,8 @@ from telethon import TelegramClient, events, errors
 import ai
 import cfx_browser as cfx
 import updater
+import debuglog
+from debuglog import dbg
 from provisioner import Provisioner
 from textverified import TextVerified
 from vmos import Vmos
@@ -101,15 +103,25 @@ class Daemon:
         """Sign a number into Telethon with its own API keys; the code is read by code_getter()."""
         session = "acct_" + secrets.token_hex(8)
         c = self._new_client(session, (int(api_id), api_hash), proxy_id)
+        dbg("telethon", f"Connecting new client session={session} api_id={api_id} proxy_id={proxy_id}")
         await asyncio.wait_for(c.connect(), timeout=20)
+        dbg("telethon", "Connected, requesting login code")
         sent = await c.send_code_request(phone)
+        dbg("telethon", f"Code requested, delivery type: {type(sent.type).__name__}")
         await asyncio.sleep(5)
         code = await code_getter()
         if not code:
+            dbg("telethon", "No login code arrived, discarding session", "error")
             await self._discard(c, session)
             raise RuntimeError("The Telegram login code did not arrive.")
-        await c.sign_in(phone, code, phone_code_hash=sent.phone_code_hash)
+        dbg("telethon", f"Signing in with code {code}")
+        try:
+            await c.sign_in(phone, code, phone_code_hash=sent.phone_code_hash)
+        except Exception as e:  # noqa
+            debuglog.exc("telethon", e)
+            raise
         me = await c.get_me()
+        dbg("telethon", f"Signed in as id={me.id} name={me.first_name!r} username={me.username}")
         await c.disconnect()
         cur = self.store.q("INSERT INTO accounts(session,api_id,api_hash,proxy_id,created) VALUES(?,?,?,?,?)",
                            (session, int(api_id), api_hash, proxy_id, int(time.time())))
@@ -515,6 +527,16 @@ class Daemon:
         @r.get("/provision/status")
         async def prov_status(_):
             return J(self.prov.state)
+
+        @r.get("/provision/debug")
+        async def prov_debug(req):
+            after = int(req.query.get("after") or 0)
+            return J({"entries": debuglog.since(after), "file": debuglog.LOG_FILE})
+
+        @r.post("/provision/debug/clear")
+        async def prov_debug_clear(_):
+            debuglog.clear()
+            return J({"ok": True})
 
         @r.post("/provision/cancel")
         async def prov_cancel(_):
