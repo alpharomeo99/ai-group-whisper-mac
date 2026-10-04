@@ -53,7 +53,19 @@ class VmosAccountWorker:
         self.log("Opening Telegram on the cloud phone")
         await vm.sh(f"am force-stop {TG_PKG}; pm clear {TG_PKG}; monkey -p {TG_PKG} -c android.intent.category.LAUNCHER 1")
         await asyncio.sleep(10)
-        await self._retry_tap("start messaging", "continue", "start")
+        await vm.current_app()
+        # Telegram's welcome screen is animated, so the screen reader often can't see it.
+        # Try by text once, then tap the "Start Messaging" button by its position.
+        if not await vm.tap("start messaging", "continue", "start", wait=15):
+            w, h = await vm.screen_size()
+            for frac in (0.88, 0.84, 0.92):
+                await vm.tap_xy(w // 2, int(h * frac), "(Start Messaging button)")
+                await asyncio.sleep(4)
+                if await vm.find(cls="EditText") or "phone" in (await vm.screen_text()).lower():
+                    dbg("vmos", "Phone number screen is open")
+                    break
+            else:
+                dbg("vmos", "Still on the welcome screen after position taps", "error")
         await asyncio.sleep(3)
 
         self.log("Entering the phone number")

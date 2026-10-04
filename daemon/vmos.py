@@ -49,7 +49,7 @@ class Vmos:
     async def call(self, path, body):
         raw = json.dumps(body, separators=(",", ":"), ensure_ascii=False)
         dbg("vmos", f"POST {path} body={short(raw, 400)}", "debug")
-        sign_body = not path.endswith(UNSIGNED_BODY)
+        sign_body = True  # this VMOS account accepts signed bodies on every endpoint
         j = await self._post(path, raw, sign_body)
         if j.get("code") == 2019:
             # Some VMOS servers sign command bodies, some don't: try the other way once.
@@ -118,8 +118,12 @@ class Vmos:
 
     # ----- UI automation helpers (uiautomator) -----
     async def nodes(self):
-        out = await self.sh("uiautomator dump /sdcard/u.xml >/dev/null 2>&1; cat /sdcard/u.xml", timeout=40)
+        out = await self.sh("rm -f /sdcard/u.xml; uiautomator dump --compressed /sdcard/u.xml 2>&1; cat /sdcard/u.xml", timeout=40)
         i = out.find("<?xml")
+        if i < 0:
+            dbg("vmos", f"Screen dump failed, uiautomator said: {short(out.strip(), 300)}", "warn")
+            out = await self.sh("rm -f /sdcard/u.xml; uiautomator dump /sdcard/u.xml 2>&1; cat /sdcard/u.xml", timeout=40)
+            i = out.find("<?xml")
         if i < 0:
             dbg("vmos", "Screen dump empty (no UI XML)", "warn")
             return []
@@ -166,6 +170,22 @@ class Vmos:
         safe = re.sub(r"[^0-9A-Za-z+]", "", text)
         dbg("vmos", f"Typing '{safe}'")
         await self.sh(f"input text '{safe}'")
+
+    async def screen_size(self):
+        out = await self.sh("wm size")
+        m = re.findall(r"(\d+)x(\d+)", out)
+        w, h = map(int, m[-1]) if m else (720, 1280)
+        dbg("vmos", f"Screen size {w}x{h}", "debug")
+        return w, h
+
+    async def tap_xy(self, x, y, why=""):
+        dbg("vmos", f"Tapping by position {x},{y} {why}")
+        await self.sh(f"input tap {x} {y}")
+
+    async def current_app(self):
+        out = await self.sh("dumpsys window | grep -E 'mCurrentFocus|mFocusedApp' | head -2")
+        dbg("vmos", f"In front: {short(out.strip(), 300)}", "debug")
+        return out
 
     async def screen_text(self):
         return " ".join((n["text"] + " " + n["desc"]) for n in await self.nodes())
