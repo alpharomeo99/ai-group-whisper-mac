@@ -117,31 +117,59 @@ class Vmos:
         raise VmosError("Cloud phone command timed out.")
 
     # ----- UI automation helpers (uiautomator) -----
+    # VMOS cuts shell output at ~2000 chars, so the full UI XML can never come back whole.
+    # Compact it on the phone to one short line per useful element, then read it in chunks.
+    _COMPACT = (
+        "tr '>' '\\n' < /sdcard/u.xml | grep '<node' | "
+        "sed -n 's/.* text=\"\\([^\"]*\\)\" resource-id=\"\\([^\"]*\\)\" class=\"\\([^\"]*\\)\".* content-desc=\"\\([^\"]*\\)\".* clickable=\"\\([^\"]*\\)\".* bounds=\"\\([^\"]*\\)\".*/\\6~\\3~\\5~\\2~\\1~\\4/p' | "
+        "sed 's/android\\.widget\\.//; s/~[a-z.]*:id\\//~/' | "
+        "grep -v '~false~[^~]*~~$' > /sdcard/u.txt; wc -c < /sdcard/u.txt"
+    )
+
     async def nodes(self):
-        out = await self.sh("rm -f /sdcard/u.xml; uiautomator dump --compressed /sdcard/u.xml 2>&1; cat /sdcard/u.xml", timeout=40)
-        i = out.find("<?xml")
-        if i < 0:
-            dbg("vmos", f"Screen dump failed, uiautomator said: {short(out.strip(), 300)}", "warn")
-            out = await self.sh("rm -f /sdcard/u.xml; uiautomator dump /sdcard/u.xml 2>&1; cat /sdcard/u.xml", timeout=40)
-            i = out.find("<?xml")
-        if i < 0:
-            dbg("vmos", "Screen dump empty (no UI XML)", "warn")
+        out = await self.sh("rm -f /sdcard/u.xml /sdcard/u.txt; uiautomator dump /sdcard/u.xml >/dev/null 2>&1; "
+                            "test -s /sdcard/u.xml && echo DUMPED || echo NODUMP", timeout=40)
+        if "DUMPED" not in out:
+            dbg("vmos", f"Screen dump failed: {short(out.strip(), 300)}", "warn")
             return []
-        try:
-            root = ET.fromstring(out[i:])
-        except ET.ParseError as e:
-            dbg("vmos", f"Screen dump could not be parsed: {e}", "warn")
-            return []
+        size_out = await self.sh(self._COMPACT, timeout=40)
+        m = re.findall(r"\d+", size_out)
+        size = int(m[-1]) if m else 0
+        text = ""
+        pos = 1
+        while pos <= size and pos < 40000:
+            text += await self.sh(f"tail -c +{pos} /sdcard/u.txt | head -c 1500", timeout=40)
+            pos += 1500
         res = []
-        for n in root.iter("node"):
-            m = re.findall(r"\d+", n.get("bounds", ""))
-            if len(m) == 4:
-                x1, y1, x2, y2 = map(int, m)
-                res.append({"text": n.get("text", ""), "desc": n.get("content-desc", ""), "id": n.get("resource-id", ""),
-                            "cls": n.get("class", ""), "x": (x1 + x2) // 2, "y": (y1 + y2) // 2})
+        for line in text.splitlines():
+            parts = line.split("~")
+            if len(parts) < 6:
+                continue
+            b = re.findall(r"\d+", parts[0])
+            if len(b) != 4:
+                continue
+            x1, y1, x2, y2 = map(int, b)
+            res.append({"text": parts[4], "desc": "~".join(parts[5:]), "id": parts[3], "cls": parts[1],
+                        "click": parts[2] == "true", "x": (x1 + x2) // 2, "y": (y1 + y2) // 2})
         vis = [((r["text"] or r["desc"]).strip()) for r in res if (r["text"] or r["desc"]).strip()]
-        dbg("vmos", f"Screen has {len(res)} elements. Visible text: {short(' | '.join(vis), 700)}", "debug")
+        dbg("vmos", f"Screen has {len(res)} elements ({size} bytes). Visible text: {short(' | '.join(vis), 700)}", "debug")
         return res
+
+    async def dismiss_popups(self):
+        """Tap away Android permission prompts and simple OK dialogs."""
+        for _ in range(4):
+            ns = await self.nodes()
+            hit = None
+            for n in ns:
+                t = (n["text"] or n["desc"]).strip().lower()
+                if n["id"].startswith("permission_allow") or t in ("allow", "while using the app", "only this time", "ok", "got it"):
+                    hit = n
+                    break
+            if not hit:
+                return
+            dbg("vmos", f"Dismissing popup: tapping '{hit['text'] or hit['desc']}' at {hit['x']},{hit['y']}")
+            await self.sh(f"input tap {hit['x']} {hit['y']}")
+            await asyncio.sleep(2)
 
     async def find(self, *labels, cls=None):
         want = [l.lower() for l in labels]

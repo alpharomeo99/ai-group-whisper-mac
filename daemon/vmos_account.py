@@ -51,9 +51,15 @@ class VmosAccountWorker:
         """Sign the number up inside Telegram on the phone. sms_code() -> awaitable code."""
         vm = self.vm
         self.log("Opening Telegram on the cloud phone")
-        await vm.sh(f"am force-stop {TG_PKG}; pm clear {TG_PKG}; monkey -p {TG_PKG} -c android.intent.category.LAUNCHER 1")
+        perms = " ".join(f"pm grant {TG_PKG} android.permission.{p} 2>/dev/null;" for p in (
+            "POST_NOTIFICATIONS", "READ_PHONE_STATE", "CALL_PHONE", "READ_CALL_LOG", "READ_CONTACTS",
+            "WRITE_CONTACTS", "RECEIVE_SMS", "READ_SMS", "READ_PHONE_NUMBERS", "ANSWER_PHONE_CALLS",
+            "CAMERA", "RECORD_AUDIO", "ACCESS_FINE_LOCATION", "READ_MEDIA_IMAGES"))
+        await vm.sh(f"am force-stop {TG_PKG}; pm clear {TG_PKG}; {perms} monkey -p {TG_PKG} -c android.intent.category.LAUNCHER 1")
+        dbg("vmos", "Granted Telegram's Android permissions up front so no permission popups appear")
         await asyncio.sleep(10)
         await vm.current_app()
+        await vm.dismiss_popups()
         # Telegram's welcome screen is animated, so the screen reader often can't see it.
         # Try by text once, then tap the "Start Messaging" button by its position.
         if not await vm.tap("start messaging", "continue", "start", wait=15):
@@ -67,6 +73,7 @@ class VmosAccountWorker:
             else:
                 dbg("vmos", "Still on the welcome screen after position taps", "error")
         await asyncio.sleep(3)
+        await vm.dismiss_popups()
 
         self.log("Entering the phone number")
         if await self._retry_tap(cls="EditText"):
@@ -76,6 +83,7 @@ class VmosAccountWorker:
         await self._retry_tap("next", "continue", "done")
         await asyncio.sleep(2)
         await vm.tap("yes", "ok", "continue", wait=6)  # "Is this number correct?" dialog
+        await vm.dismiss_popups()
 
         self.log("Waiting for the SMS code")
         code = await sms_code()
