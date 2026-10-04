@@ -37,7 +37,7 @@ class VmosAccountWorker:
         except Exception as e:  # noqa
             self.log(f"SIM step skipped ({e})")
 
-    async def wipe(self):
+    async def clear_telegram_app(self):
         """Clear the Telegram app's data on the cloud phone. The Mac's Telethon session stays signed in."""
         self.log("Clearing the Telegram app on the cloud phone")
         await self.vm.sh(f"am force-stop {TG_PKG}; pm clear {TG_PKG}")

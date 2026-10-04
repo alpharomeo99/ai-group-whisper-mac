@@ -24,7 +24,7 @@ PHASES = [
     ("api", "Camoufox API keys"),
     ("link", "Connect account"),
     ("persona", "Profile & photo"),
-    ("wipe", "Clear Telegram app"),
+    ("clearapp", "Clear Telegram app"),
 ]
 
 
@@ -143,17 +143,17 @@ class Provisioner:
                 exc("telethon", e)
                 self.log(f"Profile step skipped ({e})")
 
-            self._phase("wipe")
-            if opts.get("wipe", True):
+            self._phase("clearapp")
+            if opts.get("clearapp", True):
                 try:
-                    await phone_worker.wipe()
+                    await phone_worker.clear_telegram_app()
                     self.log("Telegram app cleared, ready for the next account")
                 except Exception as e:  # noqa
                     exc("vmos", e)
-                    self.log(f"Wipe skipped ({e})")
+                    self.log(f"Clearing skipped ({e})")
             else:
-                self.log("Wipe turned off: Telegram left signed in on the cloud phone")
-            self._phase("wipe", "done")
+                self.log("Clearing turned off: Telegram left signed in on the cloud phone")
+            self._phase("clearapp", "done")
             self.log("Done. The account is connected.")
             self.state["done"] = True
         except asyncio.CancelledError:
