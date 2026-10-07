@@ -422,6 +422,10 @@ function switchPTab(tab) {
   document.querySelectorAll('.p-tab').forEach((b) => b.classList.toggle('active', b.dataset.ptab === tab));
   $('p-tab-matrix').classList.toggle('hidden', tab !== 'matrix');
   $('p-tab-roster').classList.toggle('hidden', tab !== 'roster');
+  if ($('p-tab-cadence')) {
+    $('p-tab-cadence').classList.toggle('hidden', tab !== 'cadence');
+    if (tab === 'cadence') loadOrchConfig();
+  }
 }
 document.querySelectorAll('.p-tab').forEach((b) => b.onclick = () => switchPTab(b.dataset.ptab));
 
@@ -694,3 +698,56 @@ $('pg-run').onclick = async () => {
     $('pg-run').disabled = false;
   }
 };
+
+
+// ----- Cadence & Orchestrator Configuration -----
+async function loadOrchConfig() {
+  try {
+    const c = await api('GET', '/orchestrator/config');
+    if ($('orch-enabled')) $('orch-enabled').checked = !!c.enabled;
+    if ($('orch-spontaneous')) $('orch-spontaneous').checked = !!c.allow_spontaneous;
+    if ($('orch-threshold')) {
+      $('orch-threshold').value = c.base_threshold || 0.52;
+      $('orch-thresh-val').textContent = `(${c.base_threshold || 0.52})`;
+    }
+    if ($('orch-reading-cps')) $('orch-reading-cps').value = c.reading_cps || 32;
+    if ($('orch-circadian')) $('orch-circadian').checked = !!c.circadian_enabled;
+    if ($('orch-peak-hour')) $('orch-peak-hour').value = c.circadian_peak_hour != null ? c.circadian_peak_hour : 15;
+    if ($('orch-anti-dogpile')) $('orch-anti-dogpile').value = c.anti_dogpile_window || 45;
+    if ($('orch-fatigue-tau')) $('orch-fatigue-tau').value = c.fatigue_decay_tau || 240;
+  } catch (err) {
+    console.error('Failed to load orchestrator config:', err);
+  }
+}
+
+if ($('orch-threshold')) {
+  $('orch-threshold').oninput = (e) => {
+    $('orch-thresh-val').textContent = `(${e.target.value})`;
+  };
+}
+
+if ($('orch-save')) {
+  $('orch-save').onclick = async () => {
+    const btn = $('orch-save');
+    btn.disabled = true;
+    btn.textContent = 'Saving...';
+    try {
+      await api('POST', '/orchestrator/config', {
+        enabled: $('orch-enabled').checked,
+        allow_spontaneous: $('orch-spontaneous').checked,
+        base_threshold: parseFloat($('orch-threshold').value),
+        reading_cps: parseFloat($('orch-reading-cps').value),
+        circadian_enabled: $('orch-circadian').checked,
+        circadian_peak_hour: parseInt($('orch-peak-hour').value, 10),
+        anti_dogpile_window: parseFloat($('orch-anti-dogpile').value),
+        fatigue_decay_tau: parseFloat($('orch-fatigue-tau').value)
+      });
+      btn.textContent = 'Saved ✓';
+      setTimeout(() => { btn.disabled = false; btn.textContent = 'Save Orchestration Parameters'; }, 1500);
+    } catch (err) {
+      alert('Error saving orchestration parameters: ' + err.message);
+      btn.disabled = false;
+      btn.textContent = 'Save Orchestration Parameters';
+    }
+  };
+}

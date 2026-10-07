@@ -22,6 +22,7 @@ from provisioner import Provisioner
 from textverified import TextVerified
 from vmos import Vmos
 from store import Store
+from orchestrator import PersonaCadenceOrchestrator
 
 log = logging.getLogger("whisperd")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -40,6 +41,7 @@ class Daemon:
         self._adopt_legacy_session()
         self.wake_event = asyncio.Event()
         self.prov = Provisioner(self)
+        self.orchestrator = PersonaCadenceOrchestrator(self.store)
         self.autoapi = {}        # token -> {"future": code future, "task": camoufox task}
         self.cfx_install = {"running": False, "log": ""}
 
@@ -219,8 +221,10 @@ class Daemon:
             await self.on_message(event, aid)
         return h
 
-    async def client_for(self, chat_id):
+    async def client_for(self, chat_id, account_id=None):
         ready = await self.ensure_clients()
+        if account_id and account_id in ready:
+            return ready[account_id]
         g = self.store.rows("SELECT account_id FROM groups WHERE chat_id=?", (chat_id,))
         aid = g[0]["account_id"] if g else None
         if aid in ready:
@@ -258,8 +262,50 @@ class Daemon:
         self.store.add_message(chat_id, event.id, name, event.raw_text, int(event.date.timestamp()))
         if g[0]["auto_reply"] and not event.out:
             me = await event.client.get_me()
-            if event.mentioned or (event.is_reply and (await event.get_reply_message()).sender_id == me.id):
-                # dedupe per triggering message so restarts/wakes never double-send
+            is_direct = event.mentioned
+            if not is_direct and event.is_reply:
+                try:
+                    rep = await event.get_reply_message()
+                    # Check if replied to this client or any client we control
+                    client_uids = {getattr(c, "_self_id", None) for c in self.clients.values() if hasattr(c, "_self_id")}
+                    if rep and (rep.sender_id == me.id or rep.sender_id in client_uids):
+                        is_direct = True
+                except Exception:
+                    pass
+
+            # Gather candidate personas for this group:
+            # 1. Group matrix assignments (group_personas) with valid accounts
+            candidates = self.store.rows(
+                "SELECT p.*, gp.account_id, gp.persona_id FROM group_personas gp "
+                "JOIN personas p ON p.id=gp.persona_id WHERE gp.chat_id=? AND gp.account_id IS NOT NULL",
+                (chat_id,)
+            )
+            # 2. Fallback: group owner account's persona if not in matrix
+            if not candidates and g[0].get("account_id"):
+                acc_p = self.store.rows(
+                    "SELECT p.*, a.id account_id, p.id persona_id FROM accounts a "
+                    "JOIN personas p ON p.id=a.persona_id WHERE a.id=?",
+                    (g[0]["account_id"],)
+                )
+                if acc_p:
+                    candidates = acc_p
+
+            if candidates:
+                pid, aid, delay, reason = self.orchestrator.arbiter_decision(
+                    chat_id, candidates,
+                    {"text": event.raw_text, "sender": name, "id": event.id},
+                    is_direct_mention=is_direct
+                )
+                if pid and aid:
+                    self.orchestrator.record_activity(chat_id, pid)
+                    self.store.enqueue(
+                        "draft_reply", chat_id,
+                        {"trigger": event.id, "auto_send": True, "account_id": aid, "persona_id": pid, "reason": reason},
+                        dedupe_key=f"reply:{chat_id}:{event.id}",
+                        delay=int(delay)
+                    )
+            elif is_direct:
+                # Direct mention fallback with no explicit persona assigned
                 self.store.enqueue("draft_reply", chat_id, {"trigger": event.id, "auto_send": True},
                                    dedupe_key=f"reply:{chat_id}:{event.id}", delay=3)
         self.wake_event.set()
@@ -279,16 +325,22 @@ class Daemon:
             for job in self.store.claim(limit=3):
                 await self.run_job(job)
 
-    def persona_for(self, g):
-        """Group override text wins; then the persona designed for this group and the speaking account; then the account persona."""
+    def persona_for(self, g, persona_id=None, account_id=None):
+        """Group override text wins; then the chosen persona; then the persona designed for this group and account; then account fallback."""
         if (g.get("persona") or "").strip():
             return g["persona"]
+        if persona_id:
+            p = self.store.rows("SELECT name, prompt FROM personas WHERE id=?", (persona_id,))
+            if p and p[0]["prompt"]:
+                pr = p[0]["prompt"]
+                return pr if pr.lstrip().startswith("You are") else f"You are {p[0]['name']}. {pr}"
+        aid = account_id or g.get("account_id")
         gp = self.store.rows("SELECT p.prompt FROM group_personas gp JOIN personas p ON p.id=gp.persona_id "
-                             "WHERE gp.chat_id=? AND gp.account_id=?", (g.get("chat_id"), g.get("account_id")))
+                             "WHERE gp.chat_id=? AND gp.account_id=?", (g.get("chat_id"), aid))
         if gp and gp[0]["prompt"]:
             return gp[0]["prompt"]
         r = self.store.rows("SELECT p.name,p.prompt FROM accounts a JOIN personas p ON p.id=a.persona_id WHERE a.id=?",
-                            (g.get("account_id"),))
+                            (aid,))
         if not r:
             return ""
         pr = r[0]["prompt"] or ""
@@ -322,16 +374,18 @@ class Daemon:
                 self.store.q("INSERT INTO summaries(chat_id,body,created) VALUES(?,?,?)",
                              (job["chat_id"], body, int(time.time())))
             elif job["kind"] == "draft_reply":
-                text = await ai.draft_reply(settings, g.get("title", ""), self.persona_for(g),
+                chosen_persona = self.persona_for(g, persona_id=p.get("persona_id"), account_id=p.get("account_id"))
+                text = await ai.draft_reply(settings, g.get("title", ""), chosen_persona,
                                             self.store.recent(job["chat_id"], 30))
                 if p.get("auto_send"):
-                    self.store.enqueue("send", job["chat_id"], {"text": text, "reply_to": p.get("trigger")},
+                    self.store.enqueue("send", job["chat_id"],
+                                       {"text": text, "reply_to": p.get("trigger"), "account_id": p.get("account_id")},
                                        dedupe_key=f"send:{job['id']}")
                 else:
                     self.store.q("INSERT INTO summaries(chat_id,body,created) VALUES(?,?,?)",
                                  (job["chat_id"], "Draft reply:\n" + text, int(time.time())))
             elif job["kind"] == "send":
-                cl = await self.client_for(job["chat_id"])
+                cl = await self.client_for(job["chat_id"], account_id=p.get("account_id"))
                 secs = self.typing_secs(g, p["text"])
                 try:
                     async with cl.action(job["chat_id"], "typing"):
@@ -742,6 +796,19 @@ class Daemon:
             self.store.enqueue(act, cid, {}, dedupe_key=f"{act}:{cid}:{int(time.time()) // 10}")
             self.wake_event.set()
             return J({"ok": True})
+
+        # ----- Orchestrator / Cadence Engine -----
+        @r.get("/orchestrator/config")
+        async def orch_get_cfg(_):
+            return J(self.orchestrator.get_config())
+
+        @r.post("/orchestrator/config")
+        async def orch_set_cfg(req):
+            b = await req.json()
+            curr = self.orchestrator.get_config()
+            curr.update(b)
+            self.store.set("orchestrator_config", curr)
+            return J(self.orchestrator.get_config())
 
         # ----- network graph (personas -> accounts -> groups) -----
         @r.get("/graph")

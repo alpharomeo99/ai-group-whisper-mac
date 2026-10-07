@@ -54,6 +54,7 @@
         <div class="p-tabs">
           <button class="p-tab active" data-ptab="matrix">Per User Per Group Assignments</button>
           <button class="p-tab" data-ptab="roster">All Personas Library</button>
+          <button class="p-tab" data-ptab="cadence">Mathematical Orchestration &amp; Cadence</button>
         </div>
 
         <!-- Tab 1: Group Matrix (Per User Per Group) -->
@@ -79,6 +80,67 @@
             </div>
             <div id="p-roster-grid" class="p-roster-grid">
               <div class="empty">No personas created yet.</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tab 3: Cadence & Orchestration -->
+        <div id="p-tab-cadence" class="hidden">
+          <div class="panel">
+            <div class="panel-head">
+              <h3>Mathematical Orchestration &amp; Cadence Engine</h3>
+              <span class="hint">Non-homogeneous Poisson delays, diurnal wakefulness curves &amp; turn-taking</span>
+            </div>
+            <p class="hint" style="margin-bottom:18px;">
+              Replaces robotic instant replies with stochastic human-like conversation dynamics. Models reading speed, reaction latencies, time-of-day wakefulness, topic salience, and anti-dogpiling turn-taking.
+            </p>
+            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:20px;">
+              <div class="card" style="padding:16px;">
+                <h4 style="margin-top:0;">Stochastic Timing &amp; Poisson Process</h4>
+                <div class="row" style="margin-bottom:12px; justify-content:space-between; align-items:center;">
+                  <label><b>Enable Orchestrator</b><br><small class="hint">Probabilistic deliberation &amp; fatigue dynamics</small></label>
+                  <input type="checkbox" id="orch-enabled" checked />
+                </div>
+                <div class="row" style="margin-bottom:12px; justify-content:space-between; align-items:center;">
+                  <label><b>Spontaneous Chatter</b><br><small class="hint">Allow chime-ins on relevant topics without @mention</small></label>
+                  <input type="checkbox" id="orch-spontaneous" checked />
+                </div>
+                <div style="margin-bottom:12px;">
+                  <label><b>Relevance Sensitivity Threshold</b> <span id="orch-thresh-val" class="hint">(0.52)</span></label>
+                  <input type="range" id="orch-threshold" min="0.2" max="0.85" step="0.01" value="0.52" style="width:100%" />
+                  <small class="hint">Higher values require stronger topic affinity before speaking.</small>
+                </div>
+                <div>
+                  <label><b>Reading Speed (chars/sec)</b></label>
+                  <input type="number" id="orch-reading-cps" min="10" max="80" value="32" style="width:100%; margin-top:4px;" />
+                </div>
+              </div>
+
+              <div class="card" style="padding:16px;">
+                <h4 style="margin-top:0;">Circadian &amp; Multi-Persona Turn-Taking</h4>
+                <div class="row" style="margin-bottom:12px; justify-content:space-between; align-items:center;">
+                  <label><b>Diurnal Activity Curve</b><br><small class="hint">Suppresses late-night replies unless active night owl</small></label>
+                  <input type="checkbox" id="orch-circadian" checked />
+                </div>
+                <div style="margin-bottom:12px;">
+                  <label><b>Peak Activity Hour (0-23)</b></label>
+                  <input type="number" id="orch-peak-hour" min="0" max="23" value="15" style="width:100%; margin-top:4px;" />
+                  <small class="hint">Hour of day when personas are most active (e.g. 15 = 3 PM).</small>
+                </div>
+                <div style="margin-bottom:12px;">
+                  <label><b>Anti-Dogpiling Suppression (seconds)</b></label>
+                  <input type="number" id="orch-anti-dogpile" min="10" max="300" value="45" style="width:100%; margin-top:4px;" />
+                  <small class="hint">Minimum spacing before another teammate persona can reply in the same group.</small>
+                </div>
+                <div>
+                  <label><b>Fatigue Half-Life (seconds)</b></label>
+                  <input type="number" id="orch-fatigue-tau" min="60" max="1200" value="240" style="width:100%; margin-top:4px;" />
+                  <small class="hint">Time required for conversational fatigue to decay.</small>
+                </div>
+              </div>
+            </div>
+            <div style="margin-top:16px; display:flex; justify-content:flex-end;">
+              <button id="orch-save" class="primary">Save Orchestration Parameters</button>
             </div>
           </div>
         </div>
