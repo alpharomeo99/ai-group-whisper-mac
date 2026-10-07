@@ -793,6 +793,101 @@ class Daemon:
                 return J({"error": "Connect Persona to Account, or Account to Group."}, status=400)
             return J({"ok": True})
 
+        @r.get("/personas")
+        async def personas_list(_):
+            rows = self.store.rows("SELECT * FROM personas ORDER BY id DESC")
+            gps = self.store.rows("SELECT gp.persona_id, gp.chat_id, g.title group_title, gp.account_id, a.name account_name, a.phone "
+                                  "FROM group_personas gp "
+                                  "JOIN groups g ON g.chat_id=gp.chat_id "
+                                  "LEFT JOIN accounts a ON a.id=gp.account_id")
+            acc_fallback = self.store.rows("SELECT a.persona_id, a.id account_id, a.name account_name, a.phone "
+                                           "FROM accounts a WHERE a.persona_id IS NOT NULL")
+            out = []
+            for r in rows:
+                p = dict(r)
+                try:
+                    p["details"] = json.loads(p.get("details") or "{}")
+                except Exception:
+                    p["details"] = {}
+                p["group_assignments"] = [g for g in gps if g["persona_id"] == p["id"]]
+                p["account_defaults"] = [a for a in acc_fallback if a["persona_id"] == p["id"]]
+                out.append(p)
+            return J({"personas": out})
+
+        @r.get("/personas/matrix")
+        async def personas_matrix(_):
+            groups = self.store.rows("SELECT chat_id, title, watched, auto_reply, persona, account_id, profile FROM groups ORDER BY watched DESC, title")
+            accounts = self.store.rows("SELECT id, phone, name, username, active, persona_id FROM accounts ORDER BY id")
+            personas = self.store.rows("SELECT * FROM personas ORDER BY id")
+            for p in personas:
+                try:
+                    p["details"] = json.loads(p.get("details") or "{}")
+                except Exception:
+                    p["details"] = {}
+
+            gps = self.store.rows("SELECT gp.chat_id, gp.persona_id, gp.account_id, p.name persona_name, p.color persona_color, p.bio persona_bio, p.details "
+                                  "FROM group_personas gp "
+                                  "JOIN personas p ON p.id=gp.persona_id")
+            for g in gps:
+                try:
+                    g["details"] = json.loads(g.get("details") or "{}")
+                except Exception:
+                    g["details"] = {}
+
+            matrix = []
+            for g in groups:
+                cid = g["chat_id"]
+                grp_assigns = [x for x in gps if x["chat_id"] == cid]
+                user_assignments = []
+                for a in accounts:
+                    assigned = next((x for x in grp_assigns if x["account_id"] == a["id"]), None)
+                    fallback = next((p for p in personas if p["id"] == a["persona_id"]), None) if not assigned else None
+                    user_assignments.append({
+                        "account_id": a["id"],
+                        "account_name": a["name"] or a["phone"] or f"Account #{a['id']}",
+                        "account_phone": a["phone"],
+                        "active": a["active"],
+                        "assigned_persona": assigned,
+                        "fallback_persona": fallback,
+                        "is_fallback": bool(not assigned and fallback),
+                    })
+                prof = {}
+                try:
+                    prof = json.loads(g.get("profile") or "{}")
+                except Exception:
+                    pass
+                matrix.append({
+                    "chat_id": cid,
+                    "title": g["title"],
+                    "watched": bool(g["watched"]),
+                    "auto_reply": bool(g["auto_reply"]),
+                    "override_persona": g.get("persona") or "",
+                    "profile": prof,
+                    "available_personas": grp_assigns,
+                    "user_assignments": user_assignments
+                })
+            return J({"matrix": matrix, "accounts": accounts, "personas": personas})
+
+        @r.post("/personas/assign-matrix")
+        async def assign_matrix(req):
+            b = await req.json()
+            cid = int(b["chat_id"])
+            aid = int(b["account_id"]) if b.get("account_id") is not None else None
+            pid = int(b["persona_id"]) if b.get("persona_id") else None
+
+            if not aid:
+                return J({"error": "account_id is required"}, status=400)
+
+            # Clear previous persona assignment for this user in this group
+            self.store.q("UPDATE group_personas SET account_id=NULL WHERE chat_id=? AND account_id=?", (cid, aid))
+
+            if pid:
+                r = self.store.q("UPDATE group_personas SET account_id=? WHERE chat_id=? AND persona_id=?", (aid, cid, pid))
+                if r.rowcount == 0:
+                    self.store.q("INSERT INTO group_personas(chat_id,persona_id,account_id,created) VALUES(?,?,?,?)",
+                                 (cid, pid, aid, int(time.time())))
+            return J({"ok": True})
+
         @r.post("/personas")
         async def persona_save(req):
             b = await req.json()

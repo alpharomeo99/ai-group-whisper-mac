@@ -255,3 +255,41 @@ main.flush > section.flush { max-width: none; height: 100%; }
 .gx-gp small{opacity:.65;display:block;margin:2px 0 6px}
 .gx-pre{white-space:pre-wrap;font-size:11px;max-height:260px;overflow:auto;background:rgba(0,0,0,.25);padding:8px;border-radius:8px}
 .gx-pre.hidden{display:none}
+
+
+/* Persona Management View */
+.p-tabs { display: flex; gap: 8px; margin-bottom: 16px; border-bottom: 1px solid var(--line); padding-bottom: 10px; }
+.p-tab { background: transparent; border: 1px solid transparent; color: var(--muted); border-radius: 6px; padding: 6px 14px; font-size: 13px; cursor: pointer; }
+.p-tab:hover { color: var(--text); background: var(--panel2); }
+.p-tab.active { background: var(--panel2); color: var(--accent); border-color: var(--line2); font-weight: 600; }
+
+.p-matrix-grid { display: flex; flex-direction: column; gap: 16px; }
+.p-group-card { padding: 18px; }
+.p-group-head { display: flex; justify-content: space-between; align-items: flex-start; padding-bottom: 12px; border-bottom: 1px solid var(--line); margin-bottom: 12px; }
+.p-group-table-head { display: grid; grid-template-columns: 220px 1fr 180px 60px; gap: 12px; font-size: 11px; text-transform: uppercase; color: var(--muted); letter-spacing: .05em; padding: 4px 8px 8px; }
+.p-user-row { display: grid; grid-template-columns: 220px 1fr 180px 60px; gap: 12px; align-items: center; padding: 10px 8px; border-radius: 8px; transition: background .12s; border-bottom: 1px solid rgba(255,255,255,.03); }
+.p-user-row:hover { background: rgba(255,255,255,.02); }
+.p-user-info { display: flex; align-items: center; gap: 10px; }
+.p-user-avatar { width: 30px; height: 30px; border-radius: 50%; background: var(--line2); display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 12px; color: var(--text); flex-shrink: 0; }
+.p-select { width: 100%; background: var(--panel2); border: 1px solid var(--line2); border-radius: 6px; color: var(--text); padding: 6px 10px; font-size: 13px; }
+.p-user-status { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+
+.p-roster-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(310px, 1fr)); gap: 14px; margin-top: 10px; }
+.p-card { display: flex; flex-direction: column; gap: 10px; padding: 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+.p-card-header { display: flex; align-items: center; gap: 12px; }
+.p-avatar { width: 36px; height: 36px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-weight: 700; color: #04211d; flex-shrink: 0; }
+.p-card-title { flex: 1; min-width: 0; }
+.p-card-title b { display: block; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.p-traits { display: flex; flex-wrap: wrap; gap: 6px; }
+.p-tag { font-size: 11px; padding: 2px 7px; border-radius: 5px; background: var(--panel2); border: 1px solid var(--line2); color: var(--muted); }
+.p-prompt-preview { font-size: 12px; color: var(--muted); line-height: 1.4; background: var(--bg); padding: 8px 10px; border-radius: 6px; border: 1px solid var(--line); min-height: 48px; }
+.p-card-footer { display: flex; align-items: center; gap: 8px; margin-top: auto; padding-top: 6px; }
+
+/* Modals */
+.p-modal { position: fixed; inset: 0; background: rgba(0,0,0,.7); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 20px; }
+.p-modal-content { background: var(--panel); border: 1px solid var(--line2); border-radius: 12px; width: 100%; max-width: 680px; max-height: 90vh; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 12px 36px rgba(0,0,0,.6); }
+.p-modal-header { display: flex; justify-content: space-between; align-items: center; padding: 16px 20px; border-bottom: 1px solid var(--line); }
+.p-modal-header h2 { font-size: 16px; margin: 0; }
+.p-modal-close { font-size: 20px; padding: 2px 8px; line-height: 1; }
+.p-modal-body { padding: 20px; overflow-y: auto; flex: 1; }
+.p-modal-footer { display: flex; justify-content: flex-end; gap: 10px; padding: 14px 20px; border-top: 1px solid var(--line); background: var(--panel2); }

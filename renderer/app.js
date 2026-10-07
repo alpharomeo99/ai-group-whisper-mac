@@ -30,7 +30,7 @@ let groups = [], current = null;
 function esc(s) { const d = document.createElement('div'); d.textContent = s ?? ''; return d.innerHTML; }
 function show(view) {
   document.querySelectorAll('nav button').forEach((b) => b.classList.toggle('active', b.dataset.view === view));
-  ['overview', 'network', 'groups', 'accounts', 'automation', 'queue', 'settings'].forEach((v) => $('view-' + v).classList.toggle('hidden', v !== view));
+  ['overview', 'network', 'personas', 'groups', 'accounts', 'automation', 'queue', 'settings'].forEach((v) => $('view-' + v).classList.toggle('hidden', v !== view));
   document.querySelector('main').classList.toggle('flush', view === 'network');
   if (view === 'network') window.loadNetwork();
   if (view === 'overview') loadOverview();
@@ -38,6 +38,7 @@ function show(view) {
   if (view === 'settings') loadSettings();
   if (view === 'accounts') loadAccounts();
   if (view === 'automation') loadAutomation();
+  if (view === 'personas') loadPersonas();
 }
 document.querySelectorAll('nav button').forEach((b) => b.onclick = () => show(b.dataset.view));
 document.querySelectorAll('[data-go]').forEach((b) => b.onclick = () => show(b.dataset.go));
@@ -410,3 +411,286 @@ $('dbg-copy').onclick = async () => {
 };
 $('dbg-clear').onclick = async () => { await api('POST', '/provision/debug/clear'); dbgAll = []; dbgRender(); };
 dbgPoll(); setInterval(dbgPoll, 1500);
+
+
+// ----- Persona Management (Per User Per Group) -----
+let personaData = { matrix: [], accounts: [], personas: [] };
+let activePTab = 'matrix';
+
+function switchPTab(tab) {
+  activePTab = tab;
+  document.querySelectorAll('.p-tab').forEach((b) => b.classList.toggle('active', b.dataset.ptab === tab));
+  $('p-tab-matrix').classList.toggle('hidden', tab !== 'matrix');
+  $('p-tab-roster').classList.toggle('hidden', tab !== 'roster');
+}
+document.querySelectorAll('.p-tab').forEach((b) => b.onclick = () => switchPTab(b.dataset.ptab));
+
+async function loadPersonas() {
+  try {
+    const res = await api('GET', '/personas/matrix');
+    personaData = res;
+    renderPersonaMatrix();
+    renderPersonaRoster();
+  } catch (err) {
+    console.error('Failed to load personas:', err);
+  }
+}
+
+function renderPersonaMatrix() {
+  const container = $('p-matrix-list');
+  if (!personaData.matrix || personaData.matrix.length === 0) {
+    container.innerHTML = '<div class="empty">No Telegram groups found yet. Sync groups in Network or open Groups.</div>';
+    return;
+  }
+
+  container.innerHTML = personaData.matrix.map((g) => {
+    const userRows = g.user_assignments.map((u) => {
+      const assigned = u.assigned_persona;
+      const fallback = u.fallback_persona;
+      const effective = assigned || fallback;
+      const perOptions = `<option value="">None (Account Default)</option>` +
+        personaData.personas.map((p) => `<option value="${p.id}" ${assigned && String(assigned.persona_id) === String(p.id) ? 'selected' : ''}>${esc(p.name)}</option>`).join('');
+
+      let typingInfo = '';
+      if (effective && effective.details && effective.details.typing) {
+        const t = effective.details.typing;
+        typingInfo = `<span class="badge" title="Typing simulation">${t.chars_per_second || 20} cps · ${t.min_seconds || 2}-${t.max_seconds || 8}s</span>`;
+      }
+
+      return `
+        <div class="p-user-row">
+          <div class="p-user-info">
+            <span class="p-user-avatar">${esc((u.account_name || 'U')[0].toUpperCase())}</span>
+            <div>
+              <b>${esc(u.account_name)}</b>
+              <div class="hint">${esc(u.account_phone || '')} · ${u.active ? '<span style="color:var(--ok)">Active</span>' : 'Paused'}</div>
+            </div>
+          </div>
+          <div class="p-user-persona-sel">
+            <select data-matrix-cid="${g.chat_id}" data-matrix-aid="${u.account_id}" class="p-select">
+              ${perOptions}
+            </select>
+          </div>
+          <div class="p-user-status">
+            ${assigned ? `<span class="badge ok" style="background:rgba(56,212,139,.12); color:var(--ok); border-color:rgba(56,212,139,.25);">Group Custom</span>` 
+                       : fallback ? `<span class="badge" style="background:rgba(47,196,178,.12); color:var(--accent);">Fallback: ${esc(fallback.name)}</span>`
+                       : `<span class="badge off">No Persona</span>`}
+            ${typingInfo}
+          </div>
+          <div class="p-user-actions">
+            ${effective ? `<button class="ghost" data-pedit="${effective.id || effective.persona_id}" style="padding:4px 8px; font-size:12px;">Edit</button>` : ''}
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    return `
+      <div class="card p-group-card">
+        <div class="p-group-head">
+          <div>
+            <h3 style="margin:0; display:flex; align-items:center; gap:8px;">
+              ${esc(g.title)}
+              ${g.watched ? '<span class="badge ok">Watched</span>' : ''}
+              ${g.auto_reply ? '<span class="badge" style="background:rgba(47,196,178,.15); color:var(--accent);">Auto-Reply</span>' : ''}
+            </h3>
+            <div class="hint" style="margin-top:2px;">Chat ID: ${g.chat_id} · ${g.profile && g.profile.topic ? esc(g.profile.topic) : 'General discussion'}</div>
+          </div>
+          <button class="ghost" data-gen-for="${g.chat_id}" style="font-size:12px;">+ Design Personas for Group</button>
+        </div>
+        <div class="p-group-users">
+          <div class="p-group-table-head">
+            <span>User / Account</span>
+            <span>Assigned Persona for this Group</span>
+            <span>Status &amp; Cadence</span>
+            <span></span>
+          </div>
+          ${userRows || '<div class="hint" style="padding:10px;">No accounts assigned.</div>'}
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  // Attach matrix change listeners
+  container.querySelectorAll('select[data-matrix-cid]').forEach((el) => {
+    el.onchange = async () => {
+      const cid = el.dataset.matrixCid;
+      const aid = el.dataset.matrixAid;
+      const pid = el.value || null;
+      try {
+        await api('POST', '/personas/assign-matrix', { chat_id: cid, account_id: aid, persona_id: pid });
+        loadPersonas();
+      } catch (err) {
+        alert('Failed to update persona assignment: ' + err.message);
+      }
+    };
+  });
+
+  container.querySelectorAll('[data-gen-for]').forEach((el) => {
+    el.onclick = () => openGenModal(Number(el.dataset.genFor));
+  });
+
+  container.querySelectorAll('[data-pedit]').forEach((el) => {
+    el.onclick = () => openPersonaModal(Number(el.dataset.pedit));
+  });
+}
+
+function renderPersonaRoster() {
+  const container = $('p-roster-grid');
+  $('p-roster-count').textContent = `${personaData.personas ? personaData.personas.length : 0} personas`;
+  if (!personaData.personas || personaData.personas.length === 0) {
+    container.innerHTML = '<div class="empty">No personas created yet. Click "+ New Persona" or study a group.</div>';
+    return;
+  }
+
+  container.innerHTML = personaData.personas.map((p) => {
+    const d = p.details || {};
+    const t = d.typing || {};
+    const col = p.color || '#2fc4b2';
+    return `
+      <div class="card p-card">
+        <div class="p-card-header">
+          <div class="p-avatar" style="background:${esc(col)};">${esc((p.name || 'P')[0].toUpperCase())}</div>
+          <div class="p-card-title">
+            <b>${esc(p.name)}</b>
+            <div class="hint">${esc(p.bio || d.role_in_group || 'AI Persona')}</div>
+          </div>
+        </div>
+        <div class="p-traits">
+          ${d.role_in_group ? `<span class="p-tag">${esc(d.role_in_group)}</span>` : ''}
+          ${d.voice && d.voice.typical_length ? `<span class="p-tag">${esc(d.voice.typical_length)}</span>` : ''}
+          <span class="p-tag">${t.chars_per_second || 20} chars/s</span>
+        </div>
+        <div class="p-prompt-preview">${esc((p.prompt || '').slice(0, 140))}${p.prompt && p.prompt.length > 140 ? '…' : ''}</div>
+        <div class="p-card-footer">
+          <button class="ghost" data-proster-edit="${p.id}" style="font-size:12px;">Edit</button>
+          <button class="ghost" data-proster-test="${p.id}" style="font-size:12px;">Test</button>
+          <button class="ghost danger" data-proster-del="${p.id}" style="font-size:12px; margin-left:auto;">&times;</button>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  container.querySelectorAll('[data-proster-edit]').forEach((el) => el.onclick = () => openPersonaModal(Number(el.dataset.prosterEdit)));
+  container.querySelectorAll('[data-proster-test]').forEach((el) => el.onclick = () => {
+    openPersonaModal(Number(el.dataset.prosterTest));
+    $('pm-test-btn').click();
+  });
+  container.querySelectorAll('[data-proster-del]').forEach((el) => el.onclick = async () => {
+    if (!confirm('Delete this persona permanently?')) return;
+    await api('DELETE', `/personas/${el.dataset.prosterDel}`);
+    loadPersonas();
+  });
+}
+
+function openPersonaModal(pid) {
+  const p = pid ? (personaData.personas || []).find((x) => x.id === pid) : null;
+  const d = p && p.details ? p.details : {};
+  const t = d.typing || {};
+  $('pm-id').value = pid || '';
+  $('p-modal-title').textContent = pid ? 'Edit Persona' : 'Create New Persona';
+  $('pm-name').value = p ? p.name : '';
+  $('pm-color').value = p ? p.color || '#2fc4b2' : '#2fc4b2';
+  $('pm-color-text').value = $('pm-color').value;
+  $('pm-bio').value = p ? p.bio || '' : '';
+  $('pm-role').value = d.role_in_group || '';
+  $('pm-tone').value = d.voice ? d.voice.typical_length || '' : '';
+  $('pm-emoji').value = d.voice ? d.voice.emojis || '' : '';
+  $('pm-offtopic').value = d.off_topic ? d.off_topic.join(', ') : '';
+  $('pm-cps').value = t.chars_per_second || 20;
+  $('pm-min-sec').value = t.min_seconds || 2.0;
+  $('pm-max-sec').value = t.max_seconds || 8.0;
+  $('pm-prompt').value = p ? p.prompt || '' : '';
+  $('pm-test-output').textContent = 'Click "Test Reply" to see how this persona responds to group context.';
+  $('p-modal').classList.remove('hidden');
+}
+
+$('pm-color').oninput = (e) => { $('pm-color-text').value = e.target.value; };
+$('pm-color-text').oninput = (e) => { $('pm-color').value = e.target.value; };
+$('p-modal-close').onclick = () => $('p-modal').classList.add('hidden');
+$('pm-cancel').onclick = () => $('p-modal').classList.add('hidden');
+$('p-btn-new').onclick = () => openPersonaModal(null);
+
+$('pm-save').onclick = async () => {
+  const pid = $('pm-id').value ? Number($('pm-id').value) : null;
+  const existing = pid ? (personaData.personas || []).find((x) => x.id === pid) : null;
+  const details = existing && existing.details ? { ...existing.details } : {};
+  details.role_in_group = $('pm-role').value;
+  details.voice = details.voice || {};
+  details.voice.typical_length = $('pm-tone').value;
+  details.voice.emojis = $('pm-emoji').value;
+  details.off_topic = $('pm-offtopic').value ? $('pm-offtopic').value.split(',').map((s) => s.trim()).filter(Boolean) : [];
+  details.typing = {
+    chars_per_second: parseFloat($('pm-cps').value) || 20,
+    min_seconds: parseFloat($('pm-min-sec').value) || 2,
+    max_seconds: parseFloat($('pm-max-sec').value) || 8,
+  };
+
+  const payload = {
+    id: pid,
+    name: $('pm-name').value.trim() || 'New Persona',
+    prompt: $('pm-prompt').value.trim(),
+    color: $('pm-color').value,
+    bio: $('pm-bio').value.trim(),
+    details: details
+  };
+
+  try {
+    await api('POST', '/personas', payload);
+    $('p-modal').classList.add('hidden');
+    loadPersonas();
+  } catch (err) {
+    alert('Failed to save persona: ' + err.message);
+  }
+};
+
+$('pm-test-btn').onclick = async () => {
+  const pid = $('pm-id').value;
+  if (!pid) {
+    $('pm-test-output').textContent = 'Please save this persona first before testing.';
+    return;
+  }
+  $('pm-test-output').textContent = 'Generating preview reply...';
+  try {
+    const res = await api('POST', `/personas/${pid}/preview`, {});
+    $('pm-test-output').innerHTML = `
+      <div style="font-size:11.5px; color:var(--muted); margin-bottom:4px;">Test Reply Sample:</div>
+      <div style="color:var(--text); font-weight:500;">${esc(res.text)}</div>
+    `;
+  } catch (err) {
+    $('pm-test-output').textContent = 'Preview error: ' + err.message;
+  }
+};
+
+// Generation Modal
+function openGenModal(preselectedCid) {
+  const select = $('pg-group');
+  select.innerHTML = (personaData.matrix || []).map((g) =>
+    `<option value="${g.chat_id}" ${preselectedCid && String(g.chat_id) === String(preselectedCid) ? 'selected' : ''}>${esc(g.title)}</option>`).join('');
+  $('pg-status').textContent = '';
+  $('p-gen-modal').classList.remove('hidden');
+}
+
+$('p-btn-gen').onclick = () => openGenModal(null);
+$('p-gen-close').onclick = () => $('p-gen-modal').classList.add('hidden');
+$('pg-cancel').onclick = () => $('p-gen-modal').classList.add('hidden');
+
+$('pg-run').onclick = async () => {
+  const cid = $('pg-group').value;
+  if (!cid) return;
+  const count = Number($('pg-count').value) || 3;
+  const dir = $('pg-dir').value.trim();
+  $('pg-status').textContent = 'Reading real group chat messages and generating personas with Claude Sonnet 4.5... This takes 10-25 seconds.';
+  $('pg-run').disabled = true;
+  try {
+    const r = await api('POST', `/group-personas/${cid}/generate`, { count, direction: dir });
+    $('pg-status').textContent = `Success! Designed ${r.ids.length} personas based on ${r.studied} messages.`;
+    setTimeout(() => {
+      $('p-gen-modal').classList.add('hidden');
+      $('pg-run').disabled = false;
+      loadPersonas();
+    }, 1500);
+  } catch (err) {
+    $('pg-status').textContent = 'Failed: ' + err.message;
+    $('pg-run').disabled = false;
+  }
+};

@@ -16,6 +16,7 @@
         <div class="nav-label">Workspace</div>
         <button data-view="overview" class="active"><span class="ic">&#9673;</span>Overview</button>
         <button data-view="network"><span class="ic">&#10070;</span>Network</button>
+        <button data-view="personas"><span class="ic">&#9813;</span>Personas</button>
         <button data-view="groups"><span class="ic">&#9776;</span>Groups</button>
         <button data-view="queue"><span class="ic">&#8635;</span>Queue</button>
         <div class="nav-label">Accounts</div>
@@ -36,6 +37,185 @@
         </div>
       </section>
       <section id="view-network" class="hidden flush"><div id="gx" class="gx"></div></section>
+      <!-- Personas Section -->
+      <section id="view-personas" class="hidden">
+        <div class="page-head">
+          <div>
+            <h1>Persona Management</h1>
+            <p class="sub">Configure distinct AI personas per user per group, edit voice &amp; typing profiles, and run test replies.</p>
+          </div>
+          <div style="display:flex; gap:10px; align-items:center;">
+            <button id="p-btn-gen" class="primary">&#10024; Study group &amp; design personas</button>
+            <button id="p-btn-new">+ New Persona</button>
+          </div>
+        </div>
+
+        <!-- View mode tabs -->
+        <div class="p-tabs">
+          <button class="p-tab active" data-ptab="matrix">Per User Per Group Assignments</button>
+          <button class="p-tab" data-ptab="roster">All Personas Library</button>
+        </div>
+
+        <!-- Tab 1: Group Matrix (Per User Per Group) -->
+        <div id="p-tab-matrix">
+          <div class="panel" style="margin-bottom:16px;">
+            <div class="panel-head">
+              <h3>Group &amp; User Assignments</h3>
+              <span class="hint">Each user account speaks as a dedicated persona in each group</span>
+            </div>
+            <p class="hint" style="margin-bottom:14px;">Select which persona each Telegram user (account) embodies in each group. When an account has no group-specific persona assigned, it automatically falls back to its default account persona.</p>
+            <div id="p-matrix-list" class="p-matrix-grid">
+              <div class="empty">Loading assignments matrix...</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tab 2: Persona Library -->
+        <div id="p-tab-roster" class="hidden">
+          <div class="panel">
+            <div class="panel-head">
+              <h3>Persona Roster</h3>
+              <span id="p-roster-count" class="hint">0 personas</span>
+            </div>
+            <div id="p-roster-grid" class="p-roster-grid">
+              <div class="empty">No personas created yet.</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Persona Editor Drawer / Modal -->
+        <div id="p-modal" class="p-modal hidden">
+          <div class="p-modal-content">
+            <div class="p-modal-header">
+              <h2 id="p-modal-title">Edit Persona</h2>
+              <button class="ghost p-modal-close" id="p-modal-close">&times;</button>
+            </div>
+            <div class="p-modal-body">
+              <input type="hidden" id="pm-id" />
+              <div class="grid2">
+                <div>
+                  <label class="l">Persona Name</label>
+                  <input type="text" id="pm-name" placeholder="e.g. Alex Henderson" />
+                </div>
+                <div>
+                  <label class="l">Tag Color</label>
+                  <div style="display:flex; gap:8px; align-items:center;">
+                    <input type="color" id="pm-color" value="#2fc4b2" style="width:44px; height:36px; padding:2px; border-radius:6px; cursor:pointer;" />
+                    <input type="text" id="pm-color-text" value="#2fc4b2" style="flex:1;" />
+                  </div>
+                </div>
+              </div>
+              <div style="margin-top:12px;">
+                <label class="l">Role &amp; Bio</label>
+                <input type="text" id="pm-bio" placeholder="e.g. Biochemist researcher, active on weekends" />
+              </div>
+
+              <!-- Voice & Tone details -->
+              <div class="panel" style="margin-top:16px; background:var(--panel2);">
+                <div class="panel-head">
+                  <h3>Voice &amp; Personality Dynamics</h3>
+                </div>
+                <div class="grid2">
+                  <div>
+                    <label class="l">Role in Group</label>
+                    <input type="text" id="pm-role" placeholder="e.g. Skeptical veteran member" />
+                  </div>
+                  <div>
+                    <label class="l">Tone / Length</label>
+                    <input type="text" id="pm-tone" placeholder="e.g. Short, lowercase, casual banter" />
+                  </div>
+                </div>
+                <div class="grid2" style="margin-top:10px;">
+                  <div>
+                    <label class="l">Emoji Habit</label>
+                    <input type="text" id="pm-emoji" placeholder="e.g. Rarely, only occasional skulls or fire" />
+                  </div>
+                  <div>
+                    <label class="l">Off-topic Interests</label>
+                    <input type="text" id="pm-offtopic" placeholder="e.g. Coffee, lifting, crypto" />
+                  </div>
+                </div>
+              </div>
+
+              <!-- Typing simulation -->
+              <div class="panel" style="margin-top:16px; background:var(--panel2);">
+                <div class="panel-head">
+                  <h3>Human Typing Simulation</h3>
+                  <span class="hint">Realistic cadence prevents bot-like behavior</span>
+                </div>
+                <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:12px;">
+                  <div>
+                    <label class="l">Chars / Sec</label>
+                    <input type="number" id="pm-cps" step="1" min="5" max="60" value="20" />
+                  </div>
+                  <div>
+                    <label class="l">Min Delay (s)</label>
+                    <input type="number" id="pm-min-sec" step="0.5" min="0.5" max="15" value="2.0" />
+                  </div>
+                  <div>
+                    <label class="l">Max Delay (s)</label>
+                    <input type="number" id="pm-max-sec" step="0.5" min="1" max="30" value="8.0" />
+                  </div>
+                </div>
+              </div>
+
+              <!-- Prompt editor -->
+              <div style="margin-top:16px;">
+                <label class="l">System Prompt</label>
+                <textarea id="pm-prompt" rows="6" placeholder="You are... Speak naturally and never admit to being an AI."></textarea>
+              </div>
+
+              <!-- Test Sample Reply -->
+              <div class="panel" style="margin-top:16px; background:var(--panel2);">
+                <div class="panel-head">
+                  <h3>Live Preview Test</h3>
+                  <button type="button" class="primary" id="pm-test-btn" style="padding:4px 12px; font-size:12px;">Test Reply</button>
+                </div>
+                <div id="pm-test-output" style="font-size:12.5px; color:var(--muted); min-height:40px; border-radius:6px; background:var(--bg); padding:10px; border:1px solid var(--line);">
+                  Click "Test Reply" to see how this persona responds to group context.
+                </div>
+              </div>
+            </div>
+            <div class="p-modal-footer">
+              <button class="ghost" id="pm-cancel">Cancel</button>
+              <button class="primary" id="pm-save">Save Persona</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Generation Modal -->
+        <div id="p-gen-modal" class="p-modal hidden">
+          <div class="p-modal-content" style="max-width:540px;">
+            <div class="p-modal-header">
+              <h2>Study Group &amp; Design Personas</h2>
+              <button class="ghost p-modal-close" id="p-gen-close">&times;</button>
+            </div>
+            <div class="p-modal-body">
+              <p class="hint">Reads up to 800 recent messages from the selected group to uncover community culture, jargon, style, and member dynamics, then automatically designs realistic personas for your users.</p>
+              <div style="margin-top:14px;">
+                <label class="l">Select Group</label>
+                <select id="pg-group" style="width:100%;"></select>
+              </div>
+              <div style="margin-top:14px;" class="grid2">
+                <div>
+                  <label class="l">Number of Personas</label>
+                  <input type="number" id="pg-count" min="1" max="6" value="3" />
+                </div>
+                <div>
+                  <label class="l">Custom Tone / Direction</label>
+                  <input type="text" id="pg-dir" placeholder="e.g. Sarcastic veterans, casual buyers" />
+                </div>
+              </div>
+              <div id="pg-status" class="hint" style="margin-top:12px; min-height:20px;"></div>
+            </div>
+            <div class="p-modal-footer">
+              <button class="ghost" id="pg-cancel">Cancel</button>
+              <button class="primary" id="pg-run">Start Designing</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <section id="view-groups" class="hidden">
         <div class="page-head"><div><h1>Groups</h1><p class="sub">Pick a group, turn on Watch to collect messages.</p></div></div>
         <div class="split"><div id="group-list" class="panel list"></div><div class="split-main">
