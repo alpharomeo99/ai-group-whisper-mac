@@ -6,6 +6,8 @@ import logging
 import os
 import secrets
 import sys
+import random
+import json
 import time
 
 from aiohttp import web
@@ -139,6 +141,16 @@ class Daemon:
         if not c:
             raise RuntimeError("Account is not connected")
         p = await persona.generate(settings, style)
+        try:
+            import json as _j
+            cur = self.store.q("INSERT INTO personas(name,prompt,color,created,bio,details) VALUES(?,?,?,?,?,?)",
+                               (f"{p['first_name']} {p.get('last_name') or ''}".strip(), p["system_prompt"],
+                                random.choice(["#2fc4b2", "#7c6cff", "#ff8a4c", "#e45fa6", "#4ca8ff", "#9bd14c"]),
+                                int(time.time()), p.get("bio") or "", _j.dumps(p)))
+            self.store.q("UPDATE accounts SET persona_id=? WHERE id=?", (cur.lastrowid, aid))
+            log(f"Persona saved and wired to this account ({p.get('archetype')}, {p.get('age')}, {p.get('location')})")
+        except Exception as e:  # noqa
+            log(f"Persona not saved ({e})")
         await c(UpdateProfileRequest(first_name=p["first_name"], last_name=p.get("last_name") or "", about=p.get("bio") or ""))
         log(f"Profile set: {p['first_name']} {p.get('last_name') or ''}")
         for u in persona.usernames(p):
@@ -273,7 +285,23 @@ class Daemon:
             return g["persona"]
         r = self.store.rows("SELECT p.name,p.prompt FROM accounts a JOIN personas p ON p.id=a.persona_id WHERE a.id=?",
                             (g.get("account_id"),))
-        return f"You are {r[0]['name']}. {r[0]['prompt']}" if r else ""
+        if not r:
+            return ""
+        pr = r[0]["prompt"] or ""
+        return pr if pr.lstrip().startswith("You are") else f"You are {r[0]['name']}. {pr}"
+
+    def typing_secs(self, g, text):
+        """Typing-indicator delay scaled to length, from the account persona's typing profile."""
+        import json as _j
+        t = {"min_seconds": 2.0, "max_seconds": 8.0, "chars_per_second": 20.0}
+        r = self.store.rows("SELECT p.details FROM accounts a JOIN personas p ON p.id=a.persona_id WHERE a.id=?",
+                            (g.get("account_id"),))
+        try:
+            t.update((_j.loads(r[0]["details"] or "{}").get("typing") or {}) if r else {})
+        except Exception:  # noqa
+            pass
+        cps = max(float(t["chars_per_second"]), 1.0)
+        return min(max(len(text) / cps, float(t["min_seconds"])), float(t["max_seconds"])) * random.uniform(0.85, 1.2)
 
     async def run_job(self, job):
         import json
@@ -297,7 +325,14 @@ class Daemon:
                     self.store.q("INSERT INTO summaries(chat_id,body,created) VALUES(?,?,?)",
                                  (job["chat_id"], "Draft reply:\n" + text, int(time.time())))
             elif job["kind"] == "send":
-                await (await self.client_for(job["chat_id"])).send_message(job["chat_id"], p["text"], reply_to=p.get("reply_to"))
+                cl = await self.client_for(job["chat_id"])
+                secs = self.typing_secs(g, p["text"])
+                try:
+                    async with cl.action(job["chat_id"], "typing"):
+                        await asyncio.sleep(secs)
+                except Exception:  # noqa
+                    pass
+                await cl.send_message(job["chat_id"], p["text"], reply_to=p.get("reply_to"))
             self.store.finish(job["id"], True)
         except asyncio.CancelledError:
             self.store.finish(job["id"], False, "interrupted by sleep", retry_in=5)
@@ -757,11 +792,28 @@ class Daemon:
             b = await req.json()
             name = (b.get("name") or "New persona").strip()[:60]
             prompt, color = (b.get("prompt") or "")[:4000], (b.get("color") or "#2fc4b2")[:9]
+            bio = (b.get("bio") or "")[:70]
             if b.get("id"):
-                self.store.q("UPDATE personas SET name=?,prompt=?,color=? WHERE id=?", (name, prompt, color, int(b["id"])))
+                self.store.q("UPDATE personas SET name=?,prompt=?,color=?,bio=? WHERE id=?", (name, prompt, color, bio, int(b["id"])))
+                if b.get("details") is not None:
+                    self.store.q("UPDATE personas SET details=? WHERE id=?", (json.dumps(b["details"]), int(b["id"])))
                 return J({"ok": True, "id": int(b["id"])})
             cur = self.store.q("INSERT INTO personas(name,prompt,color,created) VALUES(?,?,?,?)", (name, prompt, color, int(time.time())))
             return J({"ok": True, "id": cur.lastrowid})
+
+        @r.get("/personas/archetypes")
+        async def persona_archs(_):
+            import persona
+            return J(persona.archetypes())
+
+        @r.post("/personas/generate")
+        async def persona_gen(req):
+            import persona
+            b = await req.json()
+            settings = {k: self.store.get(k) for k in ("fal_key", "ai_model")}
+            arch = b.get("archetype") if b.get("archetype") in persona.ARCHETYPES else None
+            p = await persona.generate(settings, b.get("style") or "", arch)
+            return J(p)
 
         @r.delete("/personas/{pid}")
         async def persona_del(req):

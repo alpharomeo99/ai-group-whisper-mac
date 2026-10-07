@@ -130,7 +130,7 @@
       const used = g.data.accounts.filter((a) => a.persona_id === o.id).length;
       return `<div class="gx-head"><span class="gx-av" style="background:${E(o.color)}">${E((o.name || '?')[0].toUpperCase())}</span>
         <div class="gx-ht"><b>${E(o.name)}</b><small>Persona</small></div></div>
-        <p class="gx-body">${E(o.prompt || 'No instructions yet - click to write how this persona talks.')}</p>
+        <p class="gx-body">${E(o.bio || o.prompt || 'No instructions yet - click to generate or write how this persona talks.')}</p>
         <div class="gx-foot"><span class="gx-chip">${used} account${used === 1 ? '' : 's'}</span></div>
         <i class="gx-port out" data-port="out"></i>`;
     }
@@ -271,19 +271,42 @@
     if (n.kind === 'per') {
       const groupsOpts = g.data.groups.map((x) => `<option value="${x.chat_id}">${E(x.title)}</option>`).join('');
       insp.innerHTML = head(o.name, 'Persona') + `
+        <label class="gx-l">Generate with AI</label>
+        <div class="gx-sw gx-arch">${[['crypto','Crypto native'],['tech','Tech / engineer'],['community','Friendly regular'],['growth','E-com / growth'],['lurker','Blunt lurker']].map(([k,l]) => `<button class="gx-chip" data-a="${k}">${l}</button>`).join('')}</div>
+        <input id="pi-vibe" placeholder="Extra direction, e.g. 27, Miami, sarcastic, NBA fan" />
+        <button class="gx-btn wide" id="pi-gen">&#10022; Generate detailed persona</button>
+        <div id="pi-card"></div>
+        <div class="gx-sep"></div>
         <label class="gx-l">Name</label><input id="pi-name" value="${E(o.name)}" />
         <label class="gx-l">Colour</label><div class="gx-sw">${COLORS.map((c) => `<button data-c="${c}" style="background:${c}" class="${c === o.color ? 'on' : ''}"></button>`).join('')}</div>
-        <label class="gx-l">How this persona talks</label><textarea id="pi-prompt" rows="7" placeholder="e.g. 24yo crypto trader from Austin, casual, lowercase, short replies, never uses emojis">${E(o.prompt)}</textarea>
+        <label class="gx-l">Telegram bio</label><input id="pi-bio" maxlength="70" value="${E(o.bio || '')}" />
+        <label class="gx-l">How this persona talks (full instructions)</label><textarea id="pi-prompt" rows="14" placeholder="e.g. 24yo crypto trader from Austin, casual, lowercase, short replies, never uses emojis">${E(o.prompt)}</textarea>
         <div class="gx-row"><button class="gx-btn" id="pi-save">Save</button><button class="gx-btn danger ghost" id="pi-del">Delete</button></div>
         <div class="gx-sep"></div>
         <label class="gx-l">Preview a reply</label>
         <select id="pi-grp"><option value="">Sample chat</option>${groupsOpts}</select>
         <button class="gx-btn ghost wide" id="pi-prev">&#9654; Generate preview</button>
         <div id="pi-out"></div>`;
-      let color = o.color;
+      let color = o.color, arch = '', genDetails = null;
+      const card = (d) => `<div class="gx-kv"><span>Age</span><b>${E(d.age || '-')}</b><span>From</span><b>${E(d.location || '-')}</b><span>Type</span><b>${E(d.archetype || '-')}</b><span>Typing</span><b>${d.typing ? E(Math.round(d.typing.chars_per_second)) + ' chars/s' : '-'}</b></div>${d.backstory ? `<p class="gx-mut">${E(d.backstory)}</p>` : ''}${(d.interests || []).map((i) => `<span class="gx-chip">${E(i)}</span>`).join(' ')}`;
+      try { const d = JSON.parse(o.details || '{}'); if (d.first_name) insp.querySelector('#pi-card').innerHTML = card(d); } catch (e) {}
+      insp.querySelectorAll('.gx-arch button').forEach((b) => b.onclick = () => { arch = arch === b.dataset.a ? '' : b.dataset.a; insp.querySelectorAll('.gx-arch button').forEach((x) => x.classList.toggle('on', x.dataset.a === arch)); });
+      insp.querySelector('#pi-gen').onclick = async (e) => {
+        e.target.disabled = true; e.target.textContent = 'Generating...';
+        try {
+          const d = await call('POST', '/personas/generate', { archetype: arch || null, style: insp.querySelector('#pi-vibe').value });
+          genDetails = d;
+          insp.querySelector('#pi-name').value = (d.first_name + ' ' + (d.last_name || '')).trim();
+          insp.querySelector('#pi-bio').value = d.bio || '';
+          insp.querySelector('#pi-prompt').value = d.system_prompt || '';
+          insp.querySelector('#pi-card').innerHTML = card(d);
+          toast('Generated - review and press Save');
+        } catch (err) { toast(err.message, true); }
+        e.target.disabled = false; e.target.innerHTML = '&#10022; Generate detailed persona';
+      };
       insp.querySelectorAll('.gx-sw button').forEach((b) => b.onclick = () => { color = b.dataset.c; insp.querySelectorAll('.gx-sw button').forEach((x) => x.classList.toggle('on', x === b)); });
       insp.querySelector('#pi-save').onclick = async () => {
-        try { await call('POST', '/personas', { id: o.id, name: insp.querySelector('#pi-name').value, prompt: insp.querySelector('#pi-prompt').value, color }); document.activeElement.blur(); await load(); toast('Saved'); } catch (err) { toast(err.message, true); }
+        try { await call('POST', '/personas', { id: o.id, name: insp.querySelector('#pi-name').value, prompt: insp.querySelector('#pi-prompt').value, bio: insp.querySelector('#pi-bio').value, color, details: genDetails }); document.activeElement.blur(); await load(); toast('Saved'); } catch (err) { toast(err.message, true); }
       };
       insp.querySelector('#pi-del').onclick = async () => { if (!confirm('Delete this persona?')) return; await call('DELETE', '/personas/' + o.id); delete g.layout[id]; saveLayout(); select(null); await load(); };
       insp.querySelector('#pi-prev').onclick = async (e) => {

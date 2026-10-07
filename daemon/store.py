@@ -51,7 +51,9 @@ class Store:
                     "ALTER TABLE accounts ADD COLUMN api_id INTEGER",
                     "ALTER TABLE accounts ADD COLUMN api_hash TEXT",
                     "ALTER TABLE accounts ADD COLUMN proxy_id INTEGER",
-                    "ALTER TABLE accounts ADD COLUMN persona_id INTEGER"):
+                    "ALTER TABLE accounts ADD COLUMN persona_id INTEGER",
+                    "ALTER TABLE personas ADD COLUMN bio TEXT DEFAULT ''",
+                    "ALTER TABLE personas ADD COLUMN details TEXT DEFAULT '{}'"):
             try:
                 self.db.execute(ddl)
             except sqlite3.OperationalError:
