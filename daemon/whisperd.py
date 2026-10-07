@@ -136,7 +136,7 @@ class Daemon:
         import persona
         from telethon.tl.functions.account import UpdateProfileRequest, UpdateUsernameRequest
         from telethon.tl.functions.photos import UploadProfilePhotoRequest
-        settings = {k: self.store.get(k) for k in ("fal_key", "ai_model")}
+        settings = {k: self.store.get(k) for k in ("fal_key", "ai_model", "persona_model")}
         c = (await self.ensure_clients()).get(aid)
         if not c:
             raise RuntimeError("Account is not connected")
@@ -280,9 +280,13 @@ class Daemon:
                 await self.run_job(job)
 
     def persona_for(self, g):
-        """Group override text wins; otherwise the persona wired to the group's account."""
+        """Group override text wins; then the persona designed for this group and the speaking account; then the account persona."""
         if (g.get("persona") or "").strip():
             return g["persona"]
+        gp = self.store.rows("SELECT p.prompt FROM group_personas gp JOIN personas p ON p.id=gp.persona_id "
+                             "WHERE gp.chat_id=? AND gp.account_id=?", (g.get("chat_id"), g.get("account_id")))
+        if gp and gp[0]["prompt"]:
+            return gp[0]["prompt"]
         r = self.store.rows("SELECT p.name,p.prompt FROM accounts a JOIN personas p ON p.id=a.persona_id WHERE a.id=?",
                             (g.get("account_id"),))
         if not r:
@@ -294,7 +298,9 @@ class Daemon:
         """Typing-indicator delay scaled to length, from the account persona's typing profile."""
         import json as _j
         t = {"min_seconds": 2.0, "max_seconds": 8.0, "chars_per_second": 20.0}
-        r = self.store.rows("SELECT p.details FROM accounts a JOIN personas p ON p.id=a.persona_id WHERE a.id=?",
+        r = self.store.rows("SELECT p.details FROM group_personas gp JOIN personas p ON p.id=gp.persona_id "
+                            "WHERE gp.chat_id=? AND gp.account_id=?", (g.get("chat_id"), g.get("account_id"))) or \
+            self.store.rows("SELECT p.details FROM accounts a JOIN personas p ON p.id=a.persona_id WHERE a.id=?",
                             (g.get("account_id"),))
         try:
             t.update((_j.loads(r[0]["details"] or "{}").get("typing") or {}) if r else {})
@@ -801,19 +807,89 @@ class Daemon:
             cur = self.store.q("INSERT INTO personas(name,prompt,color,created) VALUES(?,?,?,?)", (name, prompt, color, int(time.time())))
             return J({"ok": True, "id": cur.lastrowid})
 
-        @r.get("/personas/archetypes")
-        async def persona_archs(_):
-            import persona
-            return J(persona.archetypes())
+        @r.get("/group-personas/{cid}")
+        async def gp_list(req):
+            cid = int(req.match_info["cid"])
+            rows = self.store.rows("SELECT p.*, gp.account_id FROM group_personas gp JOIN personas p ON p.id=gp.persona_id "
+                                   "WHERE gp.chat_id=? ORDER BY p.id", (cid,))
+            g = self.store.rows("SELECT profile FROM groups WHERE chat_id=?", (cid,))
+            prof = {}
+            try:
+                prof = json.loads(g[0]["profile"] or "{}") if g else {}
+            except Exception:  # noqa
+                pass
+            return J({"personas": rows, "profile": prof})
 
-        @r.post("/personas/generate")
-        async def persona_gen(req):
+        @r.post("/group-personas/{cid}/generate")
+        async def gp_generate(req):
             import persona
-            b = await req.json()
-            settings = {k: self.store.get(k) for k in ("fal_key", "ai_model")}
-            arch = b.get("archetype") if b.get("archetype") in persona.ARCHETYPES else None
-            p = await persona.generate(settings, b.get("style") or "", arch)
-            return J(p)
+            cid, b = int(req.match_info["cid"]), await req.json()
+            count = max(1, min(int(b.get("count") or 3), 8))
+            settings = {k: self.store.get(k) for k in ("fal_key", "ai_model", "persona_model")}
+            g = self.store.rows("SELECT * FROM groups WHERE chat_id=?", (cid,))
+            if not g:
+                return J({"error": "Group not found. Sync groups first."}, status=404)
+            # Read the real history straight from Telegram (up to 800 messages), fall back to what's saved.
+            msgs, members = [], []
+            for aid, c in (await self.ensure_clients()).items():
+                try:
+                    await c.get_input_entity(cid)
+                    members.append(aid)
+                except Exception:  # noqa
+                    continue
+                if not msgs:
+                    try:
+                        async for m in c.iter_messages(cid, limit=800):
+                            if m.raw_text:
+                                s_ = await m.get_sender()
+                                msgs.append({"sender": getattr(s_, "first_name", None) or getattr(s_, "title", None) or "user",
+                                             "text": m.raw_text[:600]})
+                        msgs.reverse()
+                    except Exception as e:  # noqa
+                        debuglog.dbg("persona", f"History read failed: {e}", "warn")
+            if len(msgs) < 30:
+                msgs = msgs or self.store.recent(cid, 800)
+            if len(msgs) < 15:
+                return J({"error": "Not enough chat history to study this group yet (need ~15+ messages). Turn on Watch and wait a bit."}, status=400)
+            have = [r["name"] for r in self.store.rows("SELECT p.name FROM group_personas gp JOIN personas p ON p.id=gp.persona_id WHERE gp.chat_id=?", (cid,))]
+            try:
+                prof, ps = await persona.for_group(settings, g[0]["title"] or "", msgs, count, have, b.get("direction") or "")
+            except ai.AIError as e:
+                return J({"error": f"AI failed: {e}"}, status=400)
+            except Exception as e:  # noqa
+                return J({"error": f"Persona design failed: {e}"}, status=400)
+            self.store.q("UPDATE groups SET profile=? WHERE chat_id=?", (json.dumps(prof), cid))
+            # Give each new persona an account that is in this group and doesn't have a persona here yet.
+            taken = {r["account_id"] for r in self.store.rows("SELECT account_id FROM group_personas WHERE chat_id=?", (cid,))}
+            free = [a for a in members if a not in taken]
+            colors = ["#2fc4b2", "#7c6cff", "#ff8a4c", "#e45fa6", "#4ca8ff", "#9bd14c", "#f2c94c", "#56ccf2"]
+            ids = []
+            for p in ps:
+                cur = self.store.q("INSERT INTO personas(name,prompt,color,created,bio,details) VALUES(?,?,?,?,?,?)",
+                                   (f"{p['first_name']} {p.get('last_name') or ''}".strip(), p["system_prompt"], random.choice(colors),
+                                    int(time.time()), p.get("bio") or "", json.dumps(p)))
+                acc = free.pop(0) if free else None
+                self.store.q("INSERT OR REPLACE INTO group_personas(chat_id,persona_id,account_id,created) VALUES(?,?,?,?)",
+                             (cid, cur.lastrowid, acc, int(time.time())))
+                ids.append(cur.lastrowid)
+            debuglog.dbg("persona", f"Designed {len(ids)} personas for {g[0]['title']} from {len(msgs)} messages")
+            return J({"ok": True, "ids": ids, "profile": prof, "studied": len(msgs)})
+
+        @r.post("/group-personas/{cid}/assign")
+        async def gp_assign(req):
+            cid, b = int(req.match_info["cid"]), await req.json()
+            pid, acc = int(b["persona_id"]), (int(b["account_id"]) if b.get("account_id") else None)
+            if acc:
+                self.store.q("UPDATE group_personas SET account_id=NULL WHERE chat_id=? AND account_id=?", (cid, acc))
+            self.store.q("UPDATE group_personas SET account_id=? WHERE chat_id=? AND persona_id=?", (acc, cid, pid))
+            return J({"ok": True})
+
+        @r.delete("/group-personas/{cid}/{pid}")
+        async def gp_del(req):
+            cid, pid = int(req.match_info["cid"]), int(req.match_info["pid"])
+            self.store.q("DELETE FROM group_personas WHERE chat_id=? AND persona_id=?", (cid, pid))
+            self.store.q("DELETE FROM personas WHERE id=?", (pid,))
+            return J({"ok": True})
 
         @r.delete("/personas/{pid}")
         async def persona_del(req):

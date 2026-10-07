@@ -44,5 +44,5 @@ async def summarize(settings, title, msgs):
 
 async def draft_reply(settings, title, persona, msgs):
     return await chat(settings,
-                      f"You write a short, natural reply to the latest messages in a Telegram group on the user's behalf. Persona/instructions: {persona or 'friendly and concise'}. Reply with only the message text.",
+                      (persona or "You are a regular member of this Telegram group.") + "\n\nYou are reading the group's latest messages. Write the ONE message you would send next, exactly in your own voice and the group's style (length, casing, typos, slang). It may be a reply to someone, banter, or a short reaction. Output only the raw message text, no quotes, no name prefix.",
                       f"Group: {title}\n\n{transcript(msgs)}")

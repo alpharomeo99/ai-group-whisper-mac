@@ -37,6 +37,9 @@ CREATE TABLE IF NOT EXISTS proxies (
 CREATE TABLE IF NOT EXISTS personas (
   id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, prompt TEXT DEFAULT '', color TEXT DEFAULT '#2fc4b2', created INTEGER
 );
+CREATE TABLE IF NOT EXISTS group_personas (
+  chat_id INTEGER, persona_id INTEGER, account_id INTEGER, created INTEGER, PRIMARY KEY(chat_id, persona_id)
+);
 CREATE INDEX IF NOT EXISTS idx_queue_status ON queue(status, not_before);
 """
 
@@ -53,7 +56,8 @@ class Store:
                     "ALTER TABLE accounts ADD COLUMN proxy_id INTEGER",
                     "ALTER TABLE accounts ADD COLUMN persona_id INTEGER",
                     "ALTER TABLE personas ADD COLUMN bio TEXT DEFAULT ''",
-                    "ALTER TABLE personas ADD COLUMN details TEXT DEFAULT '{}'"):
+                    "ALTER TABLE personas ADD COLUMN details TEXT DEFAULT '{}'",
+                    "ALTER TABLE groups ADD COLUMN profile TEXT DEFAULT ''"):
             try:
                 self.db.execute(ddl)
             except sqlite3.OperationalError:
