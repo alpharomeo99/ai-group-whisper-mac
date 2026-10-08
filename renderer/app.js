@@ -457,83 +457,13 @@ $('dbg-clear').onclick = async () => { await api('POST', '/provision/debug/clear
 dbgPoll(); setInterval(dbgPoll, 1500);
 
 
-// ----- Persona Management Studio (Per User Per Group) -----
+// ----- Persona Management Controller (Per User Per Group) -----
 let personaData = { matrix: [], accounts: [], personas: [] };
-let activePTab = 'roster';
-let activeEdTab = 'profile';
-
-function switchPTab(tab) {
-  activePTab = tab;
-  document.querySelectorAll('.p-tab').forEach((b) => b.classList.toggle('active', b.dataset.ptab === tab));
-  $('p-tab-roster').classList.toggle('hidden', tab !== 'roster');
-  $('p-tab-matrix').classList.toggle('hidden', tab !== 'matrix');
-  if ($('p-tab-cadence')) {
-    $('p-tab-cadence').classList.toggle('hidden', tab !== 'cadence');
-    if (tab === 'cadence') loadOrchConfig();
-  }
-}
-document.querySelectorAll('.p-tab').forEach((b) => b.onclick = () => switchPTab(b.dataset.ptab));
-
-function switchEdTab(tab) {
-  activeEdTab = tab;
-  document.querySelectorAll('.p-ed-tab').forEach((b) => b.classList.toggle('active', b.dataset.edtab === tab));
-  $('p-sec-profile').classList.toggle('hidden', tab !== 'profile');
-  $('p-sec-voice').classList.toggle('hidden', tab !== 'voice');
-  $('p-sec-cadence').classList.toggle('hidden', tab !== 'cadence');
-  $('p-sec-prompt').classList.toggle('hidden', tab !== 'prompt');
-}
-document.querySelectorAll('.p-ed-tab').forEach((b) => b.onclick = () => switchEdTab(b.dataset.edtab));
-
-// Color swatches
-document.querySelectorAll('.p-swatch').forEach((s) => {
-  s.onclick = () => {
-    const c = s.dataset.c;
-    $('pm-color').value = c;
-    $('pm-color-text').value = c;
-    updateModalAvatarPreview();
-  };
-});
-
-function updateModalAvatarPreview() {
-  const name = $('pm-name').value.trim() || 'P';
-  const col = $('pm-color').value || '#2fc4b2';
-  $('pm-head-avatar').textContent = name[0].toUpperCase();
-  $('pm-head-avatar').style.background = col;
-  $('pm-head-subtitle').textContent = $('pm-role').value.trim() || 'Detailed Voice, Linguistics & Human Cadence';
-}
-
-if ($('pm-name')) $('pm-name').oninput = updateModalAvatarPreview;
-if ($('pm-role')) $('pm-role').oninput = updateModalAvatarPreview;
-if ($('pm-color')) $('pm-color').oninput = (e) => {
-  $('pm-color-text').value = e.target.value;
-  updateModalAvatarPreview();
-};
-if ($('pm-color-text')) $('pm-color-text').oninput = (e) => {
-  $('pm-color').value = e.target.value;
-  updateModalAvatarPreview();
-};
-
-if ($('pm-prompt')) {
-  $('pm-prompt').oninput = () => {
-    $('pm-prompt-charcount').textContent = `${$('pm-prompt').value.length} chars`;
-  };
-}
-
-async function loadPersonas() {
-  try {
-    const res = await api('GET', '/personas/matrix');
-    personaData = res;
-    renderPersonaRoster();
-    renderPersonaMatrix();
-  } catch (err) {
-    console.error('Failed to load personas:', err);
-  }
-}
-
-// ----- Primary Persona View & Tab Controller -----
+let activePersonaTab = 'roster';
 let currentStudioPersonaId = null;
 
 function switchPersonaTab(tabKey) {
+  activePersonaTab = tabKey;
   const tabs = ['roster', 'studio', 'matrix', 'cadence'];
   tabs.forEach((t) => {
     const el = $('p-tab-' + t);
@@ -543,6 +473,13 @@ function switchPersonaTab(tabKey) {
     $('p-main-tabs').querySelectorAll('.p-tab').forEach((b) => {
       b.classList.toggle('active', b.dataset.ptab === tabKey);
     });
+  }
+  if (tabKey === 'cadence') {
+    if (typeof loadOrchConfig === 'function') loadOrchConfig();
+  } else if (tabKey === 'matrix') {
+    renderPersonaMatrix();
+  } else if (tabKey === 'roster') {
+    renderPersonaRoster();
   }
 }
 
@@ -559,6 +496,17 @@ if ($('p-main-tabs')) {
   });
 }
 
+async function loadPersonas() {
+  try {
+    const res = await api('GET', '/personas/matrix');
+    personaData = res || { matrix: [], accounts: [], personas: [] };
+    renderPersonaRoster();
+    if (activePersonaTab === 'matrix') renderPersonaMatrix();
+  } catch (err) {
+    console.error('Failed to load personas:', err);
+  }
+}
+
 function renderPersonaRoster() {
   const container = $('p-roster-grid');
   const countEl = $('p-roster-count');
@@ -566,7 +514,7 @@ function renderPersonaRoster() {
   const matrix = personaData.matrix || [];
   const accounts = personaData.accounts || [];
 
-  if (countEl) countEl.textContent = `${personas.length} persona${personas.length === 1 ? '' : 's'}`;
+  if (countEl) countEl.textContent = `${personas.length} persona${personas.length === 1 ? '' : 's'} configured`;
 
   // Calculate high-level summary metrics
   const boundAccountIds = new Set(accounts.filter((a) => a.persona_id).map((a) => a.id));
@@ -591,11 +539,11 @@ function renderPersonaRoster() {
 
   if (!personas || personas.length === 0) {
     container.innerHTML = `
-      <div class="empty" style="grid-column: 1 / -1; padding: 36px 20px; text-align: center;">
-        <div style="font-size:12px; margin-bottom:4px; font-weight:600; color:var(--muted);">Studio</div>
-        <strong style="font-size:15px; display:block; margin-bottom:4px;">No personas created yet</strong>
-        <p class="hint" style="margin-bottom:14px;">Open the Persona Studio to configure your first autonomous agent persona.</p>
-        <button type="button" class="primary" id="p-btn-empty-studio" style="padding:8px 18px; font-weight:600;">+ Open Persona Studio</button>
+      <div class="empty" style="grid-column: 1 / -1; padding: 40px 20px; text-align: center;">
+        <div style="font-size:12px; margin-bottom:4px; font-weight:600; color:var(--muted);">Library Empty</div>
+        <strong style="font-size:15px; display:block; margin-bottom:6px;">No personas configured yet</strong>
+        <p class="hint" style="margin-bottom:14px; max-width:400px; margin-left:auto; margin-right:auto;">Open Persona Studio to build autonomous human agents with custom psychometrics and styling.</p>
+        <button type="button" class="primary" id="p-btn-empty-studio">+ Open Persona Studio</button>
       </div>
     `;
     const emptyBtn = $('p-btn-empty-studio');
@@ -613,7 +561,7 @@ function renderPersonaRoster() {
   });
 
   if (filtered.length === 0) {
-    container.innerHTML = '<div class="empty" style="grid-column: 1 / -1;">No personas match your search.</div>';
+    container.innerHTML = '<div class="empty" style="grid-column: 1 / -1; padding: 24px; text-align: center;">No personas match your search.</div>';
     return;
   }
 
@@ -622,25 +570,11 @@ function renderPersonaRoster() {
     const t = d.typing || {};
     const col = p.color || '#2fc4b2';
 
-    // Check account bindings
-    const boundAccs = accounts.filter((a) => String(a.persona_id) === String(p.id));
-    const boundAccLabel = boundAccs.length > 0
-      ? boundAccs.map((a) => esc(a.name || a.phone)).join(', ')
-      : null;
-
-    // Check group assignments
-    let assignedInGroups = 0;
-    matrix.forEach((g) => {
-      (g.user_assignments || []).forEach((u) => {
-        if (u.assigned_persona && String(u.assigned_persona.persona_id) === String(p.id)) assignedInGroups++;
-      });
-    });
-
     const unhingedVal = d.unhinged_level != null ? d.unhinged_level : (d.psychometrics && d.psychometrics.unhinged_level != null ? d.psychometrics.unhinged_level : 85);
     const unhingedBadge = unhingedVal >= 80
-      ? `<span class="p-tag" style="background:rgba(255,45,85,.15); color:#ff2d55; border-color:rgba(255,45,85,.3); font-weight:700;">${unhingedVal}% Unhinged</span>`
+      ? `<span class="p-tag p-tag-unhinged">${unhingedVal}% Unhinged</span>`
       : unhingedVal >= 55
-      ? `<span class="p-tag" style="background:rgba(255,149,0,.15); color:var(--warn); border-color:rgba(255,149,0,.3); font-weight:600;">${unhingedVal}% Edgy</span>`
+      ? `<span class="p-tag" style="background:rgba(255,149,0,.12); color:var(--warn); border-color:rgba(255,149,0,.3); font-weight:600;">${unhingedVal}% Edgy</span>`
       : `<span class="p-tag" style="background:rgba(56,212,139,.12); color:var(--ok); border-color:rgba(56,212,139,.3);">${unhingedVal}% Composed</span>`;
 
     const demoLabel = [d.culture, d.age ? d.age + 'yo' : null, d.occupation || d.role_in_group].filter(Boolean).join(' · ');
@@ -670,15 +604,15 @@ function renderPersonaRoster() {
         </div>
 
         <!-- Inline Account Quick-Binding -->
-        <div style="background:var(--bg); border:1px solid var(--line); border-radius:6px; padding:6px 10px; display:flex; align-items:center; justify-content:space-between; gap:8px;">
-          <span style="font-size:11.5px; font-weight:600; color:var(--muted); white-space:nowrap;">Default Account:</span>
-          <select class="p-select" data-roster-bind-pid="${p.id}" style="font-size:12px; padding:3px 6px; flex:1; max-width:180px;">
+        <div style="background:var(--bg); border:1px solid var(--line); border-radius:5px; padding:4px 8px; display:flex; align-items:center; justify-content:space-between; gap:6px;">
+          <span style="font-size:10.5px; font-weight:600; color:var(--muted); white-space:nowrap;">Default Account:</span>
+          <select class="p-select" data-roster-bind-pid="${p.id}" style="font-size:11.5px; padding:2px 6px; flex:1; max-width:180px;">
             ${accOptions}
           </select>
         </div>
 
-        <div class="p-prompt-preview" title="System Directive">
-          <div style="font-size:10px; text-transform:uppercase; color:var(--muted); margin-bottom:2px; font-weight:600; display:flex; justify-content:space-between;">
+        <div class="p-prompt-preview">
+          <div style="font-size:9.5px; text-transform:uppercase; color:var(--muted); margin-bottom:2px; font-weight:600; display:flex; justify-content:space-between;">
             <span>System Directive</span>
             <span>${p.prompt ? p.prompt.length : 0} chars</span>
           </div>
@@ -686,11 +620,11 @@ function renderPersonaRoster() {
         </div>
 
         <div class="p-card-footer">
-          <button type="button" class="primary" data-proster-edit="${p.id}" style="font-size:12px; font-weight:600; padding:5px 12px; background:linear-gradient(135deg, #007aff, #5856d6); color:#fff; border:none; border-radius:5px; cursor:pointer;">
+          <button type="button" class="primary" data-proster-edit="${p.id}" style="font-size:11.5px; font-weight:600; padding:4px 10px;">
             Open Studio
           </button>
-          <button type="button" class="ghost" data-proster-dup="${p.id}" style="font-size:12px;" title="Duplicate persona">&#x2398; Clone</button>
-          <button type="button" class="ghost danger" data-proster-del="${p.id}" style="font-size:12px; margin-left:auto;" title="Delete permanently">&times;</button>
+          <button type="button" class="ghost" data-proster-dup="${p.id}" style="font-size:11.5px; padding:4px 8px;">Clone</button>
+          <button type="button" class="ghost danger" data-proster-del="${p.id}" style="font-size:11.5px; padding:4px 8px; margin-left:auto;">Delete</button>
         </div>
       </div>
     `;
@@ -706,7 +640,6 @@ function renderPersonaRoster() {
           await api('POST', '/personas/account-bind', { account_id: aid, persona_id: pid });
           toast('Account bound to persona and synced to Network!');
         } else {
-          // Unbind any account currently bound to this persona
           const bound = (personaData.accounts || []).find((a) => String(a.persona_id) === String(pid));
           if (bound) {
             await api('POST', '/personas/account-bind', { account_id: bound.id, persona_id: null });
@@ -762,32 +695,36 @@ if ($('p-roster-search')) {
 function updateStudioUnhingedMeter(val) {
   const badge = $('ps-unhinged-badge');
   const desc = $('ps-unhinged-desc');
-  if (!badge) return;
-
-  if (val >= 81) {
-    badge.textContent = `${val}% • Extreme Chaotic Wildcard`;
-    badge.style.background = 'rgba(255,45,85,.15)';
-    badge.style.color = '#ff2d55';
-    badge.style.borderColor = 'rgba(255,45,85,.3)';
-    desc.innerHTML = `<b>Extreme Chaos & Volatility:</b> Zero corporate filter. Unpredictable mood swings, fierce skepticism, sudden tangents, blunt dismissal of weak takes, and spontaneous non-sequiturs.`;
-  } else if (val >= 56) {
-    badge.textContent = `${val}% • Edgy & Unfiltered`;
-    badge.style.background = 'rgba(255,149,0,.15)';
-    badge.style.color = 'var(--warn)';
-    badge.style.borderColor = 'rgba(255,149,0,.3)';
-    desc.innerHTML = `<b>Edgy & High Energy:</b> Sharp, candid, and prone to passionate arguments. Challenges weak claims with biting humor and zero patience for fluff.`;
-  } else if (val >= 26) {
-    badge.textContent = `${val}% • Grounded Realist`;
-    badge.style.background = 'rgba(88,86,214,.15)';
-    badge.style.color = '#9997ff';
-    badge.style.borderColor = 'rgba(88,86,214,.3)';
-    desc.innerHTML = `<b>Grounded & Authentic:</b> Balanced human persona with natural conversational quirks, mild skepticism, and relatable day-to-day opinions.`;
-  } else {
-    badge.textContent = `${val}% • Composed & Structured`;
-    badge.style.background = 'rgba(56,212,139,.15)';
-    badge.style.color = 'var(--ok)';
-    badge.style.borderColor = 'rgba(56,212,139,.3)';
-    desc.innerHTML = `<b>Measured & Composed:</b> Thoughtful, low-reactivity tone with constructive takes and structured sentence flow.`;
+  if (badge) {
+    badge.textContent = `${val}% Unhinged`;
+    if (val >= 80) {
+      badge.style.background = 'rgba(255,45,85,.15)';
+      badge.style.color = '#ff2d55';
+      badge.style.borderColor = 'rgba(255,45,85,.3)';
+    } else if (val >= 50) {
+      badge.style.background = 'rgba(255,149,0,.15)';
+      badge.style.color = 'var(--warn)';
+      badge.style.borderColor = 'rgba(255,149,0,.3)';
+    } else {
+      badge.style.background = 'rgba(56,212,139,.12)';
+      badge.style.color = 'var(--ok)';
+      badge.style.borderColor = 'rgba(56,212,139,.3)';
+    }
+  }
+  if (desc) {
+    if (val >= 85) {
+      desc.textContent = 'Extremely high unpredictability: will argue contrarian angles, jump topics spontaneously, use raw unfiltered human slang, and ignore conventional AI conversational politeness.';
+      desc.style.color = '#ff8599';
+    } else if (val >= 60) {
+      desc.textContent = 'High human edge: questions consensus views, introduces occasional provocative takes, uses casual vernacular, and avoids sycophancy.';
+      desc.style.color = 'var(--warn)';
+    } else if (val >= 35) {
+      desc.textContent = 'Moderate pragmatism: balanced discussion with realistic human skepticism, standard chat rhythm, and mild personal opinions.';
+      desc.style.color = 'var(--text)';
+    } else {
+      desc.textContent = 'Measured and orderly: calm, polite, structured replies with standard group etiquette.';
+      desc.style.color = 'var(--ok)';
+    }
   }
 }
 
@@ -816,15 +753,15 @@ function getStudioPayload() {
     slang_tier: $('ps-slang') ? $('ps-slang').value : 'crypto_degen',
     burstiness: parseInt($('ps-burst') ? $('ps-burst').value : '65', 10),
     emoji_habit: $('ps-emoji-habit') ? $('ps-emoji-habit').value : 'frequent',
-    signature_emojis: ($('ps-emojis') ? $('ps-emojis').value : 'skull, eyes, fire').split(',').map((s) => s.trim()).filter(Boolean),
+    signature_emojis: ($('ps-emojis') ? $('ps-emojis').value.split(',').map((s) => s.trim()).filter(Boolean) : []),
     expertise: ($('ps-expertise') ? $('ps-expertise').value.trim() : ''),
-    off_topic_obsessions: ($('ps-offtopic') ? $('ps-offtopic').value.trim() : ''),
+    off_topic_obsessions: ($('ps-offtopic') ? $('ps-offtopic').value.split(',').map((s) => s.trim()).filter(Boolean) : []),
     polarizing_takes: ($('ps-hottakes') ? $('ps-hottakes').value.trim() : ''),
-    trigger_topics: ($('ps-triggers') ? $('ps-triggers').value.trim() : ''),
+    trigger_topics: ($('ps-triggers') ? $('ps-triggers').value.split(',').map((s) => s.trim()).filter(Boolean) : []),
     reading_cps: parseInt($('ps-reading-cps') ? $('ps-reading-cps').value : '28', 10),
     min_delay: parseFloat($('ps-min-delay') ? $('ps-min-delay').value : '2.0'),
     max_delay: parseFloat($('ps-max-delay') ? $('ps-max-delay').value : '8.0'),
-    bind_account_id: $('ps-bind-account') ? $('ps-bind-account').value : ''
+    bind_account_id: $('ps-bind-account') && $('ps-bind-account').value ? $('ps-bind-account').value : null
   };
 }
 
@@ -837,7 +774,7 @@ async function compileStudioPrompt() {
       if ($('ps-prompt-chars')) $('ps-prompt-chars').textContent = `${res.prompt.length} characters`;
     }
   } catch (e) {
-    console.warn('Compile prompt error:', e);
+    console.error('Compile prompt error:', e);
   }
 }
 
@@ -855,7 +792,7 @@ function openPersonaStudio(pid) {
   const boundAcc = pid ? accounts.find((a) => String(a.persona_id) === String(pid)) : null;
   const accSel = $('ps-bind-account');
   if (accSel) {
-    accSel.innerHTML = '<option value="">None (Library Persona / Manual Group Binding)</option>' +
+    accSel.innerHTML = '<option value="">None (Library Persona / Group Assignment Only)</option>' +
       accounts.map((a) => {
         const isSel = boundAcc && String(boundAcc.id) === String(a.id);
         return `<option value="${a.id}" ${isSel ? 'selected' : ''}>${esc(a.name || a.phone)} ${a.username ? '(@' + esc(a.username) + ')' : ''}</option>`;
@@ -932,7 +869,7 @@ function openPersonaStudio(pid) {
   } else {
     // New persona default template
     $('ps-id').value = '';
-    $('ps-studio-title').textContent = 'Create New Industrial Persona';
+    $('ps-studio-title').textContent = 'Create Persona';
     $('ps-name').value = '';
     $('ps-culture').value = 'american';
     $('ps-gender').value = 'man';
@@ -973,9 +910,9 @@ function openPersonaStudio(pid) {
     $('ps-emojis').value = 'skull, eyes, fire';
 
     $('ps-expertise').value = 'On-chain token flows, memecoin liquidity pools, smart contract exploits';
-    $('ps-offtopic').value = 'yerba mate, conspiracy rabbit holes, adderall shortages, obscure memecoins';
+    $('ps-offtopic').value = 'yerba mate, conspiracy rabbit holes, adderall shortages';
     $('ps-hottakes').value = '99% of web3 founders are grifters who never wrote code; centralized exchanges are rigged casinos';
-    $('ps-triggers').value = 'VC token unlock schedules, sponsored influencer shills, overly polite corporate bots';
+    $('ps-triggers').value = 'VC token unlock schedules, sponsored influencer shills';
 
     $('ps-reading-cps').value = 28;
     $('ps-min-delay').value = 2.0;
@@ -1060,7 +997,7 @@ async function savePersonaStudio() {
       });
     }
 
-    toast(`Saved persona “${name}” and synced to Network!`);
+    toast(`Saved persona "${name}" and synced to Network!`);
     await loadPersonas();
     if (window.loadNetwork) window.loadNetwork();
     switchPersonaTab('roster');
@@ -1079,19 +1016,25 @@ if ($('ps-impulse')) $('ps-impulse').oninput = (e) => { $('ps-impulse-val').text
 if ($('ps-typo')) $('ps-typo').oninput = (e) => { $('ps-typo-val').textContent = e.target.value + '%'; };
 if ($('ps-burst')) $('ps-burst').oninput = (e) => { $('ps-burst-val').textContent = e.target.value + '%'; };
 
-if ($('ps-color')) $('ps-color').oninput = (e) => {
-  $('ps-color-text').value = e.target.value;
-  $('ps-avatar-preview').style.background = e.target.value;
-};
-if ($('ps-color-text')) $('ps-color-text').oninput = (e) => {
-  $('ps-color').value = e.target.value;
-  $('ps-avatar-preview').style.background = e.target.value;
-};
-if ($('ps-name')) $('ps-name').oninput = (e) => {
-  const n = e.target.value.trim();
-  $('ps-avatar-preview').textContent = (n || 'P')[0].toUpperCase();
-  $('ps-studio-title').textContent = n ? `Editing: ${n}` : 'Create New Industrial Persona';
-};
+if ($('ps-color')) {
+  $('ps-color').oninput = (e) => {
+    if ($('ps-color-text')) $('ps-color-text').value = e.target.value;
+    if ($('ps-avatar-preview')) $('ps-avatar-preview').style.background = e.target.value;
+  };
+}
+if ($('ps-color-text')) {
+  $('ps-color-text').oninput = (e) => {
+    if ($('ps-color')) $('ps-color').value = e.target.value;
+    if ($('ps-avatar-preview')) $('ps-avatar-preview').style.background = e.target.value;
+  };
+}
+
+if ($('ps-name')) {
+  $('ps-name').oninput = (e) => {
+    const val = e.target.value.trim();
+    if ($('ps-avatar-preview')) $('ps-avatar-preview').textContent = (val || 'P')[0].toUpperCase();
+  };
+}
 
 if ($('ps-btn-recompile')) $('ps-btn-recompile').onclick = compileStudioPrompt;
 if ($('ps-btn-save')) $('ps-btn-save').onclick = savePersonaStudio;
@@ -1110,7 +1053,7 @@ function renderPersonaMatrix() {
   const container = $('p-matrix-list');
   const matrix = personaData.matrix || [];
   if (!matrix || matrix.length === 0) {
-    container.innerHTML = '<div class="empty">No Telegram groups found yet. Sync groups in Network or open Groups.</div>';
+    container.innerHTML = '<div class="empty" style="padding:20px; text-align:center;">No Telegram groups found yet. Sync groups in Network or open Groups view.</div>';
     return;
   }
 
@@ -1121,7 +1064,7 @@ function renderPersonaMatrix() {
   });
 
   if (filtered.length === 0) {
-    container.innerHTML = '<div class="empty">No groups match your filter.</div>';
+    container.innerHTML = '<div class="empty" style="padding:16px;">No groups match your filter.</div>';
     return;
   }
 
@@ -1137,32 +1080,31 @@ function renderPersonaMatrix() {
       let typingInfo = '';
       if (effective && effective.details && effective.details.typing) {
         const t = effective.details.typing;
-        typingInfo = `<span class="badge" title="Typing simulation">${t.chars_per_second || 24} cps · ${t.min_seconds || 2}-${t.max_seconds || 8}s</span>`;
+        typingInfo = `<span class="hint" style="font-size:10.5px;">${t.chars_per_second || 24} cps</span>`;
       }
 
       return `
         <div class="p-user-row">
           <div class="p-user-info">
             <span class="p-user-avatar">${esc((u.account_name || 'U')[0].toUpperCase())}</span>
-            <div>
-              <b>${esc(u.account_name)}</b>
-              <div class="hint">${esc(u.account_phone || '')} · ${u.active ? '<span style="color:var(--ok)">Active</span>' : 'Paused'}</div>
+            <div style="min-width:0; overflow:hidden;">
+              <b style="font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; display:block;">${esc(u.account_name)}</b>
+              <div class="hint" style="font-size:10.5px; white-space:nowrap;">${esc(u.account_phone || '')} · ${u.active ? '<span style="color:var(--ok)">Active</span>' : 'Paused'}</div>
             </div>
           </div>
-          <div class="p-user-persona-sel">
+          <div>
             <select data-matrix-cid="${g.chat_id}" data-matrix-aid="${u.account_id}" data-has-fallback="${hasBaseline ? '1' : '0'}" class="p-select">
               ${perOptions}
             </select>
           </div>
           <div class="p-user-status">
-            ${assigned ? `<span class="badge ok" style="background:rgba(56,212,139,.12); color:var(--ok); border-color:rgba(56,212,139,.25);">Group Custom</span>` 
-                       : fallback ? `<span class="badge" style="background:rgba(47,196,178,.12); color:var(--accent);">Account Default: ${esc(fallback.name)}</span>`
-                       : `<span class="badge warn" style="background:rgba(245,184,74,.12); color:var(--warn); border-color:rgba(245,184,74,.3);">No Persona Connected</span>`}
+            ${assigned ? `<span class="p-tag" style="background:rgba(56,212,139,.12); color:var(--ok); border-color:rgba(56,212,139,.3);">Group Custom</span>` 
+                       : fallback ? `<span class="p-tag" style="background:rgba(47,196,178,.12); color:var(--accent);">Default: ${esc(fallback.name)}</span>`
+                       : `<span class="p-tag" style="background:rgba(245,184,74,.12); color:var(--warn); border-color:rgba(245,184,74,.3);">Unassigned</span>`}
             ${typingInfo}
-            ${!hasBaseline ? `<button class="p-bind-acc-btn" data-bind-aid="${u.account_id}" data-bind-aname="${esc(u.account_name)}" style="margin-top:4px;">Connect Persona to Account</button>` : ''}
           </div>
-          <div class="p-user-actions">
-            ${effective ? `<button type="button" class="ghost" data-pedit="${effective.id || effective.persona_id}" style="padding:4px 8px; font-size:12px;">Studio</button>` : ''}
+          <div>
+            ${effective ? `<button type="button" class="ghost" data-pedit="${effective.id || effective.persona_id}" style="padding:3px 8px; font-size:11px;">Studio</button>` : ''}
           </div>
         </div>
       `;
@@ -1172,26 +1114,26 @@ function renderPersonaMatrix() {
       <div class="card p-group-card">
         <div class="p-group-head">
           <div>
-            <h3 style="margin:0; display:flex; align-items:center; gap:8px;">
+            <h3 style="margin:0; font-size:13px; font-weight:600; display:flex; align-items:center; gap:8px;">
               ${esc(g.title || 'Untitled Group')}
-              <span class="hint" style="font-size:12px; font-weight:normal;">(${g.chat_id})</span>
+              <span class="hint" style="font-size:11px; font-weight:normal;">(${g.chat_id})</span>
             </h3>
-            <div class="hint" style="margin-top:3px;">${g.user_assignments ? g.user_assignments.length : 0} active accounts in group</div>
+            <div class="hint" style="font-size:11px; margin-top:2px;">${g.user_assignments ? g.user_assignments.length : 0} accounts in this group</div>
           </div>
-          <button class="ghost" data-pgen-cid="${g.chat_id}" style="font-size:12px;">&#10024; Generate Personas For Group</button>
+          <button type="button" class="ghost" data-pgen-cid="${g.chat_id}" style="font-size:11.5px; padding:4px 10px;">Generate Group Personas</button>
         </div>
         <div class="p-group-table-head">
-          <span>Telegram Account</span>
+          <span>Account</span>
           <span>Assigned Persona</span>
-          <span>Status &amp; Dynamics</span>
+          <span>Resolution</span>
           <span>Action</span>
         </div>
-        <div class="p-group-users">${userRows || '<div class="empty">No accounts linked to this group.</div>'}</div>
+        <div>${userRows || '<div class="empty" style="padding:10px;">No accounts linked to this group.</div>'}</div>
       </div>
     `;
   }).join('');
 
-  // Handle assignments change
+  // Handle matrix selection change
   container.querySelectorAll('select[data-matrix-cid]').forEach((sel) => {
     sel.onchange = async () => {
       const cid = sel.dataset.matrixCid;
@@ -1215,36 +1157,6 @@ function renderPersonaMatrix() {
     };
   });
 
-  // Handle direct account binding button in matrix
-  container.querySelectorAll('[data-bind-aid]').forEach((btn) => {
-    btn.onclick = async () => {
-      const aid = btn.dataset.bindAid;
-      const aname = btn.dataset.bindAname || 'Account';
-      const personas = personaData.personas || [];
-      if (personas.length === 0) {
-        alert('No personas created yet! Click "+ New Persona Studio" first.');
-        return;
-      }
-      const choices = personas.map((p, idx) => `${idx + 1}. ${p.name}`).join('\n');
-      const pick = prompt(`Select a default persona to connect to account "${aname}":\n\n${choices}\n\nEnter number (1-${personas.length}):`);
-      if (!pick) return;
-      const num = parseInt(pick, 10);
-      if (isNaN(num) || num < 1 || num > personas.length) {
-        alert('Invalid selection');
-        return;
-      }
-      const selectedPersona = personas[num - 1];
-      try {
-        await api('POST', '/personas/account-bind', { account_id: aid, persona_id: selectedPersona.id });
-        toast(`Bound ${selectedPersona.name} to ${aname} and synced to Network!`);
-        await loadPersonas();
-        if (window.loadNetwork) window.loadNetwork();
-      } catch (err) {
-        alert('Failed to bind persona: ' + err.message);
-      }
-    };
-  });
-
   container.querySelectorAll('[data-pedit]').forEach((btn) => {
     btn.onclick = () => openPersonaStudio(Number(btn.dataset.pedit));
   });
@@ -1258,7 +1170,9 @@ if ($('p-matrix-search')) {
   $('p-matrix-search').oninput = renderPersonaMatrix;
 }
 
-// Generation Modal (Study Group)
+
+// ----- Group Persona Generation Modal -----
+
 function openGenModal(preselectedCid) {
   const select = $('pg-group');
   select.innerHTML = (personaData.matrix || []).map((g) =>
