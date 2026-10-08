@@ -205,9 +205,49 @@ $('cfx-save').onclick = async () => {
   $('cfx-msg').textContent = 'Saved.';
 };
 
-// ----- Overview -----
+// ----- Overview & Master System Switch -----
+function updateMasterSystemUI(enabled) {
+  const badge = $('sys-status-badge');
+  const txt = $('sys-status-text');
+  const btn = $('sys-toggle-btn');
+  const label = $('sys-btn-text');
+  const icon = btn ? btn.querySelector('.sys-btn-icon') : null;
+  if (!badge || !btn) return;
+  if (enabled) {
+    badge.className = 'sys-badge ok';
+    if (txt) txt.textContent = 'System Active';
+    btn.className = 'sys-master-btn on';
+    if (label) label.textContent = 'Turn System OFF';
+    if (icon) icon.textContent = '⏸';
+  } else {
+    badge.className = 'sys-badge paused';
+    if (txt) txt.textContent = 'System Paused';
+    btn.className = 'sys-master-btn off';
+    if (label) label.textContent = 'Turn System ON';
+    if (icon) icon.textContent = '⚡';
+  }
+}
+
+if ($('sys-toggle-btn')) {
+  $('sys-toggle-btn').onclick = async () => {
+    try {
+      const res = await api('POST', '/system/toggle', {});
+      updateMasterSystemUI(res.enabled);
+    } catch (err) {
+      alert('Failed to toggle system: ' + err.message);
+    }
+  };
+}
+
 async function loadOverview() {
-  const [s, accs, pxs, st] = await Promise.all([api('GET', '/status').catch(() => ({})), api('GET', '/accounts').catch(() => []), fetchProxies().catch(() => []), cfxNav()]);
+  const [s, accs, pxs, st, sys] = await Promise.all([
+    api('GET', '/status').catch(() => ({})),
+    api('GET', '/accounts').catch(() => []),
+    fetchProxies().catch(() => []),
+    cfxNav(),
+    api('GET', '/system/status').catch(() => ({ enabled: true }))
+  ]);
+  updateMasterSystemUI(sys.enabled);
   const q = s.queue || {};
   const stat = (k, v, sub) => `<div class="stat"><div class="k">${k}</div><div class="v">${v}</div><div class="s">${sub}</div></div>`;
   $('ov-stats').innerHTML = stat('Accounts connected', `${s.connected || 0}<span class="hint"> / ${accs.length}</span>`, s.suspended ? 'Paused while Mac sleeps' : 'Live on Telegram')
@@ -641,6 +681,7 @@ function renderPersonaMatrix() {
       const assigned = u.assigned_persona;
       const fallback = u.fallback_persona;
       const effective = assigned || fallback;
+      const hasBaseline = Boolean(fallback);
       const perOptions = `<option value="">None (Account Default)</option>` +
         (personaData.personas || []).map((p) => `<option value="${p.id}" ${assigned && String(assigned.persona_id) === String(p.id) ? 'selected' : ''}>${esc(p.name)}</option>`).join('');
 
@@ -660,15 +701,16 @@ function renderPersonaMatrix() {
             </div>
           </div>
           <div class="p-user-persona-sel">
-            <select data-matrix-cid="${g.chat_id}" data-matrix-aid="${u.account_id}" class="p-select">
+            <select data-matrix-cid="${g.chat_id}" data-matrix-aid="${u.account_id}" data-has-fallback="${hasBaseline ? '1' : '0'}" class="p-select">
               ${perOptions}
             </select>
           </div>
           <div class="p-user-status">
             ${assigned ? `<span class="badge ok" style="background:rgba(56,212,139,.12); color:var(--ok); border-color:rgba(56,212,139,.25);">Group Custom</span>` 
-                       : fallback ? `<span class="badge" style="background:rgba(47,196,178,.12); color:var(--accent);">Fallback: ${esc(fallback.name)}</span>`
-                       : `<span class="badge off">No Persona</span>`}
+                       : fallback ? `<span class="badge" style="background:rgba(47,196,178,.12); color:var(--accent);">Account Default: ${esc(fallback.name)}</span>`
+                       : `<span class="badge warn" style="background:rgba(245,184,74,.12); color:var(--warn); border-color:rgba(245,184,74,.3);">⚠️ No Persona Connected</span>`}
             ${typingInfo}
+            ${!hasBaseline ? `<button class="p-bind-acc-btn" data-bind-aid="${u.account_id}" data-bind-aname="${esc(u.account_name)}" style="margin-top:4px;">Connect Persona to Account</button>` : ''}
           </div>
           <div class="p-user-actions">
             ${effective ? `<button class="ghost" data-pedit="${effective.id || effective.persona_id}" style="padding:4px 8px; font-size:12px;">Edit</button>` : ''}
@@ -706,11 +748,46 @@ function renderPersonaMatrix() {
       const cid = sel.dataset.matrixCid;
       const aid = sel.dataset.matrixAid;
       const pid = sel.value ? Number(sel.value) : null;
+      const hasFallback = sel.dataset.hasFallback === '1';
+      const shouldAutoBind = (!hasFallback && pid);
       try {
-        await api('POST', '/personas/assign-matrix', { chat_id: cid, account_id: aid, persona_id: pid });
+        await api('POST', '/personas/assign-matrix', {
+          chat_id: cid,
+          account_id: aid,
+          persona_id: pid,
+          set_as_account_persona: shouldAutoBind
+        });
         loadPersonas();
       } catch (err) {
         alert('Failed to update persona assignment: ' + err.message);
+      }
+    };
+  });
+
+  // Handle direct account binding button
+  container.querySelectorAll('[data-bind-aid]').forEach((btn) => {
+    btn.onclick = async () => {
+      const aid = btn.dataset.bindAid;
+      const aname = btn.dataset.bindAname || 'Account';
+      const personas = personaData.personas || [];
+      if (personas.length === 0) {
+        alert('No personas created yet! Use "AI Persona Architect" or "+ New Persona" first.');
+        return;
+      }
+      const choices = personas.map((p, idx) => `${idx + 1}. ${p.name}`).join('\n');
+      const pick = prompt(`Select a default persona to connect to account "${aname}":\n\n${choices}\n\nEnter number (1-${personas.length}):`);
+      if (!pick) return;
+      const num = parseInt(pick, 10);
+      if (isNaN(num) || num < 1 || num > personas.length) {
+        alert('Invalid selection');
+        return;
+      }
+      const selectedPersona = personas[num - 1];
+      try {
+        await api('POST', '/personas/account-bind', { account_id: aid, persona_id: selectedPersona.id });
+        loadPersonas();
+      } catch (err) {
+        alert('Failed to bind persona: ' + err.message);
       }
     };
   });
@@ -949,6 +1026,114 @@ function openGenModal(preselectedCid) {
     `<option value="${g.chat_id}" ${preselectedCid && String(g.chat_id) === String(preselectedCid) ? 'selected' : ''}>${esc(g.title)}</option>`).join('');
   $('pg-status').textContent = '';
   $('p-gen-modal').classList.remove('hidden');
+}
+
+// ----- AI Persona Architect -----
+let selectedAIStyle = 'defi_hunter';
+let aiPersonaBusy = false;
+let generatedAIPersona = null;
+
+function openAIPersonaModal() {
+  const groupSel = $('p-ai-group');
+  const groups = (personaData.matrix || []);
+  groupSel.innerHTML = '<option value="">General / Any Telegram Group</option>' + groups.map((g) => `<option value="${g.chat_id}">${esc(g.title || g.chat_id)}</option>`).join('');
+  $('p-ai-prompt').value = '';
+  $('p-ai-loading').classList.add('hidden');
+  generatedAIPersona = null;
+  $('p-ai-modal').classList.remove('hidden');
+}
+
+function getAIGenerationPayload() {
+  return {
+    direction: $('p-ai-prompt').value.trim(),
+    style: selectedAIStyle,
+    group_id: $('p-ai-group').value || null,
+    save: false
+  };
+}
+
+async function generateAIPersona(openInStudio) {
+  if (aiPersonaBusy) return;
+  aiPersonaBusy = true;
+  const openBtn = $('p-ai-btn-open');
+  const saveBtn = $('p-ai-btn-save');
+  $('p-ai-loading').classList.remove('hidden');
+  openBtn.disabled = true;
+  saveBtn.disabled = true;
+  openBtn.textContent = 'Generating...';
+  saveBtn.textContent = 'Generating...';
+  try {
+    const payload = getAIGenerationPayload();
+    const result = await api('POST', '/personas/ai-generate', payload);
+    const persona = result.persona || result;
+    if (!persona || !persona.name || !persona.prompt) throw new Error('AI returned an incomplete persona.');
+    generatedAIPersona = persona;
+
+    if (openInStudio) {
+      $('p-ai-modal').classList.add('hidden');
+      openPersonaModal(null, 'profile');
+      $('pm-name').value = persona.name || '';
+      $('pm-color').value = persona.color || '#2fc4b2';
+      $('pm-color-text').value = $('pm-color').value;
+      $('pm-bio').value = persona.bio || '';
+      $('pm-role').value = persona.details && persona.details.role_in_group || '';
+      $('pm-prompt').value = persona.prompt || '';
+      const d = persona.details || {};
+      $('pm-tz').value = d.timezone || '';
+      $('pm-demo').value = d.demographics || '';
+      if ($('pm-casing')) $('pm-casing').value = d.casing_style || 'casual_lowercase';
+      if ($('pm-length-pref')) $('pm-length-pref').value = d.message_length_pref || 'medium';
+      if ($('pm-emoji-habit')) $('pm-emoji-habit').value = d.emoji_habit || 'rare';
+      $('pm-emoji').value = Array.isArray(d.emojis) ? d.emojis.join(' ') : (d.emojis || '');
+      $('pm-tone').value = d.tone || '';
+      $('pm-offtopic').value = Array.isArray(d.off_topic) ? d.off_topic.join(', ') : (d.off_topic || '');
+      $('pm-taboo').value = Array.isArray(d.guardrails) ? d.guardrails.join(', ') : (d.guardrails || '');
+      if (d.typing) {
+        $('pm-cps').value = d.typing.chars_per_second || 24;
+        $('pm-min-sec').value = d.typing.min_seconds || 2;
+        $('pm-max-sec').value = d.typing.max_seconds || 8;
+      }
+      $('pm-prompt-charcount').textContent = `${$('pm-prompt').value.length} chars`;
+      updateModalAvatarPreview();
+    } else {
+      await api('POST', '/personas', {
+        name: persona.name,
+        prompt: persona.prompt,
+        color: persona.color || '#2fc4b2',
+        bio: persona.bio || '',
+        details: persona.details || {}
+      });
+      $('p-ai-modal').classList.add('hidden');
+      await loadPersonas();
+      alert(`Created persona “${persona.name}”. It is ready to bind to an account or group.`);
+    }
+  } catch (err) {
+    alert('Persona generation failed: ' + err.message);
+  } finally {
+    aiPersonaBusy = false;
+    openBtn.disabled = false;
+    saveBtn.disabled = false;
+    openBtn.textContent = 'Generate & Open in Studio';
+    saveBtn.textContent = '✨ Auto-Create & Save';
+    $('p-ai-loading').classList.add('hidden');
+  }
+}
+
+if ($('p-btn-ai-gen')) $('p-btn-ai-gen').onclick = openAIPersonaModal;
+if ($('p-ai-close')) $('p-ai-close').onclick = () => $('p-ai-modal').classList.add('hidden');
+if ($('p-ai-cancel')) $('p-ai-cancel').onclick = () => $('p-ai-modal').classList.add('hidden');
+if ($('p-modal-autofill')) $('p-modal-autofill').onclick = () => {
+  $('p-ai-modal').classList.remove('hidden');
+};
+if ($('p-ai-btn-open')) $('p-ai-btn-open').onclick = () => generateAIPersona(true);
+if ($('p-ai-btn-save')) $('p-ai-btn-save').onclick = () => generateAIPersona(false);
+if ($('p-ai-chips')) {
+  $('p-ai-chips').querySelectorAll('.p-chip').forEach((chip) => {
+    chip.onclick = () => {
+      selectedAIStyle = chip.dataset.style || 'custom';
+      $('p-ai-chips').querySelectorAll('.p-chip').forEach((c) => c.classList.toggle('active', c === chip));
+    };
+  });
 }
 
 $('p-btn-gen').onclick = () => openGenModal(null);

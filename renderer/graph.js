@@ -140,7 +140,10 @@
         <i class="gx-port out" data-port="out"></i>`;
     }
     if (n.kind === 'acc') {
-      const c = personaColor(o.persona_id); const ng = g.data.groups.filter((x) => String(x.account_id) === String(o.id)).length;
+      const c = personaColor(o.persona_id); const ng = g.data.groups.filter((x) => {
+        const aids = (x.account_ids && x.account_ids.length) ? x.account_ids : (x.account_id ? [x.account_id] : []);
+        return aids.map(String).includes(String(o.id));
+      }).length;
       return `<i class="gx-port in" data-port="in"></i>
         <div class="gx-head"><span class="gx-av acc" ${c ? `style="box-shadow:0 0 0 2px ${E(c)}"` : ''}>${E((o.name || o.phone || '#')[0].toUpperCase())}</span>
         <div class="gx-ht"><b>${E(o.name || o.phone)}</b><small>${o.username ? '@' + E(o.username) : E(o.phone || '')}</small></div>
@@ -150,11 +153,23 @@
     }
     const aids = (o.account_ids && o.account_ids.length) ? o.account_ids : (o.account_id ? [o.account_id] : []);
     const memberAccs = g.data.accounts.filter((a) => aids.map(String).includes(String(a.id)));
-    const c = memberAccs.length && personaColor(memberAccs[0].persona_id);
-    const accLabel = memberAccs.length > 0 ? (memberAccs.length === 1 ? (memberAccs[0].name || memberAccs[0].phone || '1 account') : `${memberAccs.length} accounts`) : 'No account';
+    const accCount = memberAccs.length;
+    const c = accCount && personaColor(memberAccs[0].persona_id);
+    const accLabel = accCount > 0 ? (accCount === 1 ? (memberAccs[0].name || memberAccs[0].phone || '1 account') : `${accCount} accounts active`) : 'No account';
+    const accStack = memberAccs.slice(0, 4).map((a) => {
+      const pc = personaColor(a.persona_id) || '#5856d6';
+      const init = E((a.name || a.phone || 'A')[0].toUpperCase());
+      return `<span class="gx-mini-av" style="background:${pc}" title="${E(a.name || a.phone)}">${init}</span>`;
+    }).join('');
     return `<i class="gx-port in" data-port="in"></i>
-      <div class="gx-head"><span class="gx-av grp" ${c ? `style="background:${E(c)}22;color:${E(c)}"` : ''}>#</span>
-      <div class="gx-ht"><b>${E(o.title || 'Untitled Group')}</b><small>${o.messages} msgs &bull; ${E(accLabel)}</small></div></div>
+      <div class="gx-head">
+        <span class="gx-av grp" ${c ? `style="background:${E(c)}22;color:${E(c)}"` : ''}>#</span>
+        <div class="gx-ht">
+          <b>${E(o.title || 'Untitled Group')}</b>
+          <small>${o.messages} msgs &bull; ${E(accLabel)}</small>
+        </div>
+        ${accCount > 1 ? `<div class="gx-acc-stack">${accStack}</div>` : ''}
+      </div>
       <div class="gx-toggles">
         <label class="gx-tg"><input type="checkbox" data-k="watched" ${o.watched ? 'checked' : ''}/><span></span>Watch</label>
         <label class="gx-tg"><input type="checkbox" data-k="auto_reply" ${o.auto_reply ? 'checked' : ''}/><span></span>Auto-reply</label>
@@ -242,6 +257,16 @@
       const target = document.elementFromPoint(m.clientX, m.clientY);
       const tn = target && target.closest('.gx-node'); if (!tn || tn === nodeEl) return;
       const [from, to] = side === 'out' ? [id, tn.dataset.id] : [tn.dataset.id, id];
+      if (from.startsWith('per:') && to.startsWith('grp:')) {
+        return toast('Connect the Persona to an Account first, then connect the Account to the Group.', true);
+      }
+      if (from.startsWith('acc:') && to.startsWith('grp:')) {
+        const aid = from.replace('acc:', '');
+        const acc = g.data.accounts.find((a) => String(a.id) === String(aid));
+        if (!acc || !acc.persona_id) {
+          return toast('Connect a Persona to this Account first before adding it to a group!', true);
+        }
+      }
       const ok = (from.startsWith('per:') && to.startsWith('acc:')) || (from.startsWith('acc:') && to.startsWith('grp:'));
       if (!ok) return toast('Wire Persona → Account, or Account → Group', true);
       try { await call('POST', '/graph/link', { from, to, on: true }); await load(); toast('Connected'); } catch (err) { toast(err.message, true); }
@@ -318,8 +343,26 @@
         } catch (err) { toast(err.message, true); }
       };
     } else {
+      const aids_insp = (o.account_ids && o.account_ids.length) ? o.account_ids : (o.account_id ? [o.account_id] : []);
+      const memberAccs_insp = g.data.accounts.filter((a) => aids_insp.map(String).includes(String(a.id)));
       insp.innerHTML = head(o.title, 'Group') + `
-        <div class="gx-kv"><span>Messages saved</span><b>${o.messages}</b><span>Account</span><b>${E((g.data.accounts.find((a) => String(a.id) === String(o.account_id)) || {}).name || 'None')}</b></div>
+        <div class="gx-kv">
+          <span>Messages saved</span><b>${o.messages}</b>
+          <span>Accounts in group</span><b>${memberAccs_insp.length}</b>
+        </div>
+        <label class="gx-l">Active Accounts in this Group</label>
+        <div class="gx-list" id="gi-acc-list">
+          ${memberAccs_insp.map((a) => {
+            const p = g.data.personas.find((x) => x.id === a.persona_id);
+            return `<div style="display:flex; justify-content:space-between; align-items:center; padding:6px 8px; border-radius:6px; background:var(--panel2); margin-bottom:4px;">
+              <div>
+                <b>${E(a.name || a.phone)}</b>
+                <small style="display:block; color:var(--muted); font-size:11px;">${p ? 'Persona: ' + E(p.name) : '<span style="color:var(--warn);">⚠️ No persona</span>'}</small>
+              </div>
+              <button class="gx-btn danger ghost xs gi-rm-acc" data-aid="${a.id}" style="padding:2px 8px; font-size:11px;">Remove</button>
+            </div>`;
+          }).join('') || '<p class="gx-mut">No accounts linked yet. Drag an account wire to this group.</p>'}
+        </div>
         <label class="gx-l">Personas for this group</label>
         <p class="gx-mut">Studies up to 800 real messages from this group, then designs members who fit it and talk like it.</p>
         <div class="gx-row"><input id="gi-n" type="number" min="1" max="8" value="3" style="width:64px" /><input id="gi-dir" placeholder="Optional direction" /></div>
@@ -331,6 +374,16 @@
         <button class="gx-btn" id="gi-save">Save</button>
         <div class="gx-sep"></div>
         <label class="gx-l">Recent messages</label><div id="gi-feed" class="gx-chat"><div class="gx-typing"><i></i><i></i><i></i></div></div>`;
+      insp.querySelectorAll('.gi-rm-acc').forEach((btn) => {
+        btn.onclick = async () => {
+          const aid = btn.dataset.aid;
+          try {
+            await call('POST', '/graph/link', { from: 'acc:' + aid, to: id, on: false });
+            await load();
+            toast('Account removed from group');
+          } catch (err) { toast(err.message, true); }
+        };
+      });
       insp.querySelector('#gi-save').onclick = async () => { try { await call('POST', '/groups/' + o.chat_id, { persona: insp.querySelector('#gi-p').value }); o.persona = insp.querySelector('#gi-p').value; toast('Saved'); } catch (err) { toast(err.message, true); } };
       const accs = g.data.accounts;
       const loadGP = async () => {

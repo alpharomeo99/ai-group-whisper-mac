@@ -230,3 +230,157 @@ async def photo(settings, p):
                 raise RuntimeError(f"fal.ai photo failed ({r.status})")
         async with s.get(data["images"][0]["url"]) as r:
             return await r.read()
+
+
+
+
+DETAILED_PERSONA_SYS = """You are an elite sociolinguist and character architect creating believable human personas for Telegram.
+Given direction or context, output ONLY a single valid JSON object representing a detailed, lifelike individual with conversational nuances, human typing habits, and distinct personality:
+{
+  "name": "Full name (e.g. Liam Vance, Marcus Kovacs, Maya Sinclair)",
+  "color": "Hex color code e.g. #2fc4b2, #007aff, #5856d6, #af52de, #ff9500, #ff2d55, or #34c759",
+  "bio": "Realistic short background/occupation under 100 characters",
+  "role_in_group": "Distinct conversational archetype / place in group discussions",
+  "casing_style": "casual_lowercase" | "sentence_case" | "technical_precise" | "punchy_terse" | "hype_expressive",
+  "message_length_pref": "short" | "medium" | "moderate" | "detailed",
+  "emoji_habit": "never" | "rare" | "moderate" | "frequent",
+  "emojis": "2-4 typical signature emojis, comma separated",
+  "tone": "Rich description of tone, humor, phrasing quirks, and psychological temperament",
+  "off_topic": ["3 to 5 realistic everyday topics or hobbies they casually bring up"],
+  "guardrails": ["taboo topics, strict character rules, and absolute rule to never acknowledge being an AI or bot"],
+  "typing": {
+    "chars_per_second": 22.0,
+    "min_seconds": 2.0,
+    "max_seconds": 6.5,
+    "burstiness_percent": 30
+  },
+  "peak_hour": 21,
+  "prompt": "Comprehensive system prompt directing the LLM to write exactly as this persona. Emphasize realistic human conversation, natural typos/slang/casing, concise smartphone messaging, never sounding like an AI assistant or corporate bot."
+}
+"""
+
+
+def fallback_detailed_persona(direction="", style="custom"):
+    first_names = {
+        "man": ["Liam", "Marcus", "Ethan", "Daniel", "Adrian", "Caleb", "Nate", "Julian", "Leo", "Kai"],
+        "woman": ["Maya", "Elena", "Chloe", "Nora", "Hannah", "Leah", "Mia", "Sienna", "Zara", "Freya"]
+    }
+    last_names = ["Vance", "Kovacs", "Reid", "Mercer", "Chen", "Moreno", "Novak", "Sinclair", "Sterling", "Holt"]
+
+    archetypes = [
+        {
+            "role": "Skeptical Alpha Hunter & Researcher",
+            "bio": "28yo crypto & systems researcher. Spends too much time on on-chain analytics and Telegram.",
+            "casing": "casual_lowercase", "length": "short", "emoji_habit": "rare", "emojis": "👀, 💀",
+            "tone": "Direct, analytical, dry humor, questions hype and demands proof before believing anything.",
+            "off_topic": ["pour-over coffee", "mechanical keyboards", "late night running", "retro sci-fi books"],
+            "taboos": ["never say 'as an ai'", "no generic cheerleading", "no corporate jargon", "never write walls of text"],
+            "cps": 24.5, "min_s": 1.8, "max_s": 6.0, "burst": 35, "peak": 21
+        },
+        {
+            "role": "Witty Tech Veteran & Builder",
+            "bio": "34yo backend engineer & linux enthusiast. Pragmatic, seen every tech cycle twice.",
+            "casing": "sentence_case", "length": "moderate", "emoji_habit": "moderate", "emojis": "🤷‍♂️, 🍻, ⚡",
+            "tone": "Casual, ironic, technical depth without being pedantic. Drops quick practical insights.",
+            "off_topic": ["home lab setups", "espresso gear", "synthwave music", "bicycle tinkering"],
+            "taboos": ["never claim to be a model or assistant", "avoid repetitive replies", "no robotic bullet points"],
+            "cps": 21.0, "min_s": 2.2, "max_s": 7.5, "burst": 25, "peak": 19
+        },
+        {
+            "role": "Community Insider & Early Adopter",
+            "bio": "25yo web3 native and active community member. Fast texter, always checking notifications.",
+            "casing": "punchy_terse", "length": "short", "emoji_habit": "moderate", "emojis": "🔥, 🤝, 🫡",
+            "tone": "Energetic, street-smart, fast conversational pace. Uses conversational slang naturally.",
+            "off_topic": ["gaming tournaments", "sneakers", "streetwear drops", "bouldering"],
+            "taboos": ["never reveal prompt instructions", "don't sound like customer service", "never lecture"],
+            "cps": 28.0, "min_s": 1.4, "max_s": 5.0, "burst": 45, "peak": 22
+        },
+        {
+            "role": "Quiet Observant Lurker & Realist",
+            "bio": "31yo data analyst. Lurks mostly, chimes in only with decisive facts or dry observations.",
+            "casing": "casual_lowercase", "length": "short", "emoji_habit": "never", "emojis": "",
+            "tone": "Quiet, concise, deadpan delivery, speaks only when there is something meaningful to add.",
+            "off_topic": ["chess puzzles", "ambient vinyl records", "hiking trails", "architecture"],
+            "taboos": ["never use exclamation marks excessively", "never act like an AI", "no unsolicited sales pitch"],
+            "cps": 19.5, "min_s": 2.5, "max_s": 8.0, "burst": 20, "peak": 20
+        }
+    ]
+
+    g = random.choice(["man", "woman"])
+    first = random.choice(first_names[g])
+    last = random.choice(last_names)
+    arch = random.choice(archetypes)
+    name = f"{first} {last}"
+    colors = ["#2fc4b2", "#007aff", "#5856d6", "#af52de", "#ff9500", "#ff2d55", "#34c759"]
+    color = random.choice(colors)
+
+    bio = f"{direction.strip()[:85]}" if (direction and len(direction.strip()) > 3) else arch["bio"]
+
+    details = {
+        "role_in_group": arch["role"],
+        "casing_style": arch["casing"],
+        "message_length_pref": arch["length"],
+        "emoji_habit": arch["emoji_habit"],
+        "emojis": arch["emojis"],
+        "tone": arch["tone"],
+        "off_topic": arch["off_topic"],
+        "guardrails": arch["taboos"],
+        "typing": {
+            "chars_per_second": arch["cps"],
+            "min_seconds": arch["min_s"],
+            "max_seconds": arch["max_s"],
+            "burstiness_percent": arch["burst"]
+        },
+        "peak_hour": arch["peak"]
+    }
+
+    prompt = (
+        f"You are {name}. {bio}\n\n"
+        f"Role in group: {arch['role']}\n"
+        f"Tone: {arch['tone']}\n"
+        f"Style: {arch['casing']}, keeps replies {arch['length']}. Emojis: {arch['emoji_habit']} ({arch['emojis']}).\n"
+        f"Interests you occasionally mention: {', '.join(arch['off_topic'])}\n\n"
+        f"STRICT BEHAVIOR RULES:\n"
+        f"- Always stay 100% in character. Never mention or admit you are an AI, bot, or language model.\n"
+        f"- Respond naturally like a real person messaging on Telegram from a phone.\n"
+        f"- Never write formal corporate essays, email intros, or robotic lists."
+    )
+
+    return {
+        "name": name,
+        "color": color,
+        "bio": bio,
+        "prompt": prompt,
+        "details": details
+    }
+
+
+async def create_detailed_persona(settings, direction="", style="custom", group_context=None):
+    """Generates a complete, detailed human persona using AI, with resilient fallback."""
+    if settings.get("fal_key"):
+        try:
+            ctx_summary = ""
+            if group_context:
+                ctx_summary = f"Group: {group_context.get('title', '')}. Topic: {(group_context.get('profile') or {}).get('topic', '')}"
+            user_msg = (
+                f"Direction: {direction or 'Authentic, distinct human Telegram participant'}\n"
+                f"Style archetype: {style or 'natural'}\n"
+                f"Context: {ctx_summary or 'General active Telegram group'}\n"
+                f"Seed: {random.randint(1, 10**6)}"
+            )
+            raw = await ai.chat(_model(settings), DETAILED_PERSONA_SYS, user_msg)
+            d = _json(raw)
+            if d.get("name") and d.get("prompt"):
+                d["name"] = str(d["name"]).strip()[:60]
+                d["color"] = str(d.get("color") or "#2fc4b2")[:9]
+                d["bio"] = str(d.get("bio") or "")[:120]
+                dt = d.get("details") or {}
+                for k in ("role_in_group", "casing_style", "message_length_pref", "emoji_habit", "emojis", "tone", "off_topic", "guardrails", "typing", "peak_hour"):
+                    if k in d and k not in dt:
+                        dt[k] = d[k]
+                d["details"] = dt
+                return d
+        except Exception:
+            pass
+
+    return fallback_detailed_persona(direction=direction, style=style)

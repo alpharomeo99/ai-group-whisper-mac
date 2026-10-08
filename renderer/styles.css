@@ -343,3 +343,31 @@ main.flush > section.flush { max-width: none; height: 100%; }
 .dm-composer-toolbar { display: flex; align-items: center; gap: 8px; }
 .dm-input-row { display: flex; gap: 10px; align-items: flex-end; }
 .dm-input-row textarea { flex: 1; resize: none; border-radius: 8px; font-size: 13px; font-family: inherit; }
+
+/* Master System Switch */
+.sys-master-wrap { display: flex; align-items: center; gap: 12px; }
+.sys-badge { display: inline-flex; align-items: center; gap: 7px; padding: 5px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; border: 1px solid transparent; }
+.sys-badge.ok { background: rgba(56, 212, 139, 0.12); color: var(--ok); border-color: rgba(56, 212, 139, 0.25); }
+.sys-badge.paused { background: rgba(245, 184, 74, 0.12); color: var(--warn); border-color: rgba(245, 184, 74, 0.25); }
+.sys-pulse-dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; display: inline-block; animation: sysPulse 2s infinite; }
+@keyframes sysPulse { 0% { opacity: 1; transform: scale(1); } 50% { opacity: 0.4; transform: scale(0.85); } 100% { opacity: 1; transform: scale(1); } }
+.sys-master-btn { display: inline-flex; align-items: center; gap: 8px; padding: 7px 16px; border-radius: 8px; font-size: 12.5px; font-weight: 600; cursor: pointer; transition: all .15s ease; border: 1px solid transparent; }
+.sys-master-btn.on { background: rgba(255, 107, 107, 0.1); color: var(--bad); border-color: rgba(255, 107, 107, 0.3); }
+.sys-master-btn.on:hover { background: rgba(255, 107, 107, 0.2); }
+.sys-master-btn.off { background: linear-gradient(135deg, var(--ok), #2aa86d); color: #042115; box-shadow: 0 2px 8px rgba(56, 212, 139, 0.3); font-weight: 700; }
+.sys-master-btn.off:hover { filter: brightness(1.1); transform: translateY(-1px); }
+
+/* AI Persona Architect Archetype Chips */
+.p-archetype-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+.p-chip { background: var(--panel2); border: 1px solid var(--line); color: var(--muted); padding: 6px 12px; border-radius: 16px; font-size: 12px; cursor: pointer; transition: all .15s ease; font-weight: 500; }
+.p-chip:hover { border-color: var(--line2); color: var(--text); }
+.p-chip.active { background: rgba(175, 82, 222, 0.15); border-color: rgba(175, 82, 222, 0.4); color: #d094f7; font-weight: 600; }
+
+/* Network Canvas Multi-Account Stack */
+.gx-acc-stack { display: flex; align-items: center; margin-left: auto; padding-right: 4px; }
+.gx-mini-av { width: 18px; height: 18px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; color: #fff; margin-left: -5px; border: 2px solid var(--panel); box-shadow: 0 1px 3px rgba(0,0,0,.4); }
+.gx-mini-av:first-child { margin-left: 0; }
+
+/* Account First Binding Helpers in Matrix */
+.p-bind-acc-btn { font-size: 11px; padding: 3px 8px; border-radius: 5px; color: var(--accent); border: 1px dashed rgba(47, 196, 178, 0.4); background: rgba(47, 196, 178, 0.05); cursor: pointer; transition: all .15s ease; }
+.p-bind-acc-btn:hover { background: rgba(47, 196, 178, 0.15); border-color: var(--accent); }

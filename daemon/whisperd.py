@@ -190,6 +190,7 @@ class Daemon:
                     continue
                 c = self._new_client(a["session"], api, a.get("proxy_id"))
                 c.add_event_handler(self._handler_for(a["id"]), events.NewMessage())
+                c.add_event_handler(self._chat_action_handler_for(a["id"]), events.ChatAction())
                 self.clients[a["id"]] = c
             try:
                 if not c.is_connected():
@@ -215,6 +216,16 @@ class Daemon:
             except Exception:  # noqa
                 pass
         self.clients = {}
+
+    
+    def _chat_action_handler_for(self, aid):
+        async def h(event):
+            try:
+                if event.user_left or event.user_kicked or event.user_added or event.user_joined:
+                    asyncio.create_task(self.sync_all_dialogs())
+            except Exception:
+                pass
+        return h
 
     def _handler_for(self, aid):
         async def h(event):
@@ -273,7 +284,8 @@ class Daemon:
             )
             self.store.add_direct_message(aid, peer_id, event.id, name if incoming else "Me", incoming, event.raw_text, ts)
 
-            if incoming and not event.out:
+            system_enabled = bool(self.store.get("system_enabled", True))
+            if incoming and not event.out and system_enabled:
                 chat_info = self.store.rows("SELECT * FROM direct_chats WHERE account_id=? AND peer_id=?", (aid, peer_id))
                 if chat_info and chat_info[0].get("auto_reply"):
                     pid = chat_info[0].get("persona_id")
@@ -316,7 +328,8 @@ class Daemon:
         sender = await event.get_sender()
         name = getattr(sender, "first_name", None) or getattr(sender, "title", None) or "unknown"
         self.store.add_message(chat_id, event.id, name, event.raw_text, int(event.date.timestamp()))
-        if g[0]["auto_reply"] and not event.out:
+        system_enabled = bool(self.store.get("system_enabled", True))
+        if g[0]["auto_reply"] and not event.out and system_enabled:
             me = await event.client.get_me()
             is_direct = event.mentioned
             if not is_direct and event.is_reply:
@@ -374,7 +387,7 @@ class Daemon:
             except asyncio.TimeoutError:
                 pass
             self.wake_event.clear()
-            if self.suspended or self.paused_reason:
+            if self.suspended or self.paused_reason or not bool(self.store.get("system_enabled", True)):
                 continue
             if not await self.ensure_clients():
                 continue
@@ -519,11 +532,12 @@ class Daemon:
             self.wake_event.set()
 
     async def sync_all_dialogs(self):
-        """Discovers ALL groups and direct chats across all connected accounts automatically."""
+        """Discovers ALL groups and direct chats across all connected accounts automatically, and detects joins & leaves."""
         ready = await self.ensure_clients()
         if not ready:
             return
         for aid, c in ready.items():
+            seen_group_ids = set()
             try:
                 async for d in c.iter_dialogs(limit=None):
                     is_grp = (
@@ -533,6 +547,7 @@ class Daemon:
                         (d.is_channel and not getattr(d.entity, 'broadcast', False))
                     )
                     if is_grp:
+                        seen_group_ids.add(d.id)
                         title = d.name or getattr(d.entity, 'title', None) or f"Group {d.id}"
                         self.store.q(
                             "INSERT INTO groups(chat_id,title,account_id) VALUES(?,?,?) "
@@ -561,6 +576,21 @@ class Daemon:
                             "unread_count=excluded.unread_count",
                             (aid, d.id, p_name, p_user, p_phone, l_msg, l_ts, unr)
                         )
+                # Successful iteration completed for this account:
+                # Reconcile groups: detect if this account left or was removed from any previously recorded groups
+                prev_rows = self.store.rows("SELECT chat_id FROM group_accounts WHERE account_id=?", (aid,))
+                prev_cids = {r["chat_id"] for r in prev_rows}
+                left_cids = prev_cids - seen_group_ids
+                if left_cids:
+                    for lcid in left_cids:
+                        self.store.q("DELETE FROM group_accounts WHERE chat_id=? AND account_id=?", (lcid, aid))
+                        self.store.q("UPDATE group_personas SET account_id=NULL WHERE chat_id=? AND account_id=?", (lcid, aid))
+                        rem = self.store.rows("SELECT account_id FROM group_accounts WHERE chat_id=?", (lcid,))
+                        if not rem:
+                            self.store.q("UPDATE groups SET account_id=NULL WHERE chat_id=?", (lcid,))
+                        else:
+                            self.store.q("UPDATE groups SET account_id=? WHERE chat_id=?", (rem[0]["account_id"], lcid))
+                        log.info("Detected account %s left or removed from group %s", aid, lcid)
             except Exception as e:
                 log.warning("dialog sync failed for account %s: %s", aid, e)
 
@@ -985,6 +1015,76 @@ class Daemon:
             kind, _, val = str(ref).partition(":")
             return kind, val
 
+                # ----- System Master Control -----
+        @r.get("/system/status")
+        async def system_status(_):
+            enabled = bool(self.store.get("system_enabled", True))
+            active_accs = len(self.clients)
+            watched_groups = self.store.q("SELECT COUNT(*) FROM groups WHERE watched=1").fetchone()[0]
+            queued_jobs = self.store.q("SELECT COUNT(*) FROM queue WHERE status='queued'").fetchone()[0]
+            return J({
+                "enabled": enabled,
+                "active_accounts": active_accs,
+                "watched_groups": watched_groups,
+                "queued_jobs": queued_jobs
+            })
+
+        @r.post("/system/toggle")
+        async def system_toggle(req):
+            b = {}
+            try:
+                b = await req.json()
+            except Exception:
+                pass
+            cur = bool(self.store.get("system_enabled", True))
+            new_val = not cur if "enabled" not in b else bool(b["enabled"])
+            self.store.set("system_enabled", new_val)
+            log.info("System master enabled changed to: %s", new_val)
+            return J({"enabled": new_val, "ok": True})
+
+        # ----- AI Persona Architect & Account Binding -----
+        @r.post("/personas/ai-generate")
+        async def persona_ai_generate(req):
+            import persona
+            b = await req.json()
+            direction = b.get("direction") or b.get("prompt") or ""
+            style = b.get("style") or "custom"
+            group_id = b.get("group_id")
+            save_now = bool(b.get("save", False))
+            settings = {k: self.store.get(k) for k in ("fal_key", "ai_model", "persona_model")}
+            group_ctx = None
+            if group_id:
+                g = self.store.rows("SELECT * FROM groups WHERE chat_id=?", (int(group_id),))
+                if g:
+                    prof = {}
+                    try:
+                        prof = json.loads(g[0].get("profile") or "{}")
+                    except Exception:
+                        pass
+                    group_ctx = {"title": g[0].get("title"), "profile": prof}
+            try:
+                data = await persona.create_detailed_persona(settings, direction=direction, style=style, group_context=group_ctx)
+            except Exception as e:
+                log.warning("AI generation failed, fallback used: %s", e)
+                data = persona.fallback_detailed_persona(direction=direction, style=style)
+
+            if save_now:
+                details_json = json.dumps(data.get("details") or {})
+                cur = self.store.q("INSERT INTO personas(name,prompt,color,bio,details,created) VALUES(?,?,?,?,?,?)",
+                                   (data["name"][:60], data.get("prompt") or "", data.get("color") or "#2fc4b2",
+                                    (data.get("bio") or "")[:120], details_json, int(time.time())))
+                data["id"] = cur.lastrowid
+                return J({"ok": True, "persona": data, "saved": True})
+            return J({"ok": True, "persona": data, "saved": False})
+
+        @r.post("/personas/account-bind")
+        async def persona_account_bind(req):
+            b = await req.json()
+            aid = int(b["account_id"])
+            pid = int(b["persona_id"]) if b.get("persona_id") else None
+            self.store.q("UPDATE accounts SET persona_id=? WHERE id=?", (pid, aid))
+            return J({"ok": True})
+
         @r.post("/graph/link")
         async def graph_link(req):
             b = await req.json()
@@ -993,10 +1093,23 @@ class Daemon:
             if fk == "per" and tk == "acc":
                 self.store.q("UPDATE accounts SET persona_id=? WHERE id=?", (int(fv) if on else None, int(tv)))
             elif fk == "acc" and tk == "grp":
+                aid, cid = int(fv), int(tv)
                 if on:
-                    self.store.q("UPDATE groups SET account_id=? WHERE chat_id=?", (int(fv), int(tv)))
+                    acc = self.store.rows("SELECT persona_id FROM accounts WHERE id=?", (aid,))
+                    if not acc or not acc[0].get("persona_id"):
+                        return J({"error": "Account must connect to a Persona first before connecting to a Group."}, status=400)
+                    self.store.q("INSERT OR IGNORE INTO group_accounts(chat_id, account_id) VALUES(?,?)", (cid, aid))
+                    self.store.q("UPDATE groups SET account_id=COALESCE(account_id, ?) WHERE chat_id=?", (aid, cid))
                 else:
-                    self.store.q("UPDATE groups SET account_id=NULL WHERE chat_id=? AND account_id=?", (int(tv), int(fv)))
+                    self.store.q("DELETE FROM group_accounts WHERE chat_id=? AND account_id=?", (cid, aid))
+                    self.store.q("UPDATE group_personas SET account_id=NULL WHERE chat_id=? AND account_id=?", (cid, aid))
+                    rem = self.store.rows("SELECT account_id FROM group_accounts WHERE chat_id=?", (cid,))
+                    if rem:
+                        self.store.q("UPDATE groups SET account_id=? WHERE chat_id=?", (rem[0]["account_id"], cid))
+                    else:
+                        self.store.q("UPDATE groups SET account_id=NULL WHERE chat_id=?", (cid,))
+            elif fk == "per" and tk == "grp":
+                return J({"error": "Connect the Persona to an Account first, then connect the Account to the Group."}, status=400)
             else:
                 return J({"error": "Connect Persona to Account, or Account to Group."}, status=400)
             return J({"ok": True})
@@ -1167,9 +1280,15 @@ class Daemon:
             cid = int(b["chat_id"])
             aid = int(b["account_id"]) if b.get("account_id") is not None else None
             pid = int(b["persona_id"]) if b.get("persona_id") else None
+            bind_account = bool(b.get("set_as_account_persona", False))
 
             if not aid:
                 return J({"error": "account_id is required"}, status=400)
+
+            # Enforce account-first binding: if account has no persona, bind it
+            acc = self.store.rows("SELECT persona_id FROM accounts WHERE id=?", (aid,))
+            if acc and (bind_account or not acc[0].get("persona_id")) and pid:
+                self.store.q("UPDATE accounts SET persona_id=? WHERE id=?", (pid, aid))
 
             # Clear previous persona assignment for this user in this group
             self.store.q("UPDATE group_personas SET account_id=NULL WHERE chat_id=? AND account_id=?", (cid, aid))
