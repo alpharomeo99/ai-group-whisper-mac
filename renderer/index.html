@@ -64,6 +64,9 @@
             <button id="p-btn-ai-gen" class="primary" style="background:linear-gradient(135deg, #af52de, #5856d6); color:#fff; border:none; box-shadow:0 2px 10px rgba(175,82,222,.3); cursor:pointer;">
               <span style="font-size:13px;">✨</span> AI Persona Architect
             </button>
+            <button id="p-btn-test-chat" class="ghost" style="color:var(--brand); border-color:var(--brand); font-weight:600;">
+              ⚡ Test Group Chat (fal.ai)
+            </button>
             <button id="p-btn-gen" class="ghost">&#128269; Study Group History</button>
             <button id="p-btn-new">+ New Persona</button>
           </div>
@@ -462,6 +465,60 @@
             <div class="p-modal-footer">
               <button class="ghost" id="pg-cancel">Cancel</button>
               <button class="primary" id="pg-run">Start Designing</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Group Test Chat Modal (fal.ai cheap model) -->
+        <div id="p-testchat-modal" class="p-modal hidden">
+          <div class="p-modal-content" style="max-width:620px;">
+            <div class="p-modal-header">
+              <div style="display:flex; align-items:center; gap:10px;">
+                <span style="font-size:22px;">⚡</span>
+                <div>
+                  <h2 style="margin:0; font-size:17px;">Test Persona Chat in Group</h2>
+                  <div class="hint" style="font-size:12px;" id="ptc-subhead">Simulate a quick, authentic multi-turn conversation between group members using fal.ai.</div>
+                </div>
+              </div>
+              <button class="ghost p-modal-close" id="ptc-close">&times;</button>
+            </div>
+            <div class="p-modal-body">
+              <div style="margin-bottom:14px;">
+                <label class="l">Target Group</label>
+                <select id="ptc-group" style="width:100%;"></select>
+              </div>
+              <div class="grid2" style="margin-bottom:14px;">
+                <div>
+                  <label class="l">AI Model (fal.ai)</label>
+                  <select id="ptc-model" style="width:100%;">
+                    <option value="google/gemini-2.5-flash" selected>google/gemini-2.5-flash (Fast &amp; Cheap)</option>
+                    <option value="meta-llama/llama-3.1-8b-instruct">meta-llama/llama-3.1-8b-instruct (Cheap)</option>
+                    <option value="openai/gpt-4o-mini">openai/gpt-4o-mini (Cheap)</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="l">Conversation Turns</label>
+                  <select id="ptc-turns" style="width:100%;">
+                    <option value="2">2 turns (Quick exchange)</option>
+                    <option value="4" selected>4 turns (Natural dialogue)</option>
+                    <option value="6">6 turns (Extended banter)</option>
+                  </select>
+                </div>
+              </div>
+              <div style="margin-bottom:14px;">
+                <label class="l">Conversation Topic / Seed</label>
+                <input type="text" id="ptc-topic" placeholder="e.g. Checking in on recent updates, casual banter" value="Checking in on recent updates and casual discussion" />
+              </div>
+              <div style="margin-bottom:14px; display:flex; align-items:center; gap:8px;">
+                <input type="checkbox" id="ptc-send-live" style="width:auto; cursor:pointer;" checked />
+                <label for="ptc-send-live" style="margin:0; cursor:pointer; font-weight:500;">Send live to Telegram group (with human typing simulation)</label>
+              </div>
+              <div id="ptc-status" class="hint" style="margin-bottom:10px; min-height:18px;"></div>
+              <div id="ptc-transcript" style="max-height:260px; overflow-y:auto; display:none; flex-direction:column; gap:8px; padding:10px; background:var(--panel2); border-radius:8px; border:1px solid var(--border);"></div>
+            </div>
+            <div class="p-modal-footer">
+              <button class="ghost" id="ptc-cancel">Close</button>
+              <button class="primary" id="ptc-submit" style="background:linear-gradient(135deg, #2fc4b2, #5856d6);">⚡ Run Test Chat</button>
             </div>
           </div>
         </div>

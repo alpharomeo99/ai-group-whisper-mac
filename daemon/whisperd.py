@@ -311,12 +311,17 @@ class Daemon:
         try:
             chat = await event.get_chat()
             title = getattr(chat, 'title', None) or getattr(chat, 'name', None) or f"Group {chat_id}"
+            acc_check = self.store.rows("SELECT persona_id FROM accounts WHERE id=?", (aid,))
+            has_persona = bool(acc_check and acc_check[0]["persona_id"])
             self.store.q(
                 "INSERT INTO groups(chat_id,title,account_id) VALUES(?,?,?) "
                 "ON CONFLICT(chat_id) DO UPDATE SET title=excluded.title",
-                (chat_id, title, aid)
+                (chat_id, title, aid if has_persona else None)
             )
-            self.store.q("INSERT OR IGNORE INTO group_accounts(chat_id, account_id) VALUES(?,?)", (chat_id, aid))
+            if has_persona:
+                self.store.q("INSERT OR IGNORE INTO group_accounts(chat_id, account_id) VALUES(?,?)", (chat_id, aid))
+            else:
+                self.store.q("DELETE FROM group_accounts WHERE chat_id=? AND account_id=?", (chat_id, aid))
         except Exception:
             pass
         chat_id = event.chat_id
@@ -549,16 +554,24 @@ class Daemon:
                     if is_grp:
                         seen_group_ids.add(d.id)
                         title = d.name or getattr(d.entity, 'title', None) or f"Group {d.id}"
+                        acc_check = self.store.rows("SELECT persona_id FROM accounts WHERE id=?", (aid,))
+                        has_persona = bool(acc_check and acc_check[0]["persona_id"])
                         self.store.q(
                             "INSERT INTO groups(chat_id,title,account_id) VALUES(?,?,?) "
                             "ON CONFLICT(chat_id) DO UPDATE SET title=excluded.title, "
-                            "account_id=COALESCE(groups.account_id, excluded.account_id)",
-                            (d.id, title, aid)
+                            "account_id=COALESCE(groups.account_id, ?)",
+                            (d.id, title, aid if has_persona else None)
                         )
-                        self.store.q(
-                            "INSERT OR IGNORE INTO group_accounts(chat_id, account_id) VALUES(?,?)",
-                            (d.id, aid)
-                        )
+                        if has_persona:
+                            self.store.q(
+                                "INSERT OR IGNORE INTO group_accounts(chat_id, account_id) VALUES(?,?)",
+                                (d.id, aid)
+                            )
+                        else:
+                            self.store.q(
+                                "DELETE FROM group_accounts WHERE chat_id=? AND account_id=?",
+                                (d.id, aid)
+                            )
                     elif d.is_user and not getattr(d.entity, 'is_self', False) and not getattr(d.entity, 'bot', False):
                         p_name = d.name or "User"
                         p_user = getattr(d.entity, 'username', '') or ''
@@ -940,6 +953,195 @@ class Daemon:
             return J(self.store.rows("SELECT g.*, a.name account_name FROM groups g LEFT JOIN accounts a ON a.id=g.account_id "
                                      "ORDER BY g.watched DESC, g.title"))
 
+                # ----- Test Group Conversation Engine (fal.ai cheap model) -----
+        @r.post("/groups/test-chat")
+        @r.post("/groups/{cid}/test-chat")
+        async def group_test_chat(req):
+            import persona as persona_mod
+            b = {}
+            if req.can_read_body:
+                try:
+                    b = await req.json()
+                except Exception:
+                    b = {}
+            cid_param = req.match_info.get("cid") or b.get("chat_id")
+            target_group = None
+
+            if cid_param and str(cid_param).lower() != "auto":
+                try:
+                    cid_int = int(cid_param)
+                    g_rows = self.store.rows("SELECT * FROM groups WHERE chat_id=?", (cid_int,))
+                    if g_rows:
+                        target_group = g_rows[0]
+                except Exception:
+                    pass
+
+            all_accs = self.store.rows(
+                "SELECT a.*, p.name persona_name, p.prompt persona_prompt, p.color persona_color "
+                "FROM accounts a LEFT JOIN personas p ON p.id=a.persona_id"
+            )
+            leila_candidates = [a for a in all_accs if "leila" in (a.get("name") or "").lower() or "leila" in (a.get("username") or "").lower()]
+            dorian_candidates = [a for a in all_accs if "dorian" in (a.get("name") or "").lower() or "dorian" in (a.get("username") or "").lower()]
+
+            if not target_group:
+                if leila_candidates and dorian_candidates:
+                    l_id = leila_candidates[0]["id"]
+                    d_id = dorian_candidates[0]["id"]
+                    shared = self.store.rows(
+                        "SELECT g.* FROM groups g "
+                        "JOIN group_accounts ga1 ON ga1.chat_id=g.chat_id AND ga1.account_id=? "
+                        "JOIN group_accounts ga2 ON ga2.chat_id=g.chat_id AND ga2.account_id=? "
+                        "ORDER BY g.watched DESC",
+                        (l_id, d_id)
+                    )
+                    if shared:
+                        target_group = shared[0]
+
+            if not target_group:
+                top_grp = self.store.rows(
+                    "SELECT g.*, COUNT(ga.account_id) cnt FROM groups g "
+                    "JOIN group_accounts ga ON ga.chat_id=g.chat_id "
+                    "GROUP BY g.chat_id ORDER BY cnt DESC, g.watched DESC"
+                )
+                if top_grp:
+                    target_group = top_grp[0]
+                else:
+                    any_grp = self.store.rows("SELECT * FROM groups ORDER BY watched DESC, chat_id DESC")
+                    if any_grp:
+                        target_group = any_grp[0]
+
+            if not target_group:
+                return J({"error": "No Telegram groups found yet. Connect accounts and sync groups first."}, status=404)
+
+            chat_id = target_group["chat_id"]
+            group_title = target_group.get("title") or f"Group {chat_id}"
+
+            part_a = None
+            part_b = None
+            if leila_candidates and dorian_candidates:
+                part_a = leila_candidates[0]
+                part_b = dorian_candidates[0]
+            else:
+                grp_acc_ids = [r["account_id"] for r in self.store.rows("SELECT account_id FROM group_accounts WHERE chat_id=?", (chat_id,))]
+                grp_accs = [a for a in all_accs if a["id"] in grp_acc_ids]
+                if len(grp_accs) >= 2:
+                    part_a, part_b = grp_accs[0], grp_accs[1]
+                elif len(all_accs) >= 2:
+                    part_a, part_b = all_accs[0], all_accs[1]
+                else:
+                    return J({"error": "Need at least 2 accounts to have a conversational test chat."}, status=400)
+
+            # Ensure both participants have a persona
+            for p_acc in (part_a, part_b):
+                if not p_acc.get("persona_id") or not p_acc.get("persona_prompt"):
+                    fallback_p = persona_mod.fallback_detailed_persona(direction=f"Human participant named {p_acc.get('name') or 'User'}")
+                    cur = self.store.q(
+                        "INSERT INTO personas(name, prompt, color, bio, details, created) VALUES(?,?,?,?,?,?)",
+                        (p_acc.get("name") or fallback_p["name"], fallback_p["prompt"], fallback_p["color"], fallback_p["bio"], json.dumps(fallback_p["details"]), int(time.time()))
+                    )
+                    new_pid = cur.lastrowid
+                    self.store.q("UPDATE accounts SET persona_id=? WHERE id=?", (new_pid, p_acc["id"]))
+                    p_acc["persona_id"] = new_pid
+                    p_acc["persona_name"] = p_acc.get("name") or fallback_p["name"]
+                    p_acc["persona_prompt"] = fallback_p["prompt"]
+                self.store.q("INSERT OR IGNORE INTO group_accounts(chat_id, account_id) VALUES(?,?)", (chat_id, p_acc["id"]))
+
+            cheap_model = b.get("model") or "google/gemini-2.5-flash"
+            settings = {
+                "fal_key": self.store.get("fal_key"),
+                "ai_model": cheap_model
+            }
+            topic = b.get("topic") or f"Quick natural chat and banter in {group_title}"
+            turns_cnt = max(2, min(8, int(b.get("turns") or 4)))
+
+            recent_msgs = self.store.recent(chat_id, 10)
+            ctx_summary = "\n".join(f"[{m['sender']}]: {m['text']}" for m in recent_msgs) if recent_msgs else "No prior history."
+
+            sys_prompt = (
+                f"You are simulating a brief, authentic Telegram conversation between two real group members in the group \"{group_title}\".\n\n"
+                f"Context of recent chat:\n{ctx_summary}\n\n"
+                f"Participant 1: {part_a.get('name')}\n"
+                f"Voice & Persona: {part_a.get('persona_prompt')}\n\n"
+                f"Participant 2: {part_b.get('name')}\n"
+                f"Voice & Persona: {part_b.get('persona_prompt')}\n\n"
+                "Instructions:\n"
+                f"- Write exactly {turns_cnt} turns alternating between {part_a.get('name')} and {part_b.get('name')}.\n"
+                "- Keep responses casual, human, appropriate casing and length for Telegram.\n"
+                "- Output ONLY a JSON array of objects with keys \"sender\" and \"text\". No markdown formatting, no commentary."
+            )
+            user_prompt = f"Topic/direction: {topic}"
+
+            turns = []
+            if settings.get("fal_key"):
+                try:
+                    raw = await ai.chat(settings, sys_prompt, user_prompt)
+                    clean = raw.strip()
+                    if "```" in clean:
+                        clean = clean.split("```")[1]
+                        if clean.startswith("json"):
+                            clean = clean[4:]
+                        clean = clean.strip()
+                    parsed = json.loads(clean)
+                    if isinstance(parsed, list):
+                        turns = parsed
+                except Exception as ex:
+                    log.warning("fal.ai test chat generation error: %s", ex)
+
+            if not turns:
+                turns = [
+                    {"sender": part_a.get("name"), "text": f"hey @{(part_b.get('username') or part_b.get('name')).lower()}, did you catch the latest updates?"},
+                    {"sender": part_b.get("name"), "text": "yeah was just reading through, looking good so far"},
+                    {"sender": part_a.get("name"), "text": "nice, wanted to make sure we're on the same page"},
+                    {"sender": part_b.get("name"), "text": "definitely, let's keep it moving 👍"}
+                ][:turns_cnt]
+
+            for t in turns:
+                snd = (t.get("sender") or "").lower()
+                if (part_b.get("name") or "").lower() in snd:
+                    t["account_id"] = part_b["id"]
+                    t["sender"] = part_b.get("name")
+                else:
+                    t["account_id"] = part_a["id"]
+                    t["sender"] = part_a.get("name")
+
+            send_live = bool(b.get("send_live", False))
+            if send_live:
+                ready = await self.ensure_clients()
+                prev_id = None
+                for t in turns:
+                    cl = ready.get(t["account_id"])
+                    if cl:
+                        try:
+                            typing_delay = min(4.0, max(1.2, len(t["text"]) * 0.04))
+                            async with cl.action(chat_id, "typing"):
+                                await asyncio.sleep(typing_delay)
+                            sent_msg = await cl.send_message(chat_id, t["text"], reply_to=prev_id)
+                            prev_id = sent_msg.id
+                            t["sent"] = True
+                            t["msg_id"] = sent_msg.id
+                            self.store.add_message(chat_id, sent_msg.id, t["sender"], t["text"], int(time.time()))
+                            await asyncio.sleep(random.uniform(2.0, 3.5))
+                        except Exception as e:
+                            t["sent"] = False
+                            t["error"] = str(e)
+                    else:
+                        t["sent"] = False
+                        t["error"] = f"Account {t['sender']} client not connected"
+
+            return J({
+                "ok": True,
+                "chat_id": chat_id,
+                "group_title": group_title,
+                "model": cheap_model,
+                "send_live": send_live,
+                "participants": [
+                    {"id": part_a["id"], "name": part_a["name"], "persona": part_a.get("persona_name")},
+                    {"id": part_b["id"], "name": part_b["name"], "persona": part_b.get("persona_name")}
+                ],
+                "turns": turns
+            })
+
+
         @r.post("/groups/{cid}")
         async def update_group(req):
             b = await req.json()
@@ -982,6 +1184,10 @@ class Daemon:
         # ----- network graph (personas -> accounts -> groups) -----
         @r.get("/graph")
         async def graph(_):
+            # Clean up orphaned group linkages: accounts without a persona cannot be connected to groups
+            self.store.q("DELETE FROM group_accounts WHERE account_id IN (SELECT id FROM accounts WHERE persona_id IS NULL)")
+            self.store.q("UPDATE groups SET account_id=NULL WHERE account_id IN (SELECT id FROM accounts WHERE persona_id IS NULL)")
+
             if not self.store.q("SELECT COUNT(*) FROM groups").fetchone()[0] and self.clients:
                 try:
                     await self.sync_all_dialogs()
@@ -995,8 +1201,18 @@ class Daemon:
             for g in grps:
                 g["chat_id"] = str(g["chat_id"])
                 g["messages"] = self.store.q("SELECT COUNT(*) FROM messages WHERE chat_id=?", (int(g["chat_id"]),)).fetchone()[0]
-                links = self.store.rows("SELECT account_id FROM group_accounts WHERE chat_id=?", (int(g["chat_id"]),))
-                g["account_ids"] = [x["account_id"] for x in links] or ([g["account_id"]] if g.get("account_id") else [])
+                links = self.store.rows(
+                    "SELECT ga.account_id FROM group_accounts ga "
+                    "JOIN accounts a ON a.id=ga.account_id "
+                    "WHERE ga.chat_id=? AND a.persona_id IS NOT NULL",
+                    (int(g["chat_id"]),)
+                )
+                valid_aids = [x["account_id"] for x in links]
+                if not valid_aids and g.get("account_id"):
+                    owner_check = self.store.rows("SELECT persona_id FROM accounts WHERE id=?", (g["account_id"],))
+                    if owner_check and owner_check[0]["persona_id"]:
+                        valid_aids = [g["account_id"]]
+                g["account_ids"] = valid_aids
             return J({"accounts": accs, "groups": grps,
                       "personas": self.store.rows("SELECT * FROM personas ORDER BY id"),
                       "layout": self.store.get("graph_layout", {})})

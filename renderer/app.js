@@ -1444,3 +1444,106 @@ if ($('orch-save')) {
     }
   };
 }
+
+
+// ----- Test Group Chat (fal.ai cheap model) -----
+window.openGroupTestChatModal = async function(presetChatId, presetGroupTitle) {
+  const modal = $('p-testchat-modal');
+  if (!modal) return;
+
+  const groupSel = $('ptc-group');
+  groupSel.innerHTML = '<option value="">Loading groups...</option>';
+  $('ptc-status').textContent = '';
+  $('ptc-status').className = 'hint';
+  $('ptc-transcript').style.display = 'none';
+  $('ptc-transcript').innerHTML = '';
+  $('ptc-submit').disabled = false;
+  $('ptc-submit').textContent = '⚡ Run Test Chat';
+
+  modal.classList.remove('hidden');
+
+  try {
+    const grpRes = await api('GET', '/groups');
+    const grps = grpRes.groups || grpRes || [];
+    if (grps.length) {
+      groupSel.innerHTML = grps.map(g => `<option value="${g.chat_id}" ${String(g.chat_id) === String(presetChatId) ? 'selected' : ''}>${escapeHtml(g.title || 'Group ' + g.chat_id)}</option>`).join('');
+    } else if (presetChatId) {
+      groupSel.innerHTML = `<option value="${presetChatId}" selected>${escapeHtml(presetGroupTitle || 'Group ' + presetChatId)}</option>`;
+    } else {
+      groupSel.innerHTML = '<option value="auto">Auto-detect group with active members</option>';
+    }
+  } catch (e) {
+    if (presetChatId) {
+      groupSel.innerHTML = `<option value="${presetChatId}" selected>${escapeHtml(presetGroupTitle || 'Group ' + presetChatId)}</option>`;
+    } else {
+      groupSel.innerHTML = '<option value="auto">Auto-detect group with active members</option>';
+    }
+  }
+};
+
+async function runGroupTestChat() {
+  const modal = $('p-testchat-modal');
+  const groupVal = $('ptc-group').value;
+  const modelVal = $('ptc-model').value;
+  const turnsVal = parseInt($('ptc-turns').value, 10) || 4;
+  const topicVal = $('ptc-topic').value.trim() || 'Casual natural check-in and banter';
+  const sendLiveVal = $('ptc-send-live').checked;
+
+  const statusEl = $('ptc-status');
+  const transEl = $('ptc-transcript');
+  const submitBtn = $('ptc-submit');
+
+  submitBtn.disabled = true;
+  submitBtn.textContent = sendLiveVal ? 'Simulating & Sending to Telegram...' : 'Generating dialogue with fal.ai...';
+  statusEl.textContent = 'Calling fal.ai model (' + modelVal + ')...';
+  statusEl.className = 'hint';
+  transEl.style.display = 'flex';
+  transEl.innerHTML = '<div style="text-align:center; padding:12px; color:var(--muted); font-size:12px;"><i>Synthesizing conversation between group personas...</i></div>';
+
+  try {
+    const res = await api('POST', '/groups/test-chat', {
+      chat_id: groupVal || null,
+      model: modelVal,
+      turns: turnsVal,
+      topic: topicVal,
+      send_live: sendLiveVal
+    });
+
+    if (!res.ok) throw new Error(res.error || 'Failed to generate test chat');
+
+    const participants = res.participants || [];
+    const partNames = participants.map(p => p.name).join(' & ');
+    statusEl.innerHTML = `<span style="color:var(--ok); font-weight:600;">✓ Completed:</span> ${escapeHtml(partNames)} in <b>${escapeHtml(res.group_title || 'Group')}</b> ${res.send_live ? '• <span style="color:var(--ok);">Sent live to Telegram</span>' : '• Preview generated'}`;
+
+    const turns = res.turns || [];
+    const pA = participants[0] || { id: 0, name: 'Participant 1' };
+
+    transEl.innerHTML = turns.map(t => {
+      const isA = String(t.account_id) === String(pA.id);
+      return `<div style="display:flex; flex-direction:column; align-items:${isA ? 'flex-start' : 'flex-end'}; margin-bottom:8px;">
+        <span style="font-size:11px; color:var(--muted); margin-bottom:3px; font-weight:600;">
+          ${escapeHtml(t.sender || (isA ? pA.name : 'Participant 2'))}
+          ${t.sent ? ' <span style="color:var(--ok); font-size:10px;">✓ Sent</span>' : (res.send_live ? ' <span style="color:var(--warn); font-size:10px;">(Pending/Offline)</span>' : '')}
+        </span>
+        <div style="max-width:82%; padding:8px 12px; border-radius:10px; font-size:13px; line-height:1.4; background:${isA ? 'var(--panel)' : 'rgba(88,86,214,.2)'}; border:1px solid ${isA ? 'var(--border)' : 'rgba(88,86,214,.35)'};">
+          ${escapeHtml(t.text)}
+        </div>
+      </div>`;
+    }).join('');
+
+    submitBtn.disabled = false;
+    submitBtn.textContent = '⚡ Run Another Test Chat';
+    toast(res.send_live ? 'Test chat delivered to Telegram group!' : 'Test dialogue generated!');
+  } catch (err) {
+    statusEl.innerHTML = `<span style="color:var(--danger); font-weight:600;">Error:</span> ${escapeHtml(err.message)}`;
+    submitBtn.disabled = false;
+    submitBtn.textContent = '⚡ Run Test Chat';
+    toast(err.message, true);
+  }
+}
+
+
+if ($('p-btn-test-chat')) $('p-btn-test-chat').onclick = () => window.openGroupTestChatModal();
+if ($('ptc-close')) $('ptc-close').onclick = () => $('p-testchat-modal').classList.add('hidden');
+if ($('ptc-cancel')) $('ptc-cancel').onclick = () => $('p-testchat-modal').classList.add('hidden');
+if ($('ptc-submit')) $('ptc-submit').onclick = runGroupTestChat;

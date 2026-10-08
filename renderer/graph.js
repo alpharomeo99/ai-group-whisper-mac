@@ -117,11 +117,19 @@
   }
   function edgesList() {
     const d = g.data, out = []; if (!d) return out;
-    d.accounts.forEach((a) => { if (a.persona_id) out.push({ from: 'per:' + a.persona_id, to: 'acc:' + a.id }); });
+    const accMap = new Map();
+    d.accounts.forEach((a) => {
+      accMap.set(String(a.id), a);
+      if (a.persona_id) out.push({ from: 'per:' + a.persona_id, to: 'acc:' + a.id });
+    });
     d.groups.forEach((x) => {
       const aids = (x.account_ids && x.account_ids.length) ? x.account_ids : (x.account_id ? [x.account_id] : []);
       aids.forEach((aid) => {
-        out.push({ from: 'acc:' + aid, to: 'grp:' + x.chat_id });
+        const acc = accMap.get(String(aid));
+        // Accounts without a persona are NOT connected to groups in the network!
+        if (acc && acc.persona_id) {
+          out.push({ from: 'acc:' + aid, to: 'grp:' + x.chat_id });
+        }
       });
     });
     return out;
@@ -140,19 +148,23 @@
         <i class="gx-port out" data-port="out"></i>`;
     }
     if (n.kind === 'acc') {
-      const c = personaColor(o.persona_id); const ng = g.data.groups.filter((x) => {
+      const c = personaColor(o.persona_id);
+      const ng = o.persona_id ? g.data.groups.filter((x) => {
         const aids = (x.account_ids && x.account_ids.length) ? x.account_ids : (x.account_id ? [x.account_id] : []);
         return aids.map(String).includes(String(o.id));
-      }).length;
+      }).length : 0;
       return `<i class="gx-port in" data-port="in"></i>
         <div class="gx-head"><span class="gx-av acc" ${c ? `style="box-shadow:0 0 0 2px ${E(c)}"` : ''}>${E((o.name || o.phone || '#')[0].toUpperCase())}</span>
         <div class="gx-ht"><b>${E(o.name || o.phone)}</b><small>${o.username ? '@' + E(o.username) : E(o.phone || '')}</small></div>
         <span class="gx-dot ${o.connected ? 'ok' : o.active ? 'warn' : ''}" title="${o.connected ? 'Connected' : o.active ? 'Not connected' : 'Paused'}"></span></div>
-        <div class="gx-foot"><span class="gx-chip">${ng} group${ng === 1 ? '' : 's'}</span>${o.proxy_label ? `<span class="gx-chip">&#8644; ${E(o.proxy_label)}</span>` : '<span class="gx-chip dim">no proxy</span>'}</div>
+        <div class="gx-foot">
+          ${o.persona_id ? `<span class="gx-chip">${ng} group${ng === 1 ? '' : 's'}</span>` : `<span class="gx-chip" style="background:rgba(245,184,74,.15); color:var(--warn); border-color:rgba(245,184,74,.3);">⚠️ No Persona</span>`}
+          ${o.proxy_label ? `<span class="gx-chip">&#8644; ${E(o.proxy_label)}</span>` : '<span class="gx-chip dim">no proxy</span>'}
+        </div>
         <i class="gx-port out" data-port="out"></i>`;
     }
     const aids = (o.account_ids && o.account_ids.length) ? o.account_ids : (o.account_id ? [o.account_id] : []);
-    const memberAccs = g.data.accounts.filter((a) => aids.map(String).includes(String(a.id)));
+    const memberAccs = g.data.accounts.filter((a) => a.persona_id && aids.map(String).includes(String(a.id)));
     const accCount = memberAccs.length;
     const c = accCount && personaColor(memberAccs[0].persona_id);
     const accLabel = accCount > 0 ? (accCount === 1 ? (memberAccs[0].name || memberAccs[0].phone || '1 account') : `${accCount} accounts active`) : 'No account';
@@ -344,12 +356,15 @@
       };
     } else {
       const aids_insp = (o.account_ids && o.account_ids.length) ? o.account_ids : (o.account_id ? [o.account_id] : []);
-      const memberAccs_insp = g.data.accounts.filter((a) => aids_insp.map(String).includes(String(a.id)));
+      const memberAccs_insp = g.data.accounts.filter((a) => a.persona_id && aids_insp.map(String).includes(String(a.id)));
       insp.innerHTML = head(o.title, 'Group') + `
         <div class="gx-kv">
           <span>Messages saved</span><b>${o.messages}</b>
           <span>Accounts in group</span><b>${memberAccs_insp.length}</b>
         </div>
+        <button class="gx-btn wide" id="gi-test-chat" style="background:linear-gradient(135deg, #2fc4b2, #5856d6); color:#fff; font-weight:600; margin:10px 0; border:none; border-radius:6px; padding:8px; cursor:pointer;">
+          ⚡ Test Persona Chat in Group
+        </button>
         <label class="gx-l">Active Accounts in this Group</label>
         <div class="gx-list" id="gi-acc-list">
           ${memberAccs_insp.map((a) => {
@@ -374,6 +389,16 @@
         <button class="gx-btn" id="gi-save">Save</button>
         <div class="gx-sep"></div>
         <label class="gx-l">Recent messages</label><div id="gi-feed" class="gx-chat"><div class="gx-typing"><i></i><i></i><i></i></div></div>`;
+      const testChatBtn = insp.querySelector('#gi-test-chat');
+      if (testChatBtn) {
+        testChatBtn.onclick = () => {
+          if (window.openGroupTestChatModal) {
+            window.openGroupTestChatModal(o.chat_id, o.title);
+          } else {
+            toast('Test chat modal opening...');
+          }
+        };
+      }
       insp.querySelectorAll('.gi-rm-acc').forEach((btn) => {
         btn.onclick = async () => {
           const aid = btn.dataset.aid;
