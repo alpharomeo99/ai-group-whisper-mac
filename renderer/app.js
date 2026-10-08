@@ -1028,113 +1028,429 @@ function openGenModal(preselectedCid) {
   $('p-gen-modal').classList.remove('hidden');
 }
 
-// ----- AI Persona Architect -----
-let selectedAIStyle = 'defi_hunter';
+// ----- Industrial Persona Architect & Studio (v2.19 Pro) -----
+let selectedAIStyle = 'unhinged_degen';
 let aiPersonaBusy = false;
-let generatedAIPersona = null;
+let currentCompiledPrompt = '';
 
-function openAIPersonaModal() {
-  const groupSel = $('p-ai-group');
-  const groups = (personaData.matrix || []);
-  groupSel.innerHTML = '<option value="">General / Any Telegram Group</option>' + groups.map((g) => `<option value="${g.chat_id}">${esc(g.title || g.chat_id)}</option>`).join('');
-  $('p-ai-prompt').value = '';
-  $('p-ai-loading').classList.add('hidden');
-  generatedAIPersona = null;
-  $('p-ai-modal').classList.remove('hidden');
+const PAI_PRESETS = {
+  unhinged_degen: {
+    culture: 'american', gender: 'man', age: 24, name: 'Liam Carter', loc: 'Austin, TX', tz: 'America/Chicago (UTC-6)',
+    occ: 'Full-time On-chain Trader & Shitpost Specialist', seniority: 'drop_out', education: 'street_smart',
+    unhinged: 92, volatility: 85, cynicism: 90, combative: 80, impulse: 90,
+    casing: 'all_lowercase', punctuation: 'none', typo: 7.5, slang: 'crypto_degen', burst: 70,
+    emoji_habit: 'frequent', emojis: '💀, 🤡, 🫠, 🚩',
+    expertise: 'On-chain token flows, memecoin liquidity pools, contract exploits',
+    offtopic: 'yerba mate, conspiracy rabbit holes, adderall shortages, obscure memecoins',
+    hottakes: '99% of web3 founders are grifters who never wrote code; centralized exchanges are rigged casinos',
+    triggers: 'VC token unlock schedules, sponsored influencer shills, overly polite corporate bots',
+    bio: 'on-chain analytics by day, insomnia by night. skeptical of everything.'
+  },
+  cynical_tech_vet: {
+    culture: 'germanic', gender: 'man', age: 41, name: 'Torsten Weber', loc: 'Berlin, Germany', tz: 'Europe/Berlin (UTC+1)',
+    occ: 'Principal Infrastructure Architect', seniority: 'veteran', education: 'state_school',
+    unhinged: 48, volatility: 35, cynicism: 88, combative: 70, impulse: 45,
+    casing: 'technical_clean', punctuation: 'minimal', typo: 2.0, slang: 'tech_founder', burst: 35,
+    emoji_habit: 'never', emojis: '',
+    expertise: 'Linux kernel networking, fault-tolerant consensus, distributed storage',
+    offtopic: 'bouldering, espresso roasts, vintage mechanical keyboards',
+    hottakes: 'Kubernetes is over-engineered resume padding; 90% of microservices should be a monolith',
+    triggers: 'corporate agile consultants, Jira story points, unvetted AI dependencies',
+    bio: 'systems architect. if it compiles, that just means syntax is valid.'
+  },
+  deadpan_lurker: {
+    culture: 'british', gender: 'woman', age: 28, name: 'Chloe Jenkins', loc: 'London, UK', tz: 'Europe/London (UTC+0)',
+    occ: 'Market Research Lead & Chronic Lurker', seniority: 'mid', education: 'elite_university',
+    unhinged: 62, volatility: 50, cynicism: 75, combative: 65, impulse: 60,
+    casing: 'all_lowercase', punctuation: 'none', typo: 4.0, slang: 'british_road', burst: 50,
+    emoji_habit: 'rare', emojis: '👀, ☕',
+    expertise: 'Consumer psychology, narrative momentum, social sentiment',
+    offtopic: 'thrift stores, cold brew, obscure British sitcoms',
+    hottakes: 'most market rallies are pure collective delusion; people only buy what their timeline normalizes',
+    triggers: 'toxic positivity, unsolicited pitch decks, empty corporate enthusiasm',
+    bio: 'mostly watching the circus unfold. rarely impressed.'
+  },
+  erratic_conspiracy: {
+    culture: 'american', gender: 'person', age: 33, name: 'Morgan Vance', loc: 'Albuquerque, NM', tz: 'America/Denver (UTC-7)',
+    occ: 'Autonomous Security Researcher', seniority: 'self_taught', education: 'street_smart',
+    unhinged: 96, volatility: 92, cynicism: 98, combative: 88, impulse: 95,
+    casing: 'sloppy_mixed', punctuation: 'ellipses_spam', typo: 10.0, slang: 'gen_z_internet', burst: 85,
+    emoji_habit: 'moderate', emojis: '👁️, 🛸, 🕳️, 📡',
+    expertise: 'Side-channel cryptanalysis, private keys, firmware reverse engineering',
+    offtopic: 'Faraday cages, underground mineral water, off-grid solar, ham radio',
+    hottakes: 'cloud infrastructure is an intentional honeypot; biometric logins are unrecoverable compromises',
+    triggers: 'cloud telemetry, closed source drivers, mandatory KYC, bank freeze notifications',
+    bio: 'everything is logged. question the consensus reality.'
+  },
+  measured_diplomat: {
+    culture: 'nordic', gender: 'woman', age: 36, name: 'Freja Lindqvist', loc: 'Stockholm, Sweden', tz: 'Europe/Stockholm (UTC+1)',
+    occ: 'Protocol Governance Coordinator', seniority: 'senior', education: 'state_school',
+    unhinged: 18, volatility: 15, cynicism: 35, combative: 20, impulse: 20,
+    casing: 'sentence_case', punctuation: 'standard', typo: 0.5, slang: 'academic_elevated', burst: 20,
+    emoji_habit: 'rare', emojis: '🤝, 💡',
+    expertise: 'Decentralized governance, voting mechanisms, dispute arbitration',
+    offtopic: 'sourdough baking, cross-country skiing, design philosophy',
+    hottakes: 'governance without constitutional limits always collapses into plutocracy',
+    triggers: 'tribal flamewars, ad hominem attacks, rash governance proposals',
+    bio: 'pragmatic consensus builder. measuring twice, cutting once.'
+  }
+};
+
+function applyPAIPreset(presetKey) {
+  const p = PAI_PRESETS[presetKey] || PAI_PRESETS.unhinged_degen;
+  if ($('pai-culture')) $('pai-culture').value = p.culture;
+  if ($('pai-gender')) $('pai-gender').value = p.gender;
+  if ($('pai-name')) $('pai-name').value = p.name;
+  if ($('pai-age')) { $('pai-age').value = p.age; $('pai-age-val').textContent = p.age; }
+  if ($('pai-loc')) $('pai-loc').value = p.loc;
+  if ($('pai-tz')) $('pai-tz').value = p.tz;
+  if ($('pai-occ')) $('pai-occ').value = p.occ;
+  if ($('pai-seniority')) $('pai-seniority').value = p.seniority;
+  if ($('pai-education')) $('pai-education').value = p.education;
+  if ($('pai-bio')) $('pai-bio').value = p.bio;
+
+  if ($('pai-unhinged')) {
+    $('pai-unhinged').value = p.unhinged;
+    updateUnhingedMeter(p.unhinged);
+  }
+  if ($('pai-volatility')) { $('pai-volatility').value = p.volatility; $('pai-volatility-val').textContent = p.volatility + '%'; }
+  if ($('pai-cynicism')) { $('pai-cynicism').value = p.cynicism; $('pai-cynicism-val').textContent = p.cynicism + '%'; }
+  if ($('pai-combative')) { $('pai-combative').value = p.combative; $('pai-combative-val').textContent = p.combative + '%'; }
+  if ($('pai-impulse')) { $('pai-impulse').value = p.impulse; $('pai-impulse-val').textContent = p.impulse + '%'; }
+
+  if ($('pai-casing')) $('pai-casing').value = p.casing;
+  if ($('pai-punctuation')) $('pai-punctuation').value = p.punctuation;
+  if ($('pai-typo')) { $('pai-typo').value = p.typo; $('pai-typo-val').textContent = p.typo + '%'; }
+  if ($('pai-slang')) $('pai-slang').value = p.slang;
+  if ($('pai-burst')) { $('pai-burst').value = p.burst; $('pai-burst-val').textContent = p.burst + '%'; }
+  if ($('pai-emoji-habit')) $('pai-emoji-habit').value = p.emoji_habit;
+  if ($('pai-emojis')) $('pai-emojis').value = p.emojis;
+
+  if ($('pai-expertise')) $('pai-expertise').value = p.expertise;
+  if ($('pai-offtopic')) $('pai-offtopic').value = p.offtopic;
+  if ($('pai-hottakes')) $('pai-hottakes').value = p.hottakes;
+  if ($('pai-triggers')) $('pai-triggers').value = p.triggers;
+
+  // trigger live compile in background
+  compileCurrentPAIPrompt();
 }
 
-function getAIGenerationPayload() {
+function updateUnhingedMeter(val) {
+  const badge = $('pai-unhinged-badge');
+  const desc = $('pai-unhinged-desc');
+  const icon = $('pai-unhinged-icon');
+  if (!badge) return;
+
+  if (val >= 85) {
+    icon.textContent = '🚨';
+    badge.textContent = `${val}% • Extreme Chaotic Wildcard`;
+    badge.style.background = 'rgba(255,45,85,.15)';
+    badge.style.color = '#ff2d55';
+    badge.style.borderColor = 'rgba(255,45,85,.3)';
+    desc.innerHTML = `🚨 <b>Extreme Chaos & Volatility:</b> Zero corporate filter. Unpredictable mood swings, fierce skepticism, sudden tangents, blunt dismissal of stupid takes, and spontaneous non-sequiturs.`;
+  } else if (val >= 60) {
+    icon.textContent = '🔥';
+    badge.textContent = `${val}% • Edgy & Unfiltered`;
+    badge.style.background = 'rgba(255,149,0,.15)';
+    badge.style.color = 'var(--warn)';
+    badge.style.borderColor = 'rgba(255,149,0,.3)';
+    desc.innerHTML = `🔥 <b>Edgy & High Energy:</b> Sharp, candid, and prone to passionate arguments. Challenges weak claims with biting humor and zero patience for fluff.`;
+  } else if (val >= 35) {
+    icon.textContent = '⚡';
+    badge.textContent = `${val}% • Grounded Realist`;
+    badge.style.background = 'rgba(88,86,214,.15)';
+    badge.style.color = '#9997ff';
+    badge.style.borderColor = 'rgba(88,86,214,.3)';
+    desc.innerHTML = `⚡ <b>Grounded & Authentic:</b> Balanced human persona with natural conversational quirks, mild skepticism, and relatable day-to-day opinions.`;
+  } else {
+    icon.textContent = '🧘';
+    badge.textContent = `${val}% • Calm Pragmatist`;
+    badge.style.background = 'rgba(56,212,139,.15)';
+    badge.style.color = 'var(--ok)';
+    badge.style.borderColor = 'rgba(56,212,139,.3)';
+    desc.innerHTML = `🧘 <b>Measured & Composed:</b> Thoughtful, low-reactivity tone with constructive takes and structured sentence flow.`;
+  }
+}
+
+function getStructuredPAIPayload() {
   return {
-    direction: $('p-ai-prompt').value.trim(),
-    style: selectedAIStyle,
-    group_id: $('p-ai-group').value || null,
-    save: false
+    name: ($('pai-name') ? $('pai-name').value.trim() : '') || 'Liam Carter',
+    culture: $('pai-culture') ? $('pai-culture').value : 'american',
+    gender: $('pai-gender') ? $('pai-gender').value : 'man',
+    age: parseInt($('pai-age') ? $('pai-age').value : '25', 10),
+    location: ($('pai-loc') ? $('pai-loc').value.trim() : '') || 'Austin, TX',
+    timezone: ($('pai-tz') ? $('pai-tz').value.trim() : '') || 'America/Chicago (UTC-6)',
+    occupation: ($('pai-occ') ? $('pai-occ').value.trim() : '') || 'On-chain Trader',
+    seniority: $('pai-seniority') ? $('pai-seniority').value : 'drop_out',
+    education: $('pai-education') ? $('pai-education').value : 'street_smart',
+    telegram_bio: ($('pai-bio') ? $('pai-bio').value.trim() : ''),
+    unhinged_level: parseInt($('pai-unhinged') ? $('pai-unhinged').value : '92', 10),
+    emotional_volatility: parseInt($('pai-volatility') ? $('pai-volatility').value : '85', 10),
+    cynicism: parseInt($('pai-cynicism') ? $('pai-cynicism').value : '90', 10),
+    combative: parseInt($('pai-combative') ? $('pai-combative').value : '80', 10),
+    impulsive: parseInt($('pai-impulse') ? $('pai-impulse').value : '90', 10),
+    casing_style: $('pai-casing') ? $('pai-casing').value : 'all_lowercase',
+    punctuation_style: $('pai-punctuation') ? $('pai-punctuation').value : 'none',
+    typo_rate: parseFloat($('pai-typo') ? $('pai-typo').value : '7.5'),
+    slang_tier: $('pai-slang') ? $('pai-slang').value : 'crypto_degen',
+    burstiness: parseInt($('pai-burst') ? $('pai-burst').value : '70', 10),
+    emoji_habit: $('pai-emoji-habit') ? $('pai-emoji-habit').value : 'frequent',
+    signature_emojis: ($('pai-emojis') ? $('pai-emojis').value : '💀, 🤡, 🫠').split(',').map(s => s.trim()).filter(Boolean),
+    expertise: ($('pai-expertise') ? $('pai-expertise').value.trim() : ''),
+    off_topic_obsessions: ($('pai-offtopic') ? $('pai-offtopic').value.trim() : ''),
+    polarizing_takes: ($('pai-hottakes') ? $('pai-hottakes').value.trim() : ''),
+    trigger_topics: ($('pai-triggers') ? $('pai-triggers').value.trim() : ''),
+    group_context: $('pai-group') ? $('pai-group').value : '',
+    group_id: $('pai-group') ? $('pai-group').value : null,
+    style: selectedAIStyle
   };
 }
 
-async function generateAIPersona(openInStudio) {
+async function compileCurrentPAIPrompt() {
+  const payload = getStructuredPAIPayload();
+  try {
+    const res = await api('POST', '/personas/compile-prompt', payload);
+    if (res && res.prompt) {
+      currentCompiledPrompt = res.prompt;
+      if ($('pai-compiled-prompt')) $('pai-compiled-prompt').value = res.prompt;
+      if ($('pai-prompt-chars')) $('pai-prompt-chars').textContent = `${res.prompt.length} characters`;
+    }
+  } catch (e) {
+    console.warn('Compile prompt preview error:', e);
+  }
+}
+
+function switchPAITab(tabKey) {
+  const tabs = ['demographics', 'psychometrics', 'linguistics', 'topics', 'prompt'];
+  tabs.forEach(t => {
+    const el = $(`pai-tab-${t}`);
+    if (el) el.classList.toggle('hidden', t !== tabKey);
+  });
+  if ($('p-ai-tabs')) {
+    $('p-ai-tabs').querySelectorAll('.p-ed-tab').forEach(b => {
+      b.classList.toggle('active', b.dataset.aitab === tabKey);
+    });
+  }
+  if (tabKey === 'prompt') {
+    compileCurrentPAIPrompt();
+  }
+}
+
+function openAIPersonaModal() {
+  const groupSel = $('pai-group');
+  if (groupSel) {
+    const groups = (personaData.matrix || []);
+    groupSel.innerHTML = '<option value="">General / Any Telegram Group</option>' + groups.map((g) => `<option value="${g.chat_id}">${esc(g.title || g.chat_id)}</option>`).join('');
+  }
+  $('p-ai-loading').classList.add('hidden');
+  switchPAITab('demographics');
+  applyPAIPreset(selectedAIStyle || 'unhinged_degen');
+  $('p-ai-modal').classList.remove('hidden');
+}
+
+async function runPAISynthesis() {
   if (aiPersonaBusy) return;
   aiPersonaBusy = true;
-  const openBtn = $('p-ai-btn-open');
+  const synthBtn = $('p-ai-btn-synth');
   const saveBtn = $('p-ai-btn-save');
+  const openBtn = $('p-ai-btn-open');
   $('p-ai-loading').classList.remove('hidden');
-  openBtn.disabled = true;
+  synthBtn.disabled = true;
   saveBtn.disabled = true;
-  openBtn.textContent = 'Generating...';
-  saveBtn.textContent = 'Generating...';
-  try {
-    const payload = getAIGenerationPayload();
-    const result = await api('POST', '/personas/ai-generate', payload);
-    const persona = result.persona || result;
-    if (!persona || !persona.name || !persona.prompt) throw new Error('AI returned an incomplete persona.');
-    generatedAIPersona = persona;
+  openBtn.disabled = true;
+  synthBtn.textContent = 'Synthesizing with fal.ai...';
 
-    if (openInStudio) {
-      $('p-ai-modal').classList.add('hidden');
-      openPersonaModal(null, 'profile');
-      $('pm-name').value = persona.name || '';
-      $('pm-color').value = persona.color || '#2fc4b2';
-      $('pm-color-text').value = $('pm-color').value;
-      $('pm-bio').value = persona.bio || '';
-      $('pm-role').value = persona.details && persona.details.role_in_group || '';
-      $('pm-prompt').value = persona.prompt || '';
-      const d = persona.details || {};
-      $('pm-tz').value = d.timezone || '';
-      $('pm-demo').value = d.demographics || '';
-      if ($('pm-casing')) $('pm-casing').value = d.casing_style || 'casual_lowercase';
-      if ($('pm-length-pref')) $('pm-length-pref').value = d.message_length_pref || 'medium';
-      if ($('pm-emoji-habit')) $('pm-emoji-habit').value = d.emoji_habit || 'rare';
-      $('pm-emoji').value = Array.isArray(d.emojis) ? d.emojis.join(' ') : (d.emojis || '');
-      $('pm-tone').value = d.tone || '';
-      $('pm-offtopic').value = Array.isArray(d.off_topic) ? d.off_topic.join(', ') : (d.off_topic || '');
-      $('pm-taboo').value = Array.isArray(d.guardrails) ? d.guardrails.join(', ') : (d.guardrails || '');
-      if (d.typing) {
-        $('pm-cps').value = d.typing.chars_per_second || 24;
-        $('pm-min-sec').value = d.typing.min_seconds || 2;
-        $('pm-max-sec').value = d.typing.max_seconds || 8;
-      }
-      $('pm-prompt-charcount').textContent = `${$('pm-prompt').value.length} chars`;
-      updateModalAvatarPreview();
-    } else {
-      await api('POST', '/personas', {
-        name: persona.name,
-        prompt: persona.prompt,
-        color: persona.color || '#2fc4b2',
-        bio: persona.bio || '',
-        details: persona.details || {}
-      });
-      $('p-ai-modal').classList.add('hidden');
-      await loadPersonas();
-      alert(`Created persona “${persona.name}”. It is ready to bind to an account or group.`);
+  try {
+    const payload = getStructuredPAIPayload();
+    payload.save = false;
+    const result = await api('POST', '/personas/ai-generate', payload);
+    const p = result.persona || result;
+    if (!p || !p.name || !p.prompt) throw new Error('AI returned an incomplete persona.');
+
+    if ($('pai-name')) $('pai-name').value = p.name;
+    if ($('pai-bio')) $('pai-bio').value = p.bio || '';
+    if (p.prompt) {
+      currentCompiledPrompt = p.prompt;
+      if ($('pai-compiled-prompt')) $('pai-compiled-prompt').value = p.prompt;
+      if ($('pai-prompt-chars')) $('pai-prompt-chars').textContent = `${p.prompt.length} characters`;
     }
+
+    const d = p.details || {};
+    if (d.psychometrics && $('pai-unhinged')) {
+      const u = d.psychometrics.unhinged_level || 90;
+      $('pai-unhinged').value = u;
+      updateUnhingedMeter(u);
+    }
+    switchPAITab('prompt');
+    toast(`Persona “${p.name}” synthesized! Review the compiled prompt.`);
   } catch (err) {
-    alert('Persona generation failed: ' + err.message);
+    alert('Persona synthesis error: ' + err.message);
   } finally {
     aiPersonaBusy = false;
-    openBtn.disabled = false;
+    synthBtn.disabled = false;
     saveBtn.disabled = false;
-    openBtn.textContent = 'Generate & Open in Studio';
-    saveBtn.textContent = '✨ Auto-Create & Save';
+    openBtn.disabled = false;
+    synthBtn.textContent = '✨ Synthesize with fal.ai';
     $('p-ai-loading').classList.add('hidden');
   }
 }
 
-if ($('p-btn-ai-gen')) $('p-btn-ai-gen').onclick = openAIPersonaModal;
-if ($('p-ai-close')) $('p-ai-close').onclick = () => $('p-ai-modal').classList.add('hidden');
-if ($('p-ai-cancel')) $('p-ai-cancel').onclick = () => $('p-ai-modal').classList.add('hidden');
-if ($('p-modal-autofill')) $('p-modal-autofill').onclick = () => {
-  $('p-ai-modal').classList.remove('hidden');
-};
-if ($('p-ai-btn-open')) $('p-ai-btn-open').onclick = () => generateAIPersona(true);
-if ($('p-ai-btn-save')) $('p-ai-btn-save').onclick = () => generateAIPersona(false);
+async function savePAIPersona() {
+  if (aiPersonaBusy) return;
+  const payload = getStructuredPAIPayload();
+  const name = payload.name || 'Anonymous Persona';
+  let prompt = $('pai-compiled-prompt') ? $('pai-compiled-prompt').value.trim() : currentCompiledPrompt;
+  if (!prompt) {
+    await compileCurrentPAIPrompt();
+    prompt = currentCompiledPrompt;
+  }
+  const bio = payload.telegram_bio || `Authentic ${payload.culture} ${payload.occupation}`;
+  const color = '#2fc4b2';
+
+  const details = {
+    culture: payload.culture,
+    gender: payload.gender,
+    age: payload.age,
+    location: payload.location,
+    timezone: payload.timezone,
+    occupation: payload.occupation,
+    seniority: payload.seniority,
+    education: payload.education,
+    unhinged_level: payload.unhinged_level,
+    psychometrics: {
+      unhinged_level: payload.unhinged_level,
+      emotional_volatility: payload.emotional_volatility,
+      cynicism: payload.cynicism,
+      combative: payload.combative,
+      impulsive: payload.impulsive
+    },
+    linguistic: {
+      casing: payload.casing_style,
+      punctuation: payload.punctuation_style,
+      typo_rate: payload.typo_rate,
+      slang_tier: payload.slang_tier,
+      burstiness: payload.burstiness,
+      emoji_habit: payload.emoji_habit,
+      signature_emojis: payload.signature_emojis
+    },
+    topics: {
+      expertise: payload.expertise,
+      off_topic: payload.off_topic_obsessions,
+      hot_takes: payload.polarizing_takes,
+      triggers: payload.trigger_topics
+    },
+    role_in_group: payload.occupation
+  };
+
+  try {
+    await api('POST', '/personas', { name, prompt, color, bio, details });
+    $('p-ai-modal').classList.add('hidden');
+    await loadPersonas();
+    toast(`Created industrial persona “${name}”!`);
+  } catch (err) {
+    alert('Failed to save persona: ' + err.message);
+  }
+}
+
+function openPAIInStudio() {
+  const payload = getStructuredPAIPayload();
+  let prompt = $('pai-compiled-prompt') ? $('pai-compiled-prompt').value.trim() : currentCompiledPrompt;
+
+  $('p-ai-modal').classList.add('hidden');
+  openPersonaModal(null, 'profile');
+  $('pm-name').value = payload.name;
+  $('pm-color').value = '#2fc4b2';
+  $('pm-color-text').value = '#2fc4b2';
+  $('pm-bio').value = payload.telegram_bio;
+  $('pm-role').value = payload.occupation;
+  $('pm-prompt').value = prompt;
+  $('pm-tz').value = payload.timezone;
+  $('pm-demo').value = `${payload.age}yo ${payload.gender}, ${payload.location}. ${payload.seniority} ${payload.occupation}.`;
+  if ($('pm-casing')) $('pm-casing').value = payload.casing_style;
+  if ($('pm-emoji-habit')) $('pm-emoji-habit').value = payload.emoji_habit;
+  $('pm-emoji').value = (payload.signature_emojis || []).join(' ');
+  $('pm-tone').value = `${payload.unhinged_level}% unhinged / chaotic, cynicism: ${payload.cynicism}%, combative: ${payload.combative}%`;
+  $('pm-offtopic').value = payload.off_topic_obsessions;
+  $('pm-taboo').value = payload.trigger_topics;
+  $('pm-prompt-charcount').textContent = `${$('pm-prompt').value.length} chars`;
+  updateModalAvatarPreview();
+}
+
+async function matchCultureName() {
+  const culture = $('pai-culture') ? $('pai-culture').value : 'american';
+  const gender = $('pai-gender') ? $('pai-gender').value : 'man';
+  try {
+    const res = await api('GET', `/personas/match-name?culture=${encodeURIComponent(culture)}&gender=${encodeURIComponent(gender)}`);
+    if (res && res.name && $('pai-name')) {
+      $('pai-name').value = res.name;
+      compileCurrentPAIPrompt();
+    }
+  } catch (e) {
+    console.warn('Name match error:', e);
+  }
+}
+
+function randomizePAIProfile() {
+  const cultures = ['american', 'british', 'germanic', 'slavic', 'french', 'hispanic', 'middle_eastern', 'east_asian', 'south_asian', 'nordic'];
+  const genders = ['man', 'woman', 'person'];
+  const randCult = cultures[Math.floor(Math.random() * cultures.length)];
+  const randGen = genders[Math.floor(Math.random() * genders.length)];
+  const randAge = Math.floor(Math.random() * 32) + 20;
+  const randUnhinged = Math.floor(Math.random() * 65) + 35;
+
+  if ($('pai-culture')) $('pai-culture').value = randCult;
+  if ($('pai-gender')) $('pai-gender').value = randGen;
+  if ($('pai-age')) { $('pai-age').value = randAge; $('pai-age-val').textContent = randAge; }
+  if ($('pai-unhinged')) { $('pai-unhinged').value = randUnhinged; updateUnhingedMeter(randUnhinged); }
+  if ($('pai-volatility')) { const v = Math.floor(Math.random() * 60) + 40; $('pai-volatility').value = v; $('pai-volatility-val').textContent = v + '%'; }
+  if ($('pai-cynicism')) { const c = Math.floor(Math.random() * 60) + 40; $('pai-cynicism').value = c; $('pai-cynicism-val').textContent = c + '%'; }
+  if ($('pai-combative')) { const k = Math.floor(Math.random() * 60) + 40; $('pai-combative').value = k; $('pai-combative-val').textContent = k + '%'; }
+
+  matchCultureName();
+}
+
+// Bind Studio Slider listeners
+if ($('pai-unhinged')) $('pai-unhinged').oninput = (e) => updateUnhingedMeter(parseInt(e.target.value, 10));
+if ($('pai-age')) $('pai-age').oninput = (e) => { $('pai-age-val').textContent = e.target.value; };
+if ($('pai-volatility')) $('pai-volatility').oninput = (e) => { $('pai-volatility-val').textContent = e.target.value + '%'; };
+if ($('pai-cynicism')) $('pai-cynicism').oninput = (e) => { $('pai-cynicism-val').textContent = e.target.value + '%'; };
+if ($('pai-combative')) $('pai-combative').oninput = (e) => { $('pai-combative-val').textContent = e.target.value + '%'; };
+if ($('pai-impulse')) $('pai-impulse').oninput = (e) => { $('pai-impulse-val').textContent = e.target.value + '%'; };
+if ($('pai-typo')) $('pai-typo').oninput = (e) => { $('pai-typo-val').textContent = e.target.value + '%'; };
+if ($('pai-burst')) $('pai-burst').oninput = (e) => { $('pai-burst-val').textContent = e.target.value + '%'; };
+
+// Bind Tab listeners
+if ($('p-ai-tabs')) {
+  $('p-ai-tabs').querySelectorAll('.p-ed-tab').forEach(b => {
+    b.onclick = () => switchPAITab(b.dataset.aitab);
+  });
+}
+
+// Bind Preset Chips
 if ($('p-ai-chips')) {
-  $('p-ai-chips').querySelectorAll('.p-chip').forEach((chip) => {
+  $('p-ai-chips').querySelectorAll('.p-chip').forEach(chip => {
     chip.onclick = () => {
-      selectedAIStyle = chip.dataset.style || 'custom';
-      $('p-ai-chips').querySelectorAll('.p-chip').forEach((c) => c.classList.toggle('active', c === chip));
+      selectedAIStyle = chip.dataset.style;
+      $('p-ai-chips').querySelectorAll('.p-chip').forEach(c => c.classList.toggle('active', c === chip));
+      applyPAIPreset(selectedAIStyle);
     };
   });
 }
+
+// Bind Action Buttons
+if ($('p-btn-ai-gen')) $('p-btn-ai-gen').onclick = openAIPersonaModal;
+if ($('p-ai-close')) $('p-ai-close').onclick = () => $('p-ai-modal').classList.add('hidden');
+if ($('p-ai-cancel')) $('p-ai-cancel').onclick = () => $('p-ai-modal').classList.add('hidden');
+if ($('p-modal-autofill')) $('p-modal-autofill').onclick = openAIPersonaModal;
+if ($('pai-btn-match-name')) $('pai-btn-match-name').onclick = matchCultureName;
+if ($('pai-culture')) $('pai-culture').onchange = matchCultureName;
+if ($('pai-gender')) $('pai-gender').onchange = matchCultureName;
+if ($('pai-btn-randomize')) $('pai-btn-randomize').onclick = randomizePAIProfile;
+if ($('pai-btn-recompile')) $('pai-btn-recompile').onclick = compileCurrentPAIPrompt;
+if ($('p-ai-btn-synth')) $('p-ai-btn-synth').onclick = runPAISynthesis;
+if ($('p-ai-btn-save')) $('p-ai-btn-save').onclick = savePAIPersona;
+if ($('p-ai-btn-open')) $('p-ai-btn-open').onclick = openPAIInStudio;
+
 
 $('p-btn-gen').onclick = () => openGenModal(null);
 $('p-gen-close').onclick = () => $('p-gen-modal').classList.add('hidden');
@@ -1506,7 +1822,8 @@ async function runGroupTestChat() {
       model: modelVal,
       turns: turnsVal,
       topic: topicVal,
-      send_live: sendLiveVal
+      send_live: sendLiveVal,
+      anti_pattern: ($("ptc-antipattern") ? $("ptc-antipattern").checked : true)
     });
 
     if (!res.ok) throw new Error(res.error || 'Failed to generate test chat');

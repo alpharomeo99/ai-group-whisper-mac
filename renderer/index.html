@@ -385,59 +385,326 @@
           </div>
         </div>
 
-                <!-- AI Persona Architect Modal -->
+                <!-- Industrial Persona Architect Studio Modal -->
         <div id="p-ai-modal" class="p-modal hidden">
-          <div class="p-modal-content" style="max-width:580px;">
+          <div class="p-modal-content wide" style="max-width:860px; max-height:92vh;">
             <div class="p-modal-header">
-              <div style="display:flex; align-items:center; gap:10px;">
-                <span style="font-size:22px;">✨</span>
+              <div style="display:flex; align-items:center; gap:12px;">
+                <span style="font-size:24px;">✨</span>
                 <div>
-                  <h2 style="margin:0; font-size:17px;">AI Persona Architect</h2>
-                  <div class="hint" style="font-size:12px;">Automatically create detailed human personas with realistic psychology, typing cadence, and linguistic depth.</div>
+                  <h2 style="margin:0; font-size:17px; display:flex; align-items:center; gap:8px;">
+                    Industrial Persona Architect &amp; Studio
+                    <span style="font-size:11px; font-weight:700; padding:2px 8px; border-radius:10px; background:linear-gradient(135deg, #af52de, #5856d6); color:#fff;">v2.19 Pro</span>
+                  </h2>
+                  <div class="hint" style="font-size:12px;">Deep demographics, cultural name matching, psychometrics, unhinged erratic factor &amp; anti-pattern speech engine.</div>
                 </div>
               </div>
               <button class="ghost p-modal-close" id="p-ai-close">&times;</button>
             </div>
-            <div class="p-modal-body">
-              <div style="margin-bottom:14px;">
-                <label class="l">Quick Style Archetype</label>
-                <div class="p-archetype-chips" id="p-ai-chips">
-                  <button type="button" class="p-chip active" data-style="defi_hunter">🚀 DeFi / Alpha Hunter</button>
-                  <button type="button" class="p-chip" data-style="tech_veteran">⚡ Cynical Tech Veteran</button>
-                  <button type="button" class="p-chip" data-style="community_mod">🤝 Helpful Community Mod</button>
-                  <button type="button" class="p-chip" data-style="witty_lurker">💬 Witty Sarcastic Lurker</button>
-                  <button type="button" class="p-chip" data-style="meme_lord">🔥 Meme Lord &amp; Degen</button>
-                  <button type="button" class="p-chip" data-style="custom">🎨 Custom Direction</button>
+
+            <!-- Archetype Quick Presets Bar -->
+            <div style="padding:10px 20px; background:var(--bg); border-bottom:1px solid var(--line); display:flex; align-items:center; gap:8px; overflow-x:auto;">
+              <span style="font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:0.5px; white-space:nowrap;">Presets:</span>
+              <div class="p-archetype-chips" id="p-ai-chips" style="margin:0; display:flex; gap:6px;">
+                <button type="button" class="p-chip active" data-style="unhinged_degen">🚨 Unhinged Degen (92% Chaos)</button>
+                <button type="button" class="p-chip" data-style="cynical_tech_vet">⚡ Cynical Tech Vet (48% Edge)</button>
+                <button type="button" class="p-chip" data-style="deadpan_lurker">💬 Deadpan Lurker (62% Snark)</button>
+                <button type="button" class="p-chip" data-style="erratic_conspiracy">👁️ Erratic Free-Thinker (96% Wild)</button>
+                <button type="button" class="p-chip" data-style="measured_diplomat">🧘 Measured Pragmatist (18% Calm)</button>
+              </div>
+            </div>
+
+            <!-- Studio Sub-Navigation Tabs -->
+            <div class="p-editor-nav" id="p-ai-tabs">
+              <button type="button" class="p-ed-tab active" data-aitab="demographics">👤 Identity &amp; Demographics</button>
+              <button type="button" class="p-ed-tab" data-aitab="psychometrics">🧠 Psychometrics &amp; Unhinged Meter</button>
+              <button type="button" class="p-ed-tab" data-aitab="linguistics">✍️ Linguistic Fingerprint</button>
+              <button type="button" class="p-ed-tab" data-aitab="topics">🎯 Topics, Biases &amp; Triggers</button>
+              <button type="button" class="p-ed-tab" data-aitab="prompt">📜 Compiled Live Prompt</button>
+            </div>
+
+            <div class="p-modal-body" style="padding:18px 22px;">
+              <!-- Tab 1: Identity & Demographics -->
+              <div id="pai-tab-demographics">
+                <div class="grid3" style="display:grid; grid-template-columns:1fr 1fr 1.4fr; gap:12px; margin-bottom:14px;">
+                  <div>
+                    <label class="l">Culture / Nationality</label>
+                    <select id="pai-culture" style="width:100%;">
+                      <option value="american" selected>American / North American</option>
+                      <option value="british">British / UK / Celtic</option>
+                      <option value="germanic">Germanic (DE / AT / CH)</option>
+                      <option value="slavic">Slavic / Eastern European</option>
+                      <option value="french">French / Francophone</option>
+                      <option value="hispanic">Hispanic / Latin American</option>
+                      <option value="middle_eastern">Middle Eastern / Arab</option>
+                      <option value="east_asian">East Asian (JP / KR / TW)</option>
+                      <option value="south_asian">South Asian (IN / PK)</option>
+                      <option value="nordic">Nordic / Scandinavian</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label class="l">Gender Presentation</label>
+                    <select id="pai-gender" style="width:100%;">
+                      <option value="man" selected>Male / Man</option>
+                      <option value="woman">Female / Woman</option>
+                      <option value="person">Non-binary / Neutral</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label class="l">Persona Name <span class="hint">(Matches culture)</span></label>
+                    <div style="display:flex; gap:6px;">
+                      <input type="text" id="pai-name" placeholder="Full Name" value="Liam Carter" style="flex:1;" />
+                      <button type="button" id="pai-btn-match-name" class="ghost" style="padding:4px 10px; font-size:12px; white-space:nowrap;" title="Generate authentic name matching selected culture">🎲 Match</button>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="grid3" style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px; margin-bottom:14px;">
+                  <div>
+                    <div style="display:flex; justify-content:space-between;">
+                      <label class="l">Age: <span id="pai-age-val" style="color:var(--accent); font-weight:700;">25</span></label>
+                    </div>
+                    <input type="range" id="pai-age" min="19" max="68" value="25" style="width:100%; margin-top:4px;" />
+                  </div>
+                  <div>
+                    <label class="l">Location / City</label>
+                    <input type="text" id="pai-loc" placeholder="e.g. Austin, Texas or London" value="Austin, TX" />
+                  </div>
+                  <div>
+                    <label class="l">Timezone</label>
+                    <input type="text" id="pai-tz" placeholder="e.g. America/Chicago (UTC-6)" value="America/Chicago (UTC-6)" />
+                  </div>
+                </div>
+
+                <div class="grid3" style="display:grid; grid-template-columns:1.3fr 1fr 1fr; gap:12px; margin-bottom:14px;">
+                  <div>
+                    <label class="l">Occupation &amp; Day Job</label>
+                    <input type="text" id="pai-occ" placeholder="e.g. Quantitative Trader, Smart Contract Auditor" value="Full-time On-chain Trader &amp; Shitpost Specialist" />
+                  </div>
+                  <div>
+                    <label class="l">Seniority / Status</label>
+                    <select id="pai-seniority" style="width:100%;">
+                      <option value="drop_out" selected>College Dropout / Hustler</option>
+                      <option value="student">Student / Early Career</option>
+                      <option value="junior">Junior Practitioner</option>
+                      <option value="mid">Mid-level Operator</option>
+                      <option value="senior">Senior Specialist</option>
+                      <option value="founder">Startup Founder</option>
+                      <option value="veteran">Battle-tested Veteran</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label class="l">Education / Social Vibe</label>
+                    <select id="pai-education" style="width:100%;">
+                      <option value="street_smart" selected>Street-smart &amp; Self-taught</option>
+                      <option value="self_taught">Self-taught Hacker</option>
+                      <option value="state_school">State University Graduate</option>
+                      <option value="elite_university">Elite / Ivy League Vibe</option>
+                      <option value="academic">Academic Researcher</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label class="l">Telegram Bio <span class="hint">(Short profile quote under 85 chars)</span></label>
+                  <input type="text" id="pai-bio" placeholder="Short bio..." value="on-chain analytics by day, insomnia by night. skeptical of everything." />
                 </div>
               </div>
 
-              <div style="margin-bottom:14px;">
-                <label class="l">Describe the Persona <span class="hint">(Optional - AI will imagine an authentic individual if left blank)</span></label>
-                <textarea id="p-ai-prompt" rows="3" style="width:100%; resize:vertical; font-family:inherit; font-size:13px;" placeholder="e.g. 28yo crypto researcher in London who writes in all lowercase, drinks matcha, and questions hype"></textarea>
+              <!-- Tab 2: Psychometrics & Unhinged Meter -->
+              <div id="pai-tab-psychometrics" class="hidden">
+                <!-- Large Unhinged / Erratic Meter Box -->
+                <div style="background:var(--panel2); border:1px solid var(--line2); border-radius:10px; padding:16px; margin-bottom:18px;">
+                  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                    <div style="display:flex; align-items:center; gap:8px;">
+                      <span style="font-size:20px;" id="pai-unhinged-icon">🚨</span>
+                      <div>
+                        <strong style="font-size:14px;">Unhinged &amp; Erratic Human Factor</strong>
+                        <div class="hint" style="font-size:11.5px;">Controls raw unpredictability, passionate tangents, emotional flare-ups, and spontaneous outbursts.</div>
+                      </div>
+                    </div>
+                    <span id="pai-unhinged-badge" style="font-size:12px; font-weight:700; padding:4px 12px; border-radius:20px; background:rgba(255,45,85,.15); color:#ff2d55; border:1px solid rgba(255,45,85,.3);">
+                      92% • Chaotic Wildcard
+                    </span>
+                  </div>
+                  <input type="range" id="pai-unhinged" min="0" max="100" value="92" style="width:100%; margin:10px 0 6px;" />
+                  <div id="pai-unhinged-desc" style="font-size:12.5px; line-height:1.4; color:var(--text); padding:8px 12px; background:var(--bg); border-radius:6px; border:1px solid var(--line);">
+                    🚨 <b>Extreme Chaos &amp; Volatility:</b> Zero corporate filter. Unpredictable mood swings, fierce skepticism, sudden tangents, blunt dismissal of stupid takes, and spontaneous non-sequiturs.
+                  </div>
+                </div>
+
+                <!-- 4 Sub-Sliders for Psychometric Traits -->
+                <div class="grid2" style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
+                  <div style="background:var(--bg); padding:12px; border-radius:8px; border:1px solid var(--line);">
+                    <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
+                      <label class="l" style="margin:0;">Emotional Volatility</label>
+                      <span id="pai-volatility-val" style="font-size:12px; font-weight:700; color:var(--accent);">85%</span>
+                    </div>
+                    <input type="range" id="pai-volatility" min="0" max="100" value="85" style="width:100%;" />
+                    <div class="hint" style="font-size:11px; margin-top:4px;">Stable &amp; unflappable &rarr; Prone to sudden emotional reactions</div>
+                  </div>
+
+                  <div style="background:var(--bg); padding:12px; border-radius:8px; border:1px solid var(--line);">
+                    <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
+                      <label class="l" style="margin:0;">Cynicism vs. Optimism</label>
+                      <span id="pai-cynicism-val" style="font-size:12px; font-weight:700; color:var(--accent);">90%</span>
+                    </div>
+                    <input type="range" id="pai-cynicism" min="0" max="100" value="90" style="width:100%;" />
+                    <div class="hint" style="font-size:11px; margin-top:4px;">Naive believer &rarr; Deeply cynical / questions hidden agendas</div>
+                  </div>
+
+                  <div style="background:var(--bg); padding:12px; border-radius:8px; border:1px solid var(--line);">
+                    <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
+                      <label class="l" style="margin:0;">Combative / Contrarian Stance</label>
+                      <span id="pai-combative-val" style="font-size:12px; font-weight:700; color:var(--accent);">80%</span>
+                    </div>
+                    <input type="range" id="pai-combative" min="0" max="100" value="80" style="width:100%;" />
+                    <div class="hint" style="font-size:11px; margin-top:4px;">Diplomatic agreeableness &rarr; Loves calling BS &amp; arguing</div>
+                  </div>
+
+                  <div style="background:var(--bg); padding:12px; border-radius:8px; border:1px solid var(--line);">
+                    <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
+                      <label class="l" style="margin:0;">Impulsiveness (Zero-Filter)</label>
+                      <span id="pai-impulse-val" style="font-size:12px; font-weight:700; color:var(--accent);">90%</span>
+                    </div>
+                    <input type="range" id="pai-impulse" min="0" max="100" value="90" style="width:100%;" />
+                    <div class="hint" style="font-size:11px; margin-top:4px;">Calculated &amp; polite &rarr; Blurts thoughts out instantly</div>
+                  </div>
+                </div>
               </div>
 
-              <div style="margin-bottom:14px;">
-                <label class="l">Target Group Context <span class="hint">(Optional - tailors persona to this group's niche)</span></label>
-                <select id="p-ai-group" style="width:100%;"><option value="">General / Any Telegram Group</option></select>
+              <!-- Tab 3: Linguistic Fingerprint -->
+              <div id="pai-tab-linguistics" class="hidden">
+                <div class="grid2" style="display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:14px;">
+                  <div>
+                    <label class="l">Casing Preference</label>
+                    <select id="pai-casing" style="width:100%;">
+                      <option value="all_lowercase" selected>Strictly All Lowercase (no shift key, relaxed)</option>
+                      <option value="sentence_case">Standard Sentence Case (natural capitalization)</option>
+                      <option value="sloppy_mixed">Sloppy Mixed Case (accidental caps, fast phone typing)</option>
+                      <option value="technical_clean">Technical Clean (structured &amp; precise)</option>
+                      <option value="punchy_terse">Punchy &amp; Terse (short fragments)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label class="l">Punctuation Habit</label>
+                    <select id="pai-punctuation" style="width:100%;">
+                      <option value="none" selected>None (zero terminal periods, natural phone style)</option>
+                      <option value="ellipses_spam">Ellipses Spam (... for trailing thoughts)</option>
+                      <option value="minimal">Minimal (commas only, no end punctuation)</option>
+                      <option value="standard">Standard Punctuation</option>
+                      <option value="expressive_multimark">Expressive Multi-mark (??, !!, ?!)</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div class="grid3" style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px; margin-bottom:14px;">
+                  <div>
+                    <div style="display:flex; justify-content:space-between;">
+                      <label class="l">Typo Rate: <span id="pai-typo-val" style="color:var(--accent); font-weight:700;">7.5%</span></label>
+                    </div>
+                    <input type="range" id="pai-typo" min="0" max="15" step="0.5" value="7.5" style="width:100%;" />
+                    <div class="hint" style="font-size:11px; margin-top:4px;">0% clean &rarr; 15% mobile slips (teh, dont, im)</div>
+                  </div>
+                  <div>
+                    <label class="l">Slang / Subculture Tier</label>
+                    <select id="pai-slang" style="width:100%;">
+                      <option value="crypto_degen" selected>Crypto / Web3 Degen (anon, based, lfg, cap, ngmi)</option>
+                      <option value="gen_z_internet">Internet / Gen-Z (fr, lowkey, cooked, mid, vibe)</option>
+                      <option value="tech_founder">Silicon Valley / Tech (ship, scale, latency)</option>
+                      <option value="british_road">UK Urban / Colloquial (mate, proper, peak, banter)</option>
+                      <option value="blue_collar_direct">Blue-Collar Direct (plain talk, blunt, pragmatic)</option>
+                      <option value="academic_elevated">Academic / Analytical (precise vocabulary)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <div style="display:flex; justify-content:space-between;">
+                      <label class="l">Burstiness: <span id="pai-burst-val" style="color:var(--accent); font-weight:700;">70%</span></label>
+                    </div>
+                    <input type="range" id="pai-burst" min="0" max="100" value="70" style="width:100%;" />
+                    <div class="hint" style="font-size:11px; margin-top:4px;">Chance of firing 2-3 short sequential messages</div>
+                  </div>
+                </div>
+
+                <div class="grid2" style="display:grid; grid-template-columns:1fr 1fr; gap:14px;">
+                  <div>
+                    <label class="l">Emoji Habit</label>
+                    <select id="pai-emoji-habit" style="width:100%;">
+                      <option value="never">Never uses emojis</option>
+                      <option value="rare">Rare / Subtle (1 every few messages)</option>
+                      <option value="moderate">Moderate (1 emoji per message)</option>
+                      <option value="frequent" selected>Frequent / Expressive</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label class="l">Signature Emojis <span class="hint">(Comma separated)</span></label>
+                    <input type="text" id="pai-emojis" value="💀, 🤡, 🫠, 🚩" placeholder="e.g. 💀, 👀, 🚀" />
+                  </div>
+                </div>
               </div>
 
-              <div id="p-ai-loading" class="hidden" style="padding:16px; background:rgba(175,82,222,.08); border:1px solid rgba(175,82,222,.2); border-radius:8px; margin-bottom:14px; text-align:center;">
-                <div class="spinner" style="display:inline-block; margin-bottom:8px;"></div>
-                <div id="p-ai-status-text" style="font-weight:600; color:var(--text); font-size:13px;">Synthesizing persona psychology &amp; linguistics...</div>
-                <div class="hint" style="font-size:12px; margin-top:4px;">Calibrating human typing speed, cadence, and anti-bot guardrails</div>
+              <!-- Tab 4: Topics, Biases & Triggers -->
+              <div id="pai-tab-topics" class="hidden">
+                <div style="margin-bottom:12px;">
+                  <label class="l">Core Expertise &amp; Knowledge Domains</label>
+                  <input type="text" id="pai-expertise" value="On-chain token flows, memecoin liquidity pools, contract exploits" placeholder="e.g. distributed systems, protocol design" />
+                </div>
+                <div style="margin-bottom:12px;">
+                  <label class="l">Off-Topic Everyday Obsessions <span class="hint">(Casually brought up in chat)</span></label>
+                  <input type="text" id="pai-offtopic" value="yerba mate, conspiracy rabbit holes, adderall shortages, obscure memecoins" placeholder="e.g. specialty coffee, mechanical keyboards, bouldering" />
+                </div>
+                <div style="margin-bottom:12px;">
+                  <label class="l">Polarizing Hot Takes <span class="hint">(Unfiltered opinions they defend passionately)</span></label>
+                  <input type="text" id="pai-hottakes" value="99% of web3 founders are grifters who never wrote code; centralized exchanges are rigged casinos" placeholder="e.g. microservices are a scam" />
+                </div>
+                <div style="margin-bottom:12px;">
+                  <label class="l">Trigger Topics <span class="hint">(Things that provoke an immediate sharp reaction)</span></label>
+                  <input type="text" id="pai-triggers" value="VC token unlock schedules, sponsored influencer shills, overly polite corporate bots" placeholder="e.g. condescending advice, corporate buzzwords" />
+                </div>
+                <div>
+                  <label class="l">Target Group Context <span class="hint">(Optional - binds persona to this group culture)</span></label>
+                  <select id="pai-group" style="width:100%;"><option value="">General / Any Telegram Group</option></select>
+                </div>
+              </div>
+
+              <!-- Tab 5: Compiled Live Prompt -->
+              <div id="pai-tab-prompt" class="hidden">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                  <div style="display:flex; gap:6px; flex-wrap:wrap;">
+                    <span class="p-tag" style="background:rgba(56,212,139,.12); color:var(--ok); border-color:rgba(56,212,139,.3);">🛡️ Zero Echoing Rule</span>
+                    <span class="p-tag" style="background:rgba(88,86,214,.15); color:#9997ff; border-color:rgba(88,86,214,.35);">⚡ Asymmetric Bursts</span>
+                    <span class="p-tag" style="background:rgba(255,149,0,.15); color:var(--warn); border-color:rgba(255,149,0,.35);">🚫 Banned AI Hallmarks</span>
+                    <span class="p-tag" style="background:rgba(255,45,85,.15); color:#ff2d55; border-color:rgba(255,45,85,.35);">🚨 High-Entropy Unhinged</span>
+                  </div>
+                  <button type="button" id="pai-btn-recompile" class="ghost" style="padding:4px 10px; font-size:12px;">⚡ Re-compile</button>
+                </div>
+                <textarea id="pai-compiled-prompt" rows="12" style="width:100%; font-family:var(--font-mono, monospace); font-size:11.5px; line-height:1.45; background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:12px; resize:vertical;"></textarea>
+                <div style="display:flex; justify-content:space-between; font-size:11px; color:var(--muted); margin-top:4px;">
+                  <span>This compiled prompt is injected directly into fal.ai generation and Telegram daemon.</span>
+                  <span id="pai-prompt-chars">0 characters</span>
+                </div>
+              </div>
+
+              <div id="p-ai-loading" class="hidden" style="padding:14px; background:rgba(175,82,222,.08); border:1px solid rgba(175,82,222,.2); border-radius:8px; margin-top:14px; text-align:center;">
+                <div class="spinner" style="display:inline-block; margin-bottom:6px;"></div>
+                <div id="p-ai-status-text" style="font-weight:600; color:var(--text); font-size:13px;">Synthesizing persona via fal.ai...</div>
+                <div class="hint" style="font-size:11.5px; margin-top:2px;">Compiling cultural name, erratic unhinged parameters, and anti-pattern guardrails</div>
               </div>
             </div>
+
             <div class="p-modal-footer" style="display:flex; justify-content:space-between; align-items:center;">
-              <button class="ghost" id="p-ai-cancel">Cancel</button>
+              <button type="button" class="ghost" id="pai-btn-randomize">🎲 Randomize Profile</button>
               <div style="display:flex; gap:8px;">
-                <button class="ghost" id="p-ai-btn-open" title="Generate with AI and open in Studio for manual review">Generate &amp; Open in Studio</button>
-                <button class="primary" id="p-ai-btn-save" style="background:linear-gradient(135deg, #af52de, #5856d6); color:#fff; border:none; cursor:pointer;">✨ Auto-Create &amp; Save</button>
+                <button type="button" class="ghost" id="p-ai-cancel">Cancel</button>
+                <button type="button" class="ghost" id="p-ai-btn-open" title="Open compiled traits in Studio editor">Open in Studio</button>
+                <button type="button" class="primary" id="p-ai-btn-synth" style="background:linear-gradient(135deg, #007aff, #5856d6); color:#fff; border:none; cursor:pointer;">✨ Synthesize with fal.ai</button>
+                <button type="button" class="primary" id="p-ai-btn-save" style="background:linear-gradient(135deg, #af52de, #5856d6); color:#fff; border:none; cursor:pointer;">💾 Save Persona</button>
               </div>
             </div>
           </div>
         </div>
 
-<!-- Generation Modal -->
+        <!-- Generation Modal -->
         <div id="p-gen-modal" class="p-modal hidden">
           <div class="p-modal-content" style="max-width:540px;">
             <div class="p-modal-header">
@@ -509,9 +776,13 @@
                 <label class="l">Conversation Topic / Seed</label>
                 <input type="text" id="ptc-topic" placeholder="e.g. Checking in on recent updates, casual banter" value="Checking in on recent updates and casual discussion" />
               </div>
-              <div style="margin-bottom:14px; display:flex; align-items:center; gap:8px;">
+              <div style="margin-bottom:10px; display:flex; align-items:center; gap:8px;">
                 <input type="checkbox" id="ptc-send-live" style="width:auto; cursor:pointer;" checked />
                 <label for="ptc-send-live" style="margin:0; cursor:pointer; font-weight:500;">Send live to Telegram group (with human typing simulation)</label>
+              </div>
+              <div style="margin-bottom:14px; display:flex; align-items:center; gap:8px;">
+                <input type="checkbox" id="ptc-antipattern" style="width:auto; cursor:pointer;" checked />
+                <label for="ptc-antipattern" style="margin:0; cursor:pointer; font-weight:500; color:var(--accent);">🛡️ Anti-Pattern High Entropy (multi-message bursts, raw human slang, zero predictable ping-pong)</label>
               </div>
               <div id="ptc-status" class="hint" style="margin-bottom:10px; min-height:18px;"></div>
               <div id="ptc-transcript" style="max-height:260px; overflow-y:auto; display:none; flex-direction:column; gap:8px; padding:10px; background:var(--panel2); border-radius:8px; border:1px solid var(--border);"></div>

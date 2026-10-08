@@ -12,7 +12,7 @@ class AIError(Exception):
         self.retryable = status == 429 or status >= 500
 
 
-async def chat(settings, system, user):
+async def chat(settings, system, user, temperature=None, frequency_penalty=None, presence_penalty=None):
     key = settings.get("fal_key") or ""
     if not key:
         raise AIError(401, "Add your fal.ai API key in Settings.")
@@ -20,6 +20,12 @@ async def chat(settings, system, user):
     headers = {"Content-Type": "application/json", "Authorization": f"Key {key}"}
     body = {"model": model, "messages": [{"role": "system", "content": system},
                                          {"role": "user", "content": user}]}
+    if temperature is not None:
+        body["temperature"] = float(temperature)
+    if frequency_penalty is not None:
+        body["frequency_penalty"] = float(frequency_penalty)
+    if presence_penalty is not None:
+        body["presence_penalty"] = float(presence_penalty)
     async with aiohttp.ClientSession() as s:
         async with s.post(f"{FAL_BASE}/chat/completions", json=body, headers=headers) as r:
             data = await r.json(content_type=None)

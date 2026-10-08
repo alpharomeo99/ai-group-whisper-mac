@@ -1057,24 +1057,28 @@ class Daemon:
             recent_msgs = self.store.recent(chat_id, 10)
             ctx_summary = "\n".join(f"[{m['sender']}]: {m['text']}" for m in recent_msgs) if recent_msgs else "No prior history."
 
+            # Anti-Pattern & High-Entropy conversational simulation
             sys_prompt = (
-                f"You are simulating a brief, authentic Telegram conversation between two real group members in the group \"{group_title}\".\n\n"
+                f"You are simulating an authentic, messy, highly realistic Telegram group conversation in \"{group_title}\".\n\n"
                 f"Context of recent chat:\n{ctx_summary}\n\n"
                 f"Participant 1: {part_a.get('name')}\n"
-                f"Voice & Persona: {part_a.get('persona_prompt')}\n\n"
+                f"Persona & Stance:\n{part_a.get('persona_prompt')}\n\n"
                 f"Participant 2: {part_b.get('name')}\n"
-                f"Voice & Persona: {part_b.get('persona_prompt')}\n\n"
-                "Instructions:\n"
-                f"- Write exactly {turns_cnt} turns alternating between {part_a.get('name')} and {part_b.get('name')}.\n"
-                "- Keep responses casual, human, appropriate casing and length for Telegram.\n"
-                "- Output ONLY a JSON array of objects with keys \"sender\" and \"text\". No markdown formatting, no commentary."
+                f"Persona & Stance:\n{part_b.get('persona_prompt')}\n\n"
+                "CRITICAL ANTI-PATTERN CONVERSATION RULES (BREAK ALL PREDICTABLE BOT PATTERNS):\n"
+                "1. NO RIGID PING-PONG: Do NOT alternate every single line in a neat ping-pong match. Allow multi-message bursts where one participant sends 2 short consecutive messages in a row (e.g. quick initial reaction + follow-up thought or clarification).\n"
+                "2. ZERO ECHOING OR VALIDATION: Never have either person start by echoing the previous speaker ('Yeah I agree', 'That is a great point', 'You are right that...'). Jump straight into raw personal reactions, counter-questions, or unprompted tangents.\n"
+                "3. EXTREME STRUCTURAL VARIATION: Wildly vary message lengths! Mix 1-3 word informal reactions ('lol nah', 'wait fr?', 'cap', '👀', 'rip') with quick colloquial statements and occasional raw opinions. Never make turns equal length.\n"
+                "4. HUMAN IRREGULARITY & UNHINGED SPICE: Embrace real human flaws—casual typos, missing punctuation, all-lowercase where fitting, erratic mood shifts, and blunt sarcasm. If a participant has high unhinged/volatility, let them show genuine edge or skepticism.\n"
+                "5. BANNED AI CLICHES: Absolute ban on 'delve', 'crucial', 'testament', 'landscape', 'pivotal', 'navigate', 'solid', 'align', 'streamline', 'nuanced', 'furthermore', 'in conclusion'.\n"
+                f"- Output between {turns_cnt} and {turns_cnt + 2} messages as a JSON array of objects with keys \"sender\" and \"text\". No markdown, no commentary."
             )
             user_prompt = f"Topic/direction: {topic}"
 
             turns = []
             if settings.get("fal_key"):
                 try:
-                    raw = await ai.chat(settings, sys_prompt, user_prompt)
+                    raw = await ai.chat(settings, sys_prompt, user_prompt, temperature=1.08, frequency_penalty=0.75)
                     clean = raw.strip()
                     if "```" in clean:
                         clean = clean.split("```")[1]
@@ -1112,7 +1116,9 @@ class Daemon:
                     cl = ready.get(t["account_id"])
                     if cl:
                         try:
-                            typing_delay = min(4.0, max(1.2, len(t["text"]) * 0.04))
+                            cps = 24.0
+                            is_burst = (prev_id is not None and turns.index(t) > 0 and turns[turns.index(t)-1].get("sender") == t["sender"])
+                            typing_delay = min(3.8, max(0.6, (len(t["text"]) / cps) + random.uniform(0.2, 0.6))) if not is_burst else min(2.0, max(0.4, (len(t["text"]) / cps)))
                             async with cl.action(chat_id, "typing"):
                                 await asyncio.sleep(typing_delay)
                             sent_msg = await cl.send_message(chat_id, t["text"], reply_to=prev_id)
@@ -1120,7 +1126,7 @@ class Daemon:
                             t["sent"] = True
                             t["msg_id"] = sent_msg.id
                             self.store.add_message(chat_id, sent_msg.id, t["sender"], t["text"], int(time.time()))
-                            await asyncio.sleep(random.uniform(2.0, 3.5))
+                            await asyncio.sleep(random.uniform(0.8, 1.6) if is_burst else random.uniform(1.8, 3.5))
                         except Exception as e:
                             t["sent"] = False
                             t["error"] = str(e)
@@ -1258,17 +1264,14 @@ class Daemon:
             log.info("System master enabled changed to: %s", new_val)
             return J({"enabled": new_val, "ok": True})
 
-        # ----- AI Persona Architect & Account Binding -----
+        # ----- Industrial Persona Architect & Account Binding -----
         @r.post("/personas/ai-generate")
         async def persona_ai_generate(req):
             import persona
             b = await req.json()
-            direction = b.get("direction") or b.get("prompt") or ""
-            style = b.get("style") or "custom"
-            group_id = b.get("group_id")
             save_now = bool(b.get("save", False))
             settings = {k: self.store.get(k) for k in ("fal_key", "ai_model", "persona_model")}
-            group_ctx = None
+            group_id = b.get("group_id")
             if group_id:
                 g = self.store.rows("SELECT * FROM groups WHERE chat_id=?", (int(group_id),))
                 if g:
@@ -1277,12 +1280,12 @@ class Daemon:
                         prof = json.loads(g[0].get("profile") or "{}")
                     except Exception:
                         pass
-                    group_ctx = {"title": g[0].get("title"), "profile": prof}
+                    b["group_context"] = {"title": g[0].get("title"), "profile": prof}
             try:
-                data = await persona.create_detailed_persona(settings, direction=direction, style=style, group_context=group_ctx)
+                data = await persona.generate_industrial_persona(settings, params=b)
             except Exception as e:
-                log.warning("AI generation failed, fallback used: %s", e)
-                data = persona.fallback_detailed_persona(direction=direction, style=style)
+                log.warning("Industrial AI generation failed, fallback used: %s", e)
+                data = persona.fallback_industrial_persona(params=b)
 
             if save_now:
                 details_json = json.dumps(data.get("details") or {})
@@ -1292,6 +1295,22 @@ class Daemon:
                 data["id"] = cur.lastrowid
                 return J({"ok": True, "persona": data, "saved": True})
             return J({"ok": True, "persona": data, "saved": False})
+
+        @r.post("/personas/match-name")
+        async def persona_match_name(req):
+            import persona
+            b = await req.json()
+            culture = b.get("culture") or "american"
+            gender = b.get("gender")
+            name, g, cult = persona.get_culture_name(culture, gender)
+            return J({"ok": True, "name": name, "gender": g, "culture": cult})
+
+        @r.post("/personas/compile-prompt")
+        async def persona_compile_prompt(req):
+            import persona
+            b = await req.json()
+            prompt = persona.compile_industrial_prompt(b)
+            return J({"ok": True, "prompt": prompt})
 
         @r.post("/personas/account-bind")
         async def persona_account_bind(req):
