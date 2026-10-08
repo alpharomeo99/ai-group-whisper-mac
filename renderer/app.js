@@ -218,13 +218,13 @@ function updateMasterSystemUI(enabled) {
     if (txt) txt.textContent = 'System Active';
     btn.className = 'sys-master-btn on';
     if (label) label.textContent = 'Turn System OFF';
-    if (icon) icon.textContent = '⏸';
+    if (icon) icon.textContent = '';
   } else {
     badge.className = 'sys-badge paused';
     if (txt) txt.textContent = 'System Paused';
     btn.className = 'sys-master-btn off';
     if (label) label.textContent = 'Turn System ON';
-    if (icon) icon.textContent = '⚡';
+    if (icon) icon.textContent = '';
   }
 }
 
@@ -592,7 +592,7 @@ function renderPersonaRoster() {
   if (!personas || personas.length === 0) {
     container.innerHTML = `
       <div class="empty" style="grid-column: 1 / -1; padding: 36px 20px; text-align: center;">
-        <div style="font-size:24px; margin-bottom:8px;">🎛️</div>
+        <div style="font-size:12px; margin-bottom:4px; font-weight:600; color:var(--muted);">Studio</div>
         <strong style="font-size:15px; display:block; margin-bottom:4px;">No personas created yet</strong>
         <p class="hint" style="margin-bottom:14px;">Open the Persona Studio to configure your first autonomous agent persona.</p>
         <button type="button" class="primary" id="p-btn-empty-studio" style="padding:8px 18px; font-weight:600;">+ Open Persona Studio</button>
@@ -638,10 +638,10 @@ function renderPersonaRoster() {
 
     const unhingedVal = d.unhinged_level != null ? d.unhinged_level : (d.psychometrics && d.psychometrics.unhinged_level != null ? d.psychometrics.unhinged_level : 85);
     const unhingedBadge = unhingedVal >= 80
-      ? `<span class="p-tag" style="background:rgba(255,45,85,.15); color:#ff2d55; border-color:rgba(255,45,85,.3); font-weight:700;">🚨 ${unhingedVal}% Unhinged</span>`
+      ? `<span class="p-tag" style="background:rgba(255,45,85,.15); color:#ff2d55; border-color:rgba(255,45,85,.3); font-weight:700;">${unhingedVal}% Unhinged</span>`
       : unhingedVal >= 55
-      ? `<span class="p-tag" style="background:rgba(255,149,0,.15); color:var(--warn); border-color:rgba(255,149,0,.3); font-weight:600;">⚡ ${unhingedVal}% Edgy</span>`
-      : `<span class="p-tag" style="background:rgba(56,212,139,.12); color:var(--ok); border-color:rgba(56,212,139,.3);">🧘 ${unhingedVal}% Composed</span>`;
+      ? `<span class="p-tag" style="background:rgba(255,149,0,.15); color:var(--warn); border-color:rgba(255,149,0,.3); font-weight:600;">${unhingedVal}% Edgy</span>`
+      : `<span class="p-tag" style="background:rgba(56,212,139,.12); color:var(--ok); border-color:rgba(56,212,139,.3);">${unhingedVal}% Composed</span>`;
 
     const demoLabel = [d.culture, d.age ? d.age + 'yo' : null, d.occupation || d.role_in_group].filter(Boolean).join(' · ');
 
@@ -687,7 +687,7 @@ function renderPersonaRoster() {
 
         <div class="p-card-footer">
           <button type="button" class="primary" data-proster-edit="${p.id}" style="font-size:12px; font-weight:600; padding:5px 12px; background:linear-gradient(135deg, #007aff, #5856d6); color:#fff; border:none; border-radius:5px; cursor:pointer;">
-            🎛️ Open Studio
+            Open Studio
           </button>
           <button type="button" class="ghost" data-proster-dup="${p.id}" style="font-size:12px;" title="Duplicate persona">&#x2398; Clone</button>
           <button type="button" class="ghost danger" data-proster-del="${p.id}" style="font-size:12px; margin-left:auto;" title="Delete permanently">&times;</button>
@@ -769,25 +769,25 @@ function updateStudioUnhingedMeter(val) {
     badge.style.background = 'rgba(255,45,85,.15)';
     badge.style.color = '#ff2d55';
     badge.style.borderColor = 'rgba(255,45,85,.3)';
-    desc.innerHTML = `🚨 <b>Extreme Chaos & Volatility:</b> Zero corporate filter. Unpredictable mood swings, fierce skepticism, sudden tangents, blunt dismissal of weak takes, and spontaneous non-sequiturs.`;
+    desc.innerHTML = `<b>Extreme Chaos & Volatility:</b> Zero corporate filter. Unpredictable mood swings, fierce skepticism, sudden tangents, blunt dismissal of weak takes, and spontaneous non-sequiturs.`;
   } else if (val >= 56) {
     badge.textContent = `${val}% • Edgy & Unfiltered`;
     badge.style.background = 'rgba(255,149,0,.15)';
     badge.style.color = 'var(--warn)';
     badge.style.borderColor = 'rgba(255,149,0,.3)';
-    desc.innerHTML = `⚡ <b>Edgy & High Energy:</b> Sharp, candid, and prone to passionate arguments. Challenges weak claims with biting humor and zero patience for fluff.`;
+    desc.innerHTML = `<b>Edgy & High Energy:</b> Sharp, candid, and prone to passionate arguments. Challenges weak claims with biting humor and zero patience for fluff.`;
   } else if (val >= 26) {
     badge.textContent = `${val}% • Grounded Realist`;
     badge.style.background = 'rgba(88,86,214,.15)';
     badge.style.color = '#9997ff';
     badge.style.borderColor = 'rgba(88,86,214,.3)';
-    desc.innerHTML = `🧘 <b>Grounded & Authentic:</b> Balanced human persona with natural conversational quirks, mild skepticism, and relatable day-to-day opinions.`;
+    desc.innerHTML = `<b>Grounded & Authentic:</b> Balanced human persona with natural conversational quirks, mild skepticism, and relatable day-to-day opinions.`;
   } else {
     badge.textContent = `${val}% • Composed & Structured`;
     badge.style.background = 'rgba(56,212,139,.15)';
     badge.style.color = 'var(--ok)';
     badge.style.borderColor = 'rgba(56,212,139,.3)';
-    desc.innerHTML = `🧘 <b>Measured & Composed:</b> Thoughtful, low-reactivity tone with constructive takes and structured sentence flow.`;
+    desc.innerHTML = `<b>Measured & Composed:</b> Thoughtful, low-reactivity tone with constructive takes and structured sentence flow.`;
   }
 }
 
@@ -816,7 +816,7 @@ function getStudioPayload() {
     slang_tier: $('ps-slang') ? $('ps-slang').value : 'crypto_degen',
     burstiness: parseInt($('ps-burst') ? $('ps-burst').value : '65', 10),
     emoji_habit: $('ps-emoji-habit') ? $('ps-emoji-habit').value : 'frequent',
-    signature_emojis: ($('ps-emojis') ? $('ps-emojis').value : '💀, 🤡, 🫠').split(',').map((s) => s.trim()).filter(Boolean),
+    signature_emojis: ($('ps-emojis') ? $('ps-emojis').value : 'skull, eyes, fire').split(',').map((s) => s.trim()).filter(Boolean),
     expertise: ($('ps-expertise') ? $('ps-expertise').value.trim() : ''),
     off_topic_obsessions: ($('ps-offtopic') ? $('ps-offtopic').value.trim() : ''),
     polarizing_takes: ($('ps-hottakes') ? $('ps-hottakes').value.trim() : ''),
@@ -916,7 +916,7 @@ function openPersonaStudio(pid) {
     $('ps-burst-val').textContent = burstVal + '%';
 
     $('ps-emoji-habit').value = ling.emoji_habit || d.emoji_habit || 'frequent';
-    $('ps-emojis').value = Array.isArray(ling.signature_emojis) ? ling.signature_emojis.join(', ') : (ling.signature_emojis || '💀, 🤡, 🫠, 🚩');
+    $('ps-emojis').value = Array.isArray(ling.signature_emojis) ? ling.signature_emojis.join(', ') : (ling.signature_emojis || 'skull, eyes, fire');
 
     $('ps-expertise').value = topics.expertise || 'On-chain token flows, memecoin liquidity pools, smart contract exploits';
     $('ps-offtopic').value = Array.isArray(topics.off_topic) ? topics.off_topic.join(', ') : (topics.off_topic || 'yerba mate, conspiracy rabbit holes, adderall shortages');
@@ -970,7 +970,7 @@ function openPersonaStudio(pid) {
     $('ps-burst').value = 65;
     $('ps-burst-val').textContent = '65%';
     $('ps-emoji-habit').value = 'frequent';
-    $('ps-emojis').value = '💀, 🤡, 🫠, 🚩';
+    $('ps-emojis').value = 'skull, eyes, fire';
 
     $('ps-expertise').value = 'On-chain token flows, memecoin liquidity pools, smart contract exploits';
     $('ps-offtopic').value = 'yerba mate, conspiracy rabbit holes, adderall shortages, obscure memecoins';
@@ -1157,7 +1157,7 @@ function renderPersonaMatrix() {
           <div class="p-user-status">
             ${assigned ? `<span class="badge ok" style="background:rgba(56,212,139,.12); color:var(--ok); border-color:rgba(56,212,139,.25);">Group Custom</span>` 
                        : fallback ? `<span class="badge" style="background:rgba(47,196,178,.12); color:var(--accent);">Account Default: ${esc(fallback.name)}</span>`
-                       : `<span class="badge warn" style="background:rgba(245,184,74,.12); color:var(--warn); border-color:rgba(245,184,74,.3);">⚠️ No Persona Connected</span>`}
+                       : `<span class="badge warn" style="background:rgba(245,184,74,.12); color:var(--warn); border-color:rgba(245,184,74,.3);">No Persona Connected</span>`}
             ${typingInfo}
             ${!hasBaseline ? `<button class="p-bind-acc-btn" data-bind-aid="${u.account_id}" data-bind-aname="${esc(u.account_name)}" style="margin-top:4px;">Connect Persona to Account</button>` : ''}
           </div>
@@ -1590,7 +1590,7 @@ window.openGroupTestChatModal = async function(presetChatId, presetGroupTitle) {
   $('ptc-transcript').style.display = 'none';
   $('ptc-transcript').innerHTML = '';
   $('ptc-submit').disabled = false;
-  $('ptc-submit').textContent = '⚡ Run Test Chat';
+  $('ptc-submit').textContent = 'Run Test Chat';
 
   modal.classList.remove('hidden');
 
@@ -1665,12 +1665,12 @@ async function runGroupTestChat() {
     }).join('');
 
     submitBtn.disabled = false;
-    submitBtn.textContent = '⚡ Run Another Test Chat';
+    submitBtn.textContent = 'Run Another Test Chat';
     toast(res.send_live ? 'Test chat delivered to Telegram group!' : 'Test dialogue generated!');
   } catch (err) {
     statusEl.innerHTML = `<span style="color:var(--danger); font-weight:600;">Error:</span> ${escapeHtml(err.message)}`;
     submitBtn.disabled = false;
-    submitBtn.textContent = '⚡ Run Test Chat';
+    submitBtn.textContent = 'Run Test Chat';
     toast(err.message, true);
   }
 }

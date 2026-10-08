@@ -41,7 +41,7 @@
               <span id="sys-status-text">System Active</span>
             </div>
             <button id="sys-toggle-btn" class="sys-master-btn on" title="Toggle master automation and message processing">
-              <span class="sys-btn-icon">⏸</span>
+              
               <span id="sys-btn-text">Turn System OFF</span>
             </button>
           </div>
@@ -55,72 +55,69 @@
       <section id="view-network" class="hidden flush"><div id="gx" class="gx"></div></section>
       <!-- Personas Section -->
       <!-- Personas Section -->
+      <!-- Personas Section -->
       <section id="view-personas" class="hidden">
-        <div class="page-head">
+        <div class="page-head" style="margin-bottom:14px;">
           <div>
-            <h1 id="p-view-title">Persona Dashboard &amp; Studio</h1>
-            <p class="sub" id="p-view-sub">Configure distinct AI personas per user per group, calibrate deep psychometrics &amp; human cadence, and wire autonomous agents across the network.</p>
+            <h1 id="p-view-title" style="font-size:20px;">Personas</h1>
+            <p class="sub" id="p-view-sub" style="font-size:12px;">Autonomous agent personas, psychometrics, stylometry, and network wiring.</p>
           </div>
-          <div style="display:flex; gap:10px; align-items:center;">
-            <button id="p-btn-new" class="primary" style="background:linear-gradient(135deg, #007aff, #5856d6); color:#fff; font-weight:600; padding:8px 16px; border:none; border-radius:6px; cursor:pointer;">
-              + New Persona Studio
-            </button>
-            <button id="p-btn-test-chat" class="ghost" style="color:var(--brand); border-color:var(--brand); font-weight:600;">
-              ⚡ Test Group Chat (fal.ai)
-            </button>
-            <button id="p-btn-gen" class="ghost">&#128269; Study Group History</button>
+          <div style="display:flex; gap:8px; align-items:center;">
+            <button type="button" id="p-btn-new" class="primary" style="padding:5px 12px; font-size:12px; font-weight:600;">+ New Persona</button>
+            <button type="button" id="p-btn-test-chat" class="ghost" style="padding:5px 12px; font-size:12px;">Test Chat</button>
+            <button type="button" id="p-btn-gen" class="ghost" style="padding:5px 12px; font-size:12px;">Study Group</button>
           </div>
         </div>
 
         <!-- Primary View Mode Tabs -->
         <div class="p-tabs" id="p-main-tabs">
-          <button type="button" class="p-tab active" data-ptab="roster">📊 Overview &amp; Dashboard</button>
-          <button type="button" class="p-tab" data-ptab="studio">🎛️ Persona Studio (Detailed)</button>
-          <button type="button" class="p-tab" data-ptab="matrix">🔗 Account &amp; Group Matrix</button>
-          <button type="button" class="p-tab" data-ptab="cadence">⏱️ Cadence &amp; Orchestration</button>
+          <button type="button" class="p-tab active" data-ptab="roster">Overview</button>
+          <button type="button" class="p-tab" data-ptab="studio">Persona Studio</button>
+          <button type="button" class="p-tab" data-ptab="matrix">Group Assignments</button>
+          <button type="button" class="p-tab" data-ptab="cadence">Cadence Engine</button>
         </div>
 
         <!-- Tab 1: Overview & Dashboard -->
         <div id="p-tab-roster">
-          <!-- Summary Metrics Bar -->
-          <div style="display:grid; grid-template-columns: repeat(4, 1fr); gap:14px; margin-bottom:16px;">
-            <div class="card" style="padding:14px 18px; border-left: 3px solid var(--accent);">
-              <div class="hint" style="font-size:11px; text-transform:uppercase; letter-spacing:0.5px;">Total Personas</div>
-              <div id="p-metric-total" style="font-size:24px; font-weight:700; margin-top:4px;">0</div>
-              <div class="hint" style="font-size:11px; margin-top:2px;">Configured in studio</div>
+          <!-- Compact Summary Metrics Bar -->
+          <div style="display:grid; grid-template-columns: repeat(4, 1fr); gap:10px; margin-bottom:12px;">
+            <div class="p-metric-card" style="border-left: 2px solid var(--accent);">
+              <div class="k">Total Personas</div>
+              <div class="v" id="p-metric-total">0</div>
+              <div class="s">Configured in studio</div>
             </div>
-            <div class="card" style="padding:14px 18px; border-left: 3px solid var(--ok);">
-              <div class="hint" style="font-size:11px; text-transform:uppercase; letter-spacing:0.5px;">Active Account Bindings</div>
-              <div id="p-metric-bound" style="font-size:24px; font-weight:700; margin-top:4px; color:var(--ok);">0</div>
-              <div class="hint" style="font-size:11px; margin-top:2px;">Wired in network</div>
+            <div class="p-metric-card" style="border-left: 2px solid var(--ok);">
+              <div class="k">Active Account Bindings</div>
+              <div class="v" id="p-metric-bound" style="color:var(--ok);">0</div>
+              <div class="s">Wired in network</div>
             </div>
-            <div class="card" style="padding:14px 18px; border-left: 3px solid #7c8cff;">
-              <div class="hint" style="font-size:11px; text-transform:uppercase; letter-spacing:0.5px;">Group Coverages</div>
-              <div id="p-metric-groups" style="font-size:24px; font-weight:700; margin-top:4px; color:#7c8cff;">0</div>
-              <div class="hint" style="font-size:11px; margin-top:2px;">Active group links</div>
+            <div class="p-metric-card" style="border-left: 2px solid #7c8cff;">
+              <div class="k">Group Coverages</div>
+              <div class="v" id="p-metric-groups" style="color:#7c8cff;">0</div>
+              <div class="s">Active group links</div>
             </div>
-            <div class="card" style="padding:14px 18px; border-left: 3px solid #ff2d55;">
-              <div class="hint" style="font-size:11px; text-transform:uppercase; letter-spacing:0.5px;">Unhinged Index (Avg)</div>
-              <div id="p-metric-unhinged" style="font-size:24px; font-weight:700; margin-top:4px; color:#ff2d55;">--</div>
-              <div class="hint" style="font-size:11px; margin-top:2px;">Fleet human volatility</div>
+            <div class="p-metric-card" style="border-left: 2px solid #ff2d55;">
+              <div class="k">Unhinged Index (Avg)</div>
+              <div class="v" id="p-metric-unhinged" style="color:#ff2d55;">--</div>
+              <div class="s">Fleet human volatility</div>
             </div>
           </div>
 
-          <div class="panel">
-            <div class="panel-head">
-              <div style="display:flex; align-items:center; gap:14px; flex:1; justify-content:space-between;">
-                <div style="display:flex; align-items:center; gap:10px;">
-                  <h3 style="margin:0;">Persona Roster</h3>
-                  <span id="p-roster-count" class="hint">0 personas</span>
+          <div class="panel" style="padding:14px 16px;">
+            <div class="panel-head" style="margin-bottom:8px;">
+              <div style="display:flex; align-items:center; gap:12px; flex:1; justify-content:space-between;">
+                <div style="display:flex; align-items:center; gap:8px;">
+                  <h3 style="margin:0; font-size:13px;">Persona Roster</h3>
+                  <span id="p-roster-count" class="hint" style="font-size:11.5px;">0 personas</span>
                 </div>
-                <div style="display:flex; gap:10px; align-items:center;">
-                  <input type="text" id="p-roster-search" placeholder="Search personas by name, role, tone..." style="width:240px; font-size:12.5px; padding:6px 12px;" />
-                  <button type="button" class="primary" id="p-btn-new-roster" style="font-size:12.5px; font-weight:600; padding:6px 14px;">+ New Persona Studio</button>
+                <div style="display:flex; gap:8px; align-items:center;">
+                  <input type="text" id="p-roster-search" placeholder="Filter personas..." style="width:200px; font-size:11.5px; height:26px; padding:3px 8px; margin:0;" />
+                  <button type="button" class="primary" id="p-btn-new-roster" style="font-size:11.5px; font-weight:600; padding:4px 10px;">+ New Persona</button>
                 </div>
               </div>
             </div>
             <div id="p-roster-grid" class="p-roster-grid">
-              <div class="empty">No personas created yet. Click "+ New Persona Studio" to design one.</div>
+              <div class="empty" style="padding:20px;">No personas created yet. Click "+ New Persona" to design one.</div>
             </div>
           </div>
         </div>
@@ -129,50 +126,48 @@
         <div id="p-tab-studio" class="hidden">
           <input type="hidden" id="ps-id" value="" />
           <!-- Studio Header Bar -->
-          <div class="card" style="padding:16px 20px; margin-bottom:18px; display:flex; justify-content:space-between; align-items:center; background:var(--panel);">
-            <div style="display:flex; align-items:center; gap:14px;">
-              <button type="button" class="ghost" id="ps-btn-back" style="padding:6px 12px; font-size:12.5px; font-weight:600;">
-                &larr; Back to Dashboard
+          <div class="card" style="padding:8px 14px; margin-bottom:12px; display:flex; justify-content:space-between; align-items:center; background:var(--panel);">
+            <div style="display:flex; align-items:center; gap:10px;">
+              <button type="button" class="ghost" id="ps-btn-back" style="padding:3px 8px; font-size:11.5px;">
+                &larr; Back
               </button>
-              <div class="p-avatar" id="ps-avatar-preview" style="width:40px; height:40px; font-size:16px; font-weight:700; background:#2fc4b2; color:#04211d;">
+              <div class="p-avatar" id="ps-avatar-preview" style="width:28px; height:28px; font-size:12px; font-weight:700; background:#2fc4b2; color:#04211d;">
                 P
               </div>
               <div>
-                <h2 id="ps-studio-title" style="margin:0; font-size:18px; display:flex; align-items:center; gap:8px;">
-                  Create New Industrial Persona
+                <h2 id="ps-studio-title" style="margin:0; font-size:14px; font-weight:600;">
+                  Create Persona
                 </h2>
-                <div class="hint" id="ps-studio-sub" style="font-size:12px;">
-                  Deep demographics, psychometrics, stylometry &amp; network wiring
+                <div class="hint" id="ps-studio-sub" style="font-size:11px;">
+                  Behavioral psychometrics, stylometry, and network wiring
                 </div>
               </div>
             </div>
-            <div style="display:flex; gap:10px; align-items:center;">
-              <button type="button" class="ghost" id="ps-btn-cancel">Discard / Back</button>
-              <button type="button" class="primary" id="ps-btn-save" style="background:linear-gradient(135deg, #007aff, #5856d6); color:#fff; font-weight:600; padding:8px 18px; border:none; border-radius:6px; cursor:pointer;">
-                💾 Save Persona &amp; Sync to Network
+            <div style="display:flex; gap:8px; align-items:center;">
+              <button type="button" class="ghost" id="ps-btn-cancel" style="padding:4px 10px; font-size:11.5px;">Discard</button>
+              <button type="button" class="primary" id="ps-btn-save" style="padding:5px 14px; font-size:11.5px; font-weight:600;">
+                Save Persona
               </button>
             </div>
           </div>
 
           <!-- Studio Workspace Grid -->
-          <div style="display:grid; grid-template-columns: 1.45fr 1fr; gap:20px;">
+          <div style="display:grid; grid-template-columns: 1.25fr 0.95fr; gap:12px; align-items:start;">
             <!-- Left Column: Structured Variables -->
-            <div style="display:flex; flex-direction:column; gap:18px;">
+            <div style="display:flex; flex-direction:column; gap:8px;">
               
               <!-- Card 1: Core Identity & Cultural Demographics -->
-              <div class="card" style="padding:18px;">
-                <h3 style="margin:0 0 14px; font-size:15px; display:flex; align-items:center; gap:8px;">
-                  <span>👤</span> 1. Core Identity &amp; Cultural Demographics
-                </h3>
+              <div class="card">
+                <h3>1. Identity &amp; Demographics</h3>
 
-                <div class="grid3" style="display:grid; grid-template-columns:1.2fr 1fr 1fr; gap:12px; margin-bottom:12px;">
+                <div class="grid3" style="display:grid; grid-template-columns:1.2fr 1fr 1fr; gap:8px; margin-bottom:4px;">
                   <div>
                     <label class="l">Persona Name</label>
                     <input type="text" id="ps-name" placeholder="Full Name" value="Liam Carter" />
                   </div>
                   <div>
                     <label class="l">Culture / Regional Origin</label>
-                    <select id="ps-culture" style="width:100%;">
+                    <select id="ps-culture">
                       <option value="american" selected>American / North American</option>
                       <option value="british">British / UK / Celtic</option>
                       <option value="germanic">Germanic (DE / AT / CH)</option>
@@ -187,7 +182,7 @@
                   </div>
                   <div>
                     <label class="l">Gender Presentation</label>
-                    <select id="ps-gender" style="width:100%;">
+                    <select id="ps-gender">
                       <option value="man" selected>Male / Man</option>
                       <option value="woman">Female / Woman</option>
                       <option value="person">Non-binary / Neutral</option>
@@ -195,31 +190,31 @@
                   </div>
                 </div>
 
-                <div class="grid3" style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px; margin-bottom:12px;">
+                <div class="grid3" style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; margin-bottom:4px;">
                   <div>
                     <div style="display:flex; justify-content:space-between;">
-                      <label class="l">Age: <span id="ps-age-val" style="color:var(--accent); font-weight:700;">25</span></label>
+                      <label class="l">Age: <span id="ps-age-val" style="color:var(--accent); font-weight:600;">25</span></label>
                     </div>
-                    <input type="range" id="ps-age" min="18" max="75" value="25" style="width:100%; margin-top:4px;" />
+                    <input type="range" id="ps-age" min="18" max="75" value="25" />
                   </div>
                   <div>
                     <label class="l">Location / City</label>
-                    <input type="text" id="ps-loc" placeholder="e.g. Austin, Texas or London" value="Austin, TX" />
+                    <input type="text" id="ps-loc" placeholder="City / State" value="Austin, TX" />
                   </div>
                   <div>
                     <label class="l">Timezone</label>
-                    <input type="text" id="ps-tz" placeholder="e.g. America/Chicago (UTC-6)" value="America/Chicago (UTC-6)" />
+                    <input type="text" id="ps-tz" placeholder="e.g. UTC-6" value="America/Chicago (UTC-6)" />
                   </div>
                 </div>
 
-                <div class="grid3" style="display:grid; grid-template-columns:1.2fr 1fr 1fr; gap:12px; margin-bottom:12px;">
+                <div class="grid3" style="display:grid; grid-template-columns:1.2fr 1fr 1fr; gap:8px; margin-bottom:4px;">
                   <div>
                     <label class="l">Occupation &amp; Day Job</label>
-                    <input type="text" id="ps-occ" placeholder="e.g. On-chain Trader" value="Full-time On-chain Trader" />
+                    <input type="text" id="ps-occ" placeholder="Role / Job" value="On-chain Trader" />
                   </div>
                   <div>
                     <label class="l">Seniority / Status</label>
-                    <select id="ps-seniority" style="width:100%;">
+                    <select id="ps-seniority">
                       <option value="drop_out" selected>Hustler / Self-Taught</option>
                       <option value="student">Early Career / Student</option>
                       <option value="junior">Junior Operator</option>
@@ -231,7 +226,7 @@
                   </div>
                   <div>
                     <label class="l">Education / Social Vibe</label>
-                    <select id="ps-education" style="width:100%;">
+                    <select id="ps-education">
                       <option value="street_smart" selected>Self-Taught &amp; Street-smart</option>
                       <option value="self_taught">Self-Taught Hacker</option>
                       <option value="state_school">State University Graduate</option>
@@ -241,15 +236,15 @@
                   </div>
                 </div>
 
-                <div class="grid2" style="display:grid; grid-template-columns:1fr 180px; gap:12px;">
+                <div class="grid2" style="display:grid; grid-template-columns:1fr 140px; gap:8px;">
                   <div>
-                    <label class="l">Telegram Bio <span class="hint">(Short profile quote under 100 chars)</span></label>
-                    <input type="text" id="ps-bio" placeholder="Profile bio..." value="on-chain analytics by day, insomnia by night. skeptical of everything." />
+                    <label class="l">Telegram Bio</label>
+                    <input type="text" id="ps-bio" placeholder="Profile bio (under 100 chars)" value="on-chain analytics by day, insomnia by night. skeptical of everything." />
                   </div>
                   <div>
-                    <label class="l">Tag Accent Color</label>
-                    <div style="display:flex; gap:8px; align-items:center;">
-                      <input type="color" id="ps-color" value="#2fc4b2" style="width:40px; height:34px; padding:2px; border-radius:6px; cursor:pointer;" />
+                    <label class="l">Tag Color</label>
+                    <div style="display:flex; gap:6px; align-items:center;">
+                      <input type="color" id="ps-color" value="#2fc4b2" style="width:32px; height:28px; padding:1px; border-radius:4px; cursor:pointer;" />
                       <input type="text" id="ps-color-text" value="#2fc4b2" style="flex:1;" />
                     </div>
                   </div>
@@ -257,199 +252,189 @@
               </div>
 
               <!-- Card 2: Deep Psychometrics & Unhinged Meter -->
-              <div class="card" style="padding:18px;">
-                <h3 style="margin:0 0 14px; font-size:15px; display:flex; align-items:center; gap:8px;">
-                  <span>🧠</span> 2. Psychometrics &amp; Unhinged Human Factor
-                </h3>
+              <div class="card">
+                <h3>2. Psychometrics &amp; Behavioral Profile</h3>
 
-                <!-- Large Unhinged Range Meter Box -->
-                <div style="background:var(--panel2); border:1px solid var(--line2); border-radius:8px; padding:14px; margin-bottom:14px;">
-                  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                <!-- Compact Unhinged Range Meter Box -->
+                <div style="background:var(--panel2); border:1px solid var(--line2); border-radius:6px; padding:10px; margin-bottom:8px;">
+                  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
                     <div>
-                      <strong style="font-size:13.5px;">Unhinged &amp; Erratic Human Factor</strong>
-                      <div class="hint" style="font-size:11.5px;">Controls raw unpredictability, passionate tangents, emotional flare-ups, and spontaneous outbursts.</div>
+                      <strong style="font-size:12px;">Unhinged &amp; Erratic Human Factor</strong>
+                      <div class="hint" style="font-size:10.5px;">Controls raw unpredictability, passionate tangents, and spontaneous outbursts.</div>
                     </div>
-                    <span id="ps-unhinged-badge" style="font-size:12px; font-weight:700; padding:4px 12px; border-radius:20px; background:rgba(255,45,85,.15); color:#ff2d55; border:1px solid rgba(255,45,85,.3);">
-                      88% • Chaotic Wildcard
+                    <span id="ps-unhinged-badge" style="font-size:10.5px; font-weight:600; padding:2px 8px; border-radius:12px; background:rgba(255,45,85,.15); color:#ff2d55; border:1px solid rgba(255,45,85,.3);">
+                      88% Extreme Erratic
                     </span>
                   </div>
-                  <input type="range" id="ps-unhinged" min="0" max="100" value="88" style="width:100%; margin:8px 0;" />
-                  <div id="ps-unhinged-desc" style="font-size:12px; line-height:1.4; color:var(--text); padding:8px 10px; background:var(--bg); border-radius:6px; border:1px solid var(--line);">
-                    🚨 <b>High Entropy &amp; Volatility:</b> Zero corporate filter. Unpredictable mood swings, fierce skepticism, sudden tangents, blunt dismissal of weak takes, and spontaneous non-sequiturs.
+                  <input type="range" id="ps-unhinged" min="0" max="100" value="88" style="width:100%; margin:4px 0;" />
+                  <div id="ps-unhinged-desc" style="font-size:11px; line-height:1.35; color:var(--text); padding:5px 8px; background:var(--bg); border-radius:4px; border:1px solid var(--line);">
+                    <b>High Volatility:</b> Zero corporate filter. Unpredictable mood swings, fierce skepticism, sudden tangents, blunt dismissal of weak takes, and spontaneous non-sequiturs.
                   </div>
                 </div>
 
                 <!-- 4 Sub-Sliders -->
-                <div class="grid2" style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
-                  <div style="background:var(--bg); padding:10px 12px; border-radius:6px; border:1px solid var(--line);">
-                    <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
+                <div class="grid2" style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+                  <div style="background:var(--bg); padding:6px 8px; border-radius:4px; border:1px solid var(--line);">
+                    <div style="display:flex; justify-content:space-between; margin-bottom:2px;">
                       <label class="l" style="margin:0;">Emotional Volatility</label>
-                      <span id="ps-volatility-val" style="font-size:12px; font-weight:700; color:var(--accent);">85%</span>
+                      <span id="ps-volatility-val" style="font-size:11px; font-weight:600; color:var(--accent);">85%</span>
                     </div>
                     <input type="range" id="ps-volatility" min="0" max="100" value="85" style="width:100%;" />
-                    <div class="hint" style="font-size:10.5px;">Composed &rarr; Prone to sudden emotional reactions</div>
+                    <div class="hint" style="font-size:9.5px;">Composed &rarr; Prone to emotional reactions</div>
                   </div>
 
-                  <div style="background:var(--bg); padding:10px 12px; border-radius:6px; border:1px solid var(--line);">
-                    <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
+                  <div style="background:var(--bg); padding:6px 8px; border-radius:4px; border:1px solid var(--line);">
+                    <div style="display:flex; justify-content:space-between; margin-bottom:2px;">
                       <label class="l" style="margin:0;">Cynicism vs. Optimism</label>
-                      <span id="ps-cynicism-val" style="font-size:12px; font-weight:700; color:var(--accent);">90%</span>
+                      <span id="ps-cynicism-val" style="font-size:11px; font-weight:600; color:var(--accent);">90%</span>
                     </div>
                     <input type="range" id="ps-cynicism" min="0" max="100" value="90" style="width:100%;" />
-                    <div class="hint" style="font-size:10.5px;">Naive believer &rarr; Deeply cynical / questions agendas</div>
+                    <div class="hint" style="font-size:9.5px;">Naive believer &rarr; Deeply cynical / questions agendas</div>
                   </div>
 
-                  <div style="background:var(--bg); padding:10px 12px; border-radius:6px; border:1px solid var(--line);">
-                    <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
-                      <label class="l" style="margin:0;">Combative / Contrarian Stance</label>
-                      <span id="ps-combative-val" style="font-size:12px; font-weight:700; color:var(--accent);">80%</span>
+                  <div style="background:var(--bg); padding:6px 8px; border-radius:4px; border:1px solid var(--line);">
+                    <div style="display:flex; justify-content:space-between; margin-bottom:2px;">
+                      <label class="l" style="margin:0;">Combative / Contrarian</label>
+                      <span id="ps-combative-val" style="font-size:11px; font-weight:600; color:var(--accent);">80%</span>
                     </div>
                     <input type="range" id="ps-combative" min="0" max="100" value="80" style="width:100%;" />
-                    <div class="hint" style="font-size:10.5px;">Diplomatic agreeableness &rarr; Loves calling BS &amp; arguing</div>
+                    <div class="hint" style="font-size:9.5px;">Diplomatic &rarr; Loves arguing &amp; calling BS</div>
                   </div>
 
-                  <div style="background:var(--bg); padding:10px 12px; border-radius:6px; border:1px solid var(--line);">
-                    <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
-                      <label class="l" style="margin:0;">Impulsiveness (Zero-Filter)</label>
-                      <span id="ps-impulse-val" style="font-size:12px; font-weight:700; color:var(--accent);">85%</span>
+                  <div style="background:var(--bg); padding:6px 8px; border-radius:4px; border:1px solid var(--line);">
+                    <div style="display:flex; justify-content:space-between; margin-bottom:2px;">
+                      <label class="l" style="margin:0;">Impulsiveness</label>
+                      <span id="ps-impulse-val" style="font-size:11px; font-weight:600; color:var(--accent);">85%</span>
                     </div>
                     <input type="range" id="ps-impulse" min="0" max="100" value="85" style="width:100%;" />
-                    <div class="hint" style="font-size:10.5px;">Calculated &amp; polite &rarr; Blurts thoughts out instantly</div>
+                    <div class="hint" style="font-size:9.5px;">Calculated &rarr; Zero-filter spontaneous blurts</div>
                   </div>
                 </div>
               </div>
 
               <!-- Card 3: Linguistic Fingerprint & Chat Habits -->
-              <div class="card" style="padding:18px;">
-                <h3 style="margin:0 0 14px; font-size:15px; display:flex; align-items:center; gap:8px;">
-                  <span>✍️</span> 3. Linguistic Fingerprint &amp; Chat Habits
-                </h3>
+              <div class="card">
+                <h3>3. Linguistic Fingerprint</h3>
 
-                <div class="grid2" style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:12px;">
+                <div class="grid2" style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:4px;">
                   <div>
                     <label class="l">Casing Style</label>
-                    <select id="ps-casing" style="width:100%;">
-                      <option value="all_lowercase" selected>Strictly All Lowercase (no shift key, relaxed)</option>
-                      <option value="sentence_case">Standard Sentence Case (natural capitalization)</option>
-                      <option value="sloppy_mixed">Sloppy Mixed Case (accidental caps, fast phone typing)</option>
-                      <option value="technical_clean">Technical Clean (structured &amp; precise)</option>
-                      <option value="punchy_terse">Punchy &amp; Terse (short fragments)</option>
+                    <select id="ps-casing">
+                      <option value="all_lowercase" selected>Strictly All Lowercase</option>
+                      <option value="sentence_case">Standard Sentence Case</option>
+                      <option value="sloppy_mixed">Sloppy Mixed Case</option>
+                      <option value="technical_clean">Technical Clean</option>
+                      <option value="punchy_terse">Punchy &amp; Terse</option>
                     </select>
                   </div>
                   <div>
                     <label class="l">Punctuation Habit</label>
-                    <select id="ps-punctuation" style="width:100%;">
-                      <option value="none" selected>None (zero terminal periods, natural phone style)</option>
-                      <option value="ellipses_spam">Ellipses Spam (... for trailing thoughts)</option>
-                      <option value="minimal">Minimal (commas only, no end punctuation)</option>
+                    <select id="ps-punctuation">
+                      <option value="none" selected>None (zero terminal periods)</option>
+                      <option value="ellipses_spam">Ellipses Spam (...)</option>
+                      <option value="minimal">Minimal (commas only)</option>
                       <option value="standard">Standard Punctuation</option>
-                      <option value="expressive_multimark">Expressive Multi-mark (??, !!, ?!)</option>
+                      <option value="expressive_multimark">Expressive Multi-mark (??, !!)</option>
                     </select>
                   </div>
                 </div>
 
-                <div class="grid3" style="display:grid; grid-template-columns:1fr 1.2fr 1fr; gap:12px; margin-bottom:12px;">
+                <div class="grid3" style="display:grid; grid-template-columns:1fr 1.2fr 1fr; gap:8px; margin-bottom:4px;">
                   <div>
                     <div style="display:flex; justify-content:space-between;">
-                      <label class="l">Typo Rate: <span id="ps-typo-val" style="color:var(--accent); font-weight:700;">6.0%</span></label>
+                      <label class="l">Typo Rate: <span id="ps-typo-val" style="color:var(--accent); font-weight:600;">6.0%</span></label>
                     </div>
-                    <input type="range" id="ps-typo" min="0" max="15" step="0.5" value="6.0" style="width:100%;" />
-                    <div class="hint" style="font-size:10.5px;">0% clean &rarr; 15% mobile slips (teh, dont, im)</div>
+                    <input type="range" id="ps-typo" min="0" max="15" step="0.5" value="6.0" />
+                    <div class="hint" style="font-size:9.5px;">0% clean &rarr; 15% mobile slips</div>
                   </div>
                   <div>
                     <label class="l">Subculture Slang Tier</label>
-                    <select id="ps-slang" style="width:100%;">
-                      <option value="crypto_degen" selected>Crypto / Web3 Degen (anon, based, lfg, ngmi)</option>
-                      <option value="gen_z_internet">Internet / Gen-Z (fr, lowkey, cooked, mid, vibe)</option>
-                      <option value="tech_founder">Silicon Valley / Tech (ship, scale, latency)</option>
-                      <option value="british_road">UK Urban / Colloquial (mate, proper, peak, banter)</option>
-                      <option value="blue_collar_direct">Blue-Collar Direct (plain talk, blunt, pragmatic)</option>
-                      <option value="academic_elevated">Academic / Analytical (precise vocabulary)</option>
+                    <select id="ps-slang">
+                      <option value="crypto_degen" selected>Crypto / Web3 Degen</option>
+                      <option value="gen_z_internet">Internet / Gen-Z</option>
+                      <option value="tech_founder">Silicon Valley / Tech</option>
+                      <option value="british_road">UK Urban / Colloquial</option>
+                      <option value="blue_collar_direct">Blue-Collar Direct</option>
+                      <option value="academic_elevated">Academic / Analytical</option>
                     </select>
                   </div>
                   <div>
                     <div style="display:flex; justify-content:space-between;">
-                      <label class="l">Burstiness: <span id="ps-burst-val" style="color:var(--accent); font-weight:700;">65%</span></label>
+                      <label class="l">Burstiness: <span id="ps-burst-val" style="color:var(--accent); font-weight:600;">65%</span></label>
                     </div>
-                    <input type="range" id="ps-burst" min="0" max="100" value="65" style="width:100%;" />
-                    <div class="hint" style="font-size:10.5px;">Chance of 2-3 sequential message bursts</div>
+                    <input type="range" id="ps-burst" min="0" max="100" value="65" />
+                    <div class="hint" style="font-size:9.5px;">Multi-line sequential burst %</div>
                   </div>
                 </div>
 
-                <div class="grid2" style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+                <div class="grid2" style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
                   <div>
                     <label class="l">Emoji Habit</label>
-                    <select id="ps-emoji-habit" style="width:100%;">
+                    <select id="ps-emoji-habit">
                       <option value="never">Never uses emojis</option>
-                      <option value="rare">Rare / Subtle (1 every few messages)</option>
-                      <option value="moderate">Moderate (1 emoji per message)</option>
+                      <option value="rare">Rare / Subtle</option>
+                      <option value="moderate">Moderate</option>
                       <option value="frequent" selected>Frequent / Expressive</option>
                     </select>
                   </div>
                   <div>
                     <label class="l">Signature Emojis <span class="hint">(Comma separated)</span></label>
-                    <input type="text" id="ps-emojis" value="💀, 🤡, 🫠, 🚩" placeholder="e.g. 💀, 👀, 🚀" />
+                    <input type="text" id="ps-emojis" value="skull, eyes, fire" placeholder="e.g. skull, fire" />
                   </div>
                 </div>
               </div>
 
               <!-- Card 4: Domain Knowledge, Biases & Reaction Triggers -->
-              <div class="card" style="padding:18px;">
-                <h3 style="margin:0 0 14px; font-size:15px; display:flex; align-items:center; gap:8px;">
-                  <span>🎯</span> 4. Domain Knowledge, Biases &amp; Reaction Triggers
-                </h3>
+              <div class="card">
+                <h3>4. Knowledge, Biases &amp; Triggers</h3>
 
-                <div style="margin-bottom:12px;">
+                <div style="margin-bottom:6px;">
                   <label class="l">Core Expertise &amp; Technical Jargon</label>
-                  <input type="text" id="ps-expertise" value="On-chain token flows, memecoin liquidity pools, smart contract exploits" placeholder="e.g. distributed systems, protocol design" />
+                  <input type="text" id="ps-expertise" value="On-chain token flows, memecoin liquidity pools, contract exploits" placeholder="e.g. distributed systems" />
                 </div>
-                <div style="margin-bottom:12px;">
+                <div style="margin-bottom:6px;">
                   <label class="l">Everyday Off-Topic Obsessions <span class="hint">(Casual small-talk anchors)</span></label>
-                  <input type="text" id="ps-offtopic" value="yerba mate, conspiracy rabbit holes, adderall shortages, obscure memecoins" placeholder="e.g. specialty coffee, mechanical keyboards" />
+                  <input type="text" id="ps-offtopic" value="yerba mate, conspiracy rabbit holes, adderall shortages, obscure memecoins" placeholder="e.g. mechanical keyboards" />
                 </div>
-                <div style="margin-bottom:12px;">
-                  <label class="l">Polarizing Hot Takes <span class="hint">(Unfiltered opinions defended passionately)</span></label>
+                <div style="margin-bottom:6px;">
+                  <label class="l">Polarizing Hot Takes <span class="hint">(Defended passionately)</span></label>
                   <input type="text" id="ps-hottakes" value="99% of web3 founders are grifters who never wrote code; centralized exchanges are rigged casinos" placeholder="e.g. microservices are a scam" />
                 </div>
                 <div>
-                  <label class="l">Trigger Topics <span class="hint">(Provokes an immediate sharp reaction)</span></label>
-                  <input type="text" id="ps-triggers" value="VC token unlock schedules, sponsored influencer shills, overly polite corporate bots" placeholder="e.g. condescending advice, corporate buzzwords" />
+                  <label class="l">Trigger Topics <span class="hint">(Provokes immediate sharp reaction)</span></label>
+                  <input type="text" id="ps-triggers" value="VC token unlock schedules, sponsored influencer shills, overly polite corporate bots" placeholder="e.g. condescending advice" />
                 </div>
               </div>
 
               <!-- Card 5: Telegram Typing Physics & Cadence -->
-              <div class="card" style="padding:18px;">
-                <h3 style="margin:0 0 14px; font-size:15px; display:flex; align-items:center; gap:8px;">
-                  <span>⏱️</span> 5. Telegram Typing Physics &amp; Cadence
-                </h3>
+              <div class="card">
+                <h3>5. Cadence &amp; Typing Latencies</h3>
 
-                <div class="grid3" style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px;">
+                <div class="grid3" style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px;">
                   <div>
-                    <label class="l">Reading Speed (chars/sec)</label>
-                    <input type="number" id="ps-reading-cps" min="12" max="60" value="28" style="width:100%;" />
+                    <label class="l">Reading Speed (CPS)</label>
+                    <input type="number" id="ps-reading-cps" min="12" max="60" value="28" />
                   </div>
                   <div>
                     <label class="l">Min Deliberation (sec)</label>
-                    <input type="number" id="ps-min-delay" min="1" max="15" step="0.5" value="2.0" style="width:100%;" />
+                    <input type="number" id="ps-min-delay" min="1" max="15" step="0.5" value="2.0" />
                   </div>
                   <div>
                     <label class="l">Max Deliberation (sec)</label>
-                    <input type="number" id="ps-max-delay" min="3" max="30" step="0.5" value="8.0" style="width:100%;" />
+                    <input type="number" id="ps-max-delay" min="3" max="30" step="0.5" value="8.0" />
                   </div>
                 </div>
               </div>
 
               <!-- Card 6: Account Binding & Network Sync -->
-              <div class="card" style="padding:18px; border:1px solid var(--accent); background:rgba(47,196,178,.03);">
-                <h3 style="margin:0 0 8px; font-size:15px; display:flex; align-items:center; gap:8px; color:var(--accent);">
-                  <span>🔗</span> 6. Account Binding &amp; Network Canvas Wire
-                </h3>
-                <p class="hint" style="margin-bottom:12px;">
+              <div class="card" style="border-left: 2px solid var(--accent);">
+                <h3>6. Account Binding</h3>
+                <p class="hint" style="font-size:11px; margin:0 0 6px;">
                   Bind this persona directly as the default voice for a Telegram account. When saved, this account connects to this persona and draws live wires to its groups on the Network page.
                 </p>
                 <div>
                   <label class="l">Bind as Default Persona for Account</label>
-                  <select id="ps-bind-account" style="width:100%; font-weight:600;">
+                  <select id="ps-bind-account">
                     <option value="">None (Library Persona / Manual Group Binding)</option>
                   </select>
                 </div>
@@ -458,39 +443,33 @@
             </div>
 
             <!-- Right Column: Live Compiled Directive & Anti-Pattern Engine -->
-            <div style="display:flex; flex-direction:column; gap:18px;">
-              <div class="card" style="padding:18px; position:sticky; top:16px;">
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-                  <h3 style="margin:0; font-size:15px; display:flex; align-items:center; gap:8px;">
-                    <span>📜</span> Compiled System Directive
-                  </h3>
-                  <button type="button" id="ps-btn-recompile" class="ghost" style="padding:4px 10px; font-size:12px;">
-                    ⚡ Re-compile
+            <div style="display:flex; flex-direction:column; gap:8px;">
+              <div class="card" style="position:sticky; top:12px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                  <h3 style="margin:0;">Compiled System Directive</h3>
+                  <button type="button" id="ps-btn-recompile" class="ghost" style="padding:2px 8px; font-size:11px;">
+                    Re-compile
                   </button>
                 </div>
 
-                <div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:10px;">
-                  <span class="p-tag" style="background:rgba(56,212,139,.12); color:var(--ok); border-color:rgba(56,212,139,.3);">🛡️ Zero Echoing Rule</span>
-                  <span class="p-tag" style="background:rgba(88,86,214,.15); color:#9997ff; border-color:rgba(88,86,214,.35);">⚡ Asymmetric Bursts</span>
-                  <span class="p-tag" style="background:rgba(255,149,0,.15); color:var(--warn); border-color:rgba(255,149,0,.35);">🚫 Banned AI Hallmarks</span>
-                  <span class="p-tag" style="background:rgba(255,45,85,.15); color:#ff2d55; border-color:rgba(255,45,85,.35);">🎲 High-Entropy Engine</span>
+                <div style="display:flex; gap:4px; flex-wrap:wrap; margin-bottom:8px;">
+                  <span class="p-tag" style="background:rgba(56,212,139,.1); color:var(--ok); border-color:rgba(56,212,139,.25);">Zero Echoing</span>
+                  <span class="p-tag" style="background:rgba(88,86,214,.1); color:#9997ff; border-color:rgba(88,86,214,.25);">Asymmetric Bursts</span>
+                  <span class="p-tag" style="background:rgba(255,149,0,.1); color:var(--warn); border-color:rgba(255,149,0,.25);">Anti-AI Directives</span>
+                  <span class="p-tag" style="background:rgba(255,45,85,.1); color:#ff2d55; border-color:rgba(255,45,85,.25);">High Entropy</span>
                 </div>
 
-                <p class="hint" style="font-size:11.5px; margin-bottom:10px;">
-                  This prompt is compiled from the structured variables on the left. You can also edit it directly below.
-                </p>
+                <textarea id="ps-compiled-prompt" rows="16" style="width:100%; font-family:ui-monospace, Menlo, monospace; font-size:11px; line-height:1.38; background:var(--bg); border:1px solid var(--line); border-radius:6px; padding:8px; resize:vertical;"></textarea>
 
-                <textarea id="ps-compiled-prompt" rows="18" style="width:100%; font-family:var(--font-mono, monospace); font-size:11.5px; line-height:1.45; background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:12px; resize:vertical;"></textarea>
-
-                <div style="display:flex; justify-content:space-between; font-size:11px; color:var(--muted); margin-top:6px; margin-bottom:16px;">
-                  <span>Injected into fal.ai generation and Telegram daemon.</span>
+                <div style="display:flex; justify-content:space-between; font-size:10.5px; color:var(--muted); margin-top:4px; margin-bottom:10px;">
+                  <span>Direct prompt payload sent to fal.ai and daemon.</span>
                   <span id="ps-prompt-chars">0 characters</span>
                 </div>
 
-                <div style="display:flex; gap:10px; justify-content:flex-end; border-top:1px solid var(--line); padding-top:14px;">
-                  <button type="button" class="ghost" id="ps-btn-cancel-side">Discard</button>
-                  <button type="button" class="primary" id="ps-btn-save-side" style="background:linear-gradient(135deg, #007aff, #5856d6); color:#fff; font-weight:600; padding:8px 16px; border:none; border-radius:6px; cursor:pointer;">
-                    💾 Save Persona
+                <div style="display:flex; gap:8px; justify-content:flex-end; border-top:1px solid var(--line); padding-top:8px;">
+                  <button type="button" class="ghost" id="ps-btn-cancel-side" style="padding:4px 10px; font-size:11.5px;">Discard</button>
+                  <button type="button" class="primary" id="ps-btn-save-side" style="padding:5px 14px; font-size:11.5px; font-weight:600;">
+                    Save Persona
                   </button>
                 </div>
               </div>
@@ -500,134 +479,127 @@
 
         <!-- Tab 3: Group Matrix (Per User Per Group) -->
         <div id="p-tab-matrix" class="hidden">
-          <div class="panel" style="margin-bottom:16px;">
-            <div class="panel-head">
+          <div class="panel" style="margin-bottom:14px; padding:14px 16px;">
+            <div class="panel-head" style="margin-bottom:8px;">
               <div>
-                <h3>Group &amp; User Assignments</h3>
-                <span class="hint">Each user account speaks as a dedicated persona in each group</span>
+                <h3 style="margin:0; font-size:13px;">Group &amp; User Assignments</h3>
+                <span class="hint" style="font-size:11.5px;">Each user account speaks as a dedicated persona in each group</span>
               </div>
-              <input type="text" id="p-matrix-search" placeholder="Filter groups..." style="max-width:240px; font-size:12px; padding:4px 10px;" />
+              <input type="text" id="p-matrix-search" placeholder="Filter groups..." style="max-width:200px; font-size:11.5px; height:26px; padding:3px 8px; margin:0;" />
             </div>
-            <p class="hint" style="margin-bottom:14px;">Select which persona each Telegram user (account) embodies in each group. When an account has no group-specific persona assigned, it automatically falls back to its default account persona.</p>
+            <p class="hint" style="margin-bottom:10px; font-size:11.5px;">Select which persona each Telegram user (account) embodies in each group. When an account has no group-specific persona assigned, it automatically falls back to its default account persona.</p>
             <div id="p-matrix-list" class="p-matrix-grid">
-              <div class="empty">Loading assignments matrix...</div>
+              <div class="empty" style="padding:16px;">Loading assignments matrix...</div>
             </div>
           </div>
         </div>
 
         <!-- Tab 4: Cadence & Orchestration -->
         <div id="p-tab-cadence" class="hidden">
-          <div class="panel">
-            <div class="panel-head">
-              <h3>Mathematical Orchestration &amp; Cadence Engine</h3>
-              <span class="hint">Non-homogeneous Poisson delays, diurnal wakefulness curves &amp; turn-taking</span>
+          <div class="panel" style="padding:14px 16px;">
+            <div class="panel-head" style="margin-bottom:8px;">
+              <h3 style="margin:0; font-size:13px;">Cadence Engine Parameters</h3>
+              <span class="hint" style="font-size:11.5px;">Poisson delays, diurnal wakefulness curves &amp; turn-taking</span>
             </div>
-            <p class="hint" style="margin-bottom:18px;">
-              Replaces robotic instant replies with stochastic human-like conversation dynamics. Models reading speed, reaction latencies, time-of-day wakefulness, topic salience, and anti-dogpiling turn-taking.
+            <p class="hint" style="margin-bottom:14px; font-size:11.5px;">
+              Replaces robotic instant replies with stochastic human conversation dynamics. Models reading speed, reaction latencies, time-of-day wakefulness, topic salience, and anti-dogpiling turn-taking.
             </p>
-            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:20px;">
-              <div class="card" style="padding:16px;">
-                <h4 style="margin-top:0;">Stochastic Timing &amp; Poisson Process</h4>
-                <div class="row" style="margin-bottom:12px; justify-content:space-between; align-items:center;">
-                  <label><b>Enable Orchestrator</b><br><small class="hint">Probabilistic deliberation &amp; fatigue dynamics</small></label>
+            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px;">
+              <div class="card" style="padding:12px 14px;">
+                <h4 style="margin:0 0 8px; font-size:12px;">Stochastic Timing &amp; Poisson Process</h4>
+                <div class="row" style="margin-bottom:8px; justify-content:space-between; align-items:center;">
+                  <label style="font-size:11.5px;"><b>Enable Orchestrator</b><br><small class="hint" style="font-size:10.5px;">Probabilistic deliberation &amp; fatigue dynamics</small></label>
                   <input type="checkbox" id="orch-enabled" checked />
                 </div>
-                <div class="row" style="margin-bottom:12px; justify-content:space-between; align-items:center;">
-                  <label><b>Spontaneous Chatter</b><br><small class="hint">Allow chime-ins on relevant topics without @mention</small></label>
+                <div class="row" style="margin-bottom:8px; justify-content:space-between; align-items:center;">
+                  <label style="font-size:11.5px;"><b>Spontaneous Chatter</b><br><small class="hint" style="font-size:10.5px;">Allow chime-ins on relevant topics without @mention</small></label>
                   <input type="checkbox" id="orch-spontaneous" checked />
                 </div>
-                <div style="margin-bottom:12px;">
-                  <label><b>Relevance Sensitivity Threshold</b> <span id="orch-thresh-val" class="hint">(0.52)</span></label>
+                <div style="margin-bottom:8px;">
+                  <label style="font-size:11.5px;"><b>Relevance Threshold</b> <span id="orch-thresh-val" class="hint">(0.52)</span></label>
                   <input type="range" id="orch-threshold" min="0.2" max="0.85" step="0.01" value="0.52" style="width:100%" />
-                  <small class="hint">Higher values require stronger topic affinity before speaking.</small>
                 </div>
                 <div>
-                  <label><b>Reading Speed (chars/sec)</b></label>
-                  <input type="number" id="orch-reading-cps" min="10" max="80" value="32" style="width:100%; margin-top:4px;" />
+                  <label style="font-size:11.5px;"><b>Reading Speed (chars/sec)</b></label>
+                  <input type="number" id="orch-reading-cps" min="10" max="80" value="32" style="width:100%; margin-top:2px;" />
                 </div>
               </div>
 
-              <div class="card" style="padding:16px;">
-                <h4 style="margin-top:0;">Circadian &amp; Multi-Persona Turn-Taking</h4>
-                <div class="row" style="margin-bottom:12px; justify-content:space-between; align-items:center;">
-                  <label><b>Diurnal Activity Curve</b><br><small class="hint">Suppresses late-night replies unless active night owl</small></label>
+              <div class="card" style="padding:12px 14px;">
+                <h4 style="margin:0 0 8px; font-size:12px;">Circadian &amp; Multi-Persona Turn-Taking</h4>
+                <div class="row" style="margin-bottom:8px; justify-content:space-between; align-items:center;">
+                  <label style="font-size:11.5px;"><b>Diurnal Activity Curve</b><br><small class="hint" style="font-size:10.5px;">Suppresses late-night replies unless active night owl</small></label>
                   <input type="checkbox" id="orch-circadian" checked />
                 </div>
-                <div style="margin-bottom:12px;">
-                  <label><b>Peak Activity Hour (0-23)</b></label>
-                  <input type="number" id="orch-peak-hour" min="0" max="23" value="15" style="width:100%; margin-top:4px;" />
-                  <small class="hint">Hour of day when personas are most active (e.g. 15 = 3 PM).</small>
+                <div style="margin-bottom:8px;">
+                  <label style="font-size:11.5px;"><b>Peak Activity Hour (0-23)</b></label>
+                  <input type="number" id="orch-peak-hour" min="0" max="23" value="15" style="width:100%; margin-top:2px;" />
                 </div>
-                <div style="margin-bottom:12px;">
-                  <label><b>Anti-Dogpiling Suppression (seconds)</b></label>
-                  <input type="number" id="orch-anti-dogpile" min="10" max="300" value="45" style="width:100%; margin-top:4px;" />
-                  <small class="hint">Minimum spacing before another teammate persona can reply in the same group.</small>
+                <div style="margin-bottom:8px;">
+                  <label style="font-size:11.5px;"><b>Anti-Dogpiling Suppression (sec)</b></label>
+                  <input type="number" id="orch-anti-dogpile" min="10" max="300" value="45" style="width:100%; margin-top:2px;" />
                 </div>
                 <div>
-                  <label><b>Fatigue Half-Life (seconds)</b></label>
-                  <input type="number" id="orch-fatigue-tau" min="60" max="1200" value="240" style="width:100%; margin-top:4px;" />
-                  <small class="hint">Time required for conversational fatigue to decay.</small>
+                  <label style="font-size:11.5px;"><b>Fatigue Half-Life (sec)</b></label>
+                  <input type="number" id="orch-fatigue-tau" min="60" max="1200" value="240" style="width:100%; margin-top:2px;" />
                 </div>
               </div>
             </div>
-            <div style="margin-top:16px; display:flex; justify-content:flex-end;">
-              <button id="orch-save" class="primary">Save Orchestration Parameters</button>
+            <div style="margin-top:12px; display:flex; justify-content:flex-end;">
+              <button id="orch-save" class="primary" style="padding:5px 14px; font-size:12px;">Save Orchestration Parameters</button>
             </div>
           </div>
         </div>
 
         <!-- Generation Modal (Study Group) -->
         <div id="p-gen-modal" class="p-modal hidden">
-          <div class="p-modal-content" style="max-width:540px;">
-            <div class="p-modal-header">
-              <h2>Study Group &amp; Design Personas</h2>
+          <div class="p-modal-content" style="max-width:480px;">
+            <div class="p-modal-header" style="padding:12px 16px;">
+              <h2 style="font-size:14px; margin:0;">Study Group &amp; Design Personas</h2>
               <button class="ghost p-modal-close" id="p-gen-close">&times;</button>
             </div>
-            <div class="p-modal-body">
-              <p class="hint" style="margin-bottom:14px;">The AI reads the real chat history of the group to deduce natural community archetypes, tones, and topics, then creates tailored personas.</p>
-              <div style="margin-bottom:12px;">
+            <div class="p-modal-body" style="padding:14px 16px;">
+              <p class="hint" style="margin-bottom:12px; font-size:11.5px;">The AI reads real chat history to deduce natural community archetypes, tones, and topics, then creates tailored personas.</p>
+              <div style="margin-bottom:8px;">
                 <label class="l">Target Group</label>
                 <select id="pg-group" style="width:100%;"></select>
               </div>
-              <div style="margin-bottom:12px;">
-                <label class="l">How many personas to create?</label>
+              <div style="margin-bottom:8px;">
+                <label class="l">Number of Personas</label>
                 <input type="number" id="pg-count" value="3" min="1" max="10" />
               </div>
-              <div style="margin-bottom:12px;">
+              <div style="margin-bottom:8px;">
                 <label class="l">Optional Custom Direction</label>
-                <input type="text" id="pg-dir" placeholder="e.g. one skeptical trader, one enthusiastic dev..." />
+                <input type="text" id="pg-dir" placeholder="e.g. skeptical trader, enthusiastic builder" />
               </div>
-              <div id="pg-status" class="hint" style="min-height:20px; color:var(--accent);"></div>
+              <div id="pg-status" class="hint" style="min-height:16px; font-size:11px; color:var(--accent);"></div>
             </div>
-            <div class="p-modal-footer">
-              <button class="ghost" id="pg-cancel">Cancel</button>
-              <button class="primary" id="pg-run">Analyze &amp; Generate</button>
+            <div class="p-modal-footer" style="padding:10px 16px;">
+              <button class="ghost" id="pg-cancel" style="padding:4px 10px; font-size:11.5px;">Cancel</button>
+              <button class="primary" id="pg-run" style="padding:5px 14px; font-size:11.5px;">Analyze &amp; Generate</button>
             </div>
           </div>
         </div>
 
         <!-- Group Test Chat Modal (fal.ai cheap model) -->
         <div id="p-testchat-modal" class="p-modal hidden">
-          <div class="p-modal-content" style="max-width:620px;">
-            <div class="p-modal-header">
-              <div style="display:flex; align-items:center; gap:10px;">
-                <span style="font-size:22px;">⚡</span>
-                <div>
-                  <h2 style="margin:0; font-size:17px;">Test Persona Chat in Group</h2>
-                  <div class="hint" style="font-size:12px;" id="ptc-subhead">Simulate an irregular multi-turn conversation between group members using fal.ai.</div>
-                </div>
+          <div class="p-modal-content" style="max-width:540px;">
+            <div class="p-modal-header" style="padding:12px 16px;">
+              <div>
+                <h2 style="margin:0; font-size:14px;">Test Persona Chat in Group</h2>
+                <div class="hint" style="font-size:11px;" id="ptc-subhead">Simulate an irregular multi-turn conversation between group members using fal.ai.</div>
               </div>
               <button class="ghost p-modal-close" id="ptc-close">&times;</button>
             </div>
-            <div class="p-modal-body">
-              <div style="margin-bottom:14px;">
+            <div class="p-modal-body" style="padding:14px 16px;">
+              <div style="margin-bottom:8px;">
                 <label class="l">Target Group</label>
                 <select id="ptc-group" style="width:100%;"></select>
               </div>
-              <div class="grid2" style="margin-bottom:14px;">
+              <div class="grid2" style="margin-bottom:8px; gap:8px;">
                 <div>
-                  <label class="l">AI Model (fal.ai)</label>
-                  <select id="ptc-model" style="width:100%; font-size:12px;">
+                  <label class="l">AI Model</label>
+                  <select id="ptc-model" style="width:100%; font-size:11.5px;">
                     <option value="google/gemini-2.5-flash" selected>google/gemini-2.5-flash (Fast &amp; Cheap)</option>
                     <option value="meta-llama/llama-3.1-8b-instruct">meta-llama/llama-3.1-8b-instruct (Cheap)</option>
                     <option value="openai/gpt-4o-mini">openai/gpt-4o-mini (Cheap)</option>
@@ -635,31 +607,31 @@
                 </div>
                 <div>
                   <label class="l">Conversation Turns</label>
-                  <select id="ptc-turns" style="width:100%;">
+                  <select id="ptc-turns" style="width:100%; font-size:11.5px;">
                     <option value="2">2 turns (Quick exchange)</option>
                     <option value="4" selected>4 turns (Natural dialogue)</option>
                     <option value="6">6 turns (Extended banter)</option>
                   </select>
                 </div>
               </div>
-              <div style="margin-bottom:14px;">
-                <label class="l">Conversation Topic / Seed</label>
-                <input type="text" id="ptc-topic" placeholder="e.g. Checking in on recent updates, casual banter" value="Checking in on recent updates and casual discussion" />
+              <div style="margin-bottom:8px;">
+                <label class="l">Topic / Seed</label>
+                <input type="text" id="ptc-topic" placeholder="e.g. Checking in on recent updates" value="Checking in on recent updates and casual discussion" />
               </div>
-              <div style="margin-bottom:10px; display:flex; align-items:center; gap:8px;">
+              <div style="margin-bottom:6px; display:flex; align-items:center; gap:6px;">
                 <input type="checkbox" id="ptc-send-live" style="width:auto; cursor:pointer;" checked />
-                <label for="ptc-send-live" style="margin:0; cursor:pointer; font-weight:500;">Send live to Telegram group (with human typing simulation)</label>
+                <label for="ptc-send-live" style="margin:0; cursor:pointer; font-size:11.5px;">Send live to Telegram group (with human typing simulation)</label>
               </div>
-              <div style="margin-bottom:14px; display:flex; align-items:center; gap:8px;">
+              <div style="margin-bottom:8px; display:flex; align-items:center; gap:6px;">
                 <input type="checkbox" id="ptc-antipattern" style="width:auto; cursor:pointer;" checked />
-                <label for="ptc-antipattern" style="margin:0; cursor:pointer; font-weight:500; color:var(--accent);">🛡️ Anti-Pattern High Entropy (multi-message bursts, raw human slang, zero predictable ping-pong)</label>
+                <label for="ptc-antipattern" style="margin:0; cursor:pointer; font-size:11.5px; color:var(--accent);">Anti-Pattern High Entropy (multi-message bursts, raw human slang, no ping-pong)</label>
               </div>
-              <div id="ptc-status" class="hint" style="margin-bottom:10px; min-height:18px;"></div>
-              <div id="ptc-transcript" style="max-height:260px; overflow-y:auto; display:none; flex-direction:column; gap:8px; padding:10px; background:var(--panel2); border-radius:8px; border:1px solid var(--border);"></div>
+              <div id="ptc-status" class="hint" style="margin-bottom:8px; min-height:16px; font-size:11px;"></div>
+              <div id="ptc-transcript" style="max-height:220px; overflow-y:auto; display:none; flex-direction:column; gap:6px; padding:8px; background:var(--panel2); border-radius:6px; border:1px solid var(--border);"></div>
             </div>
-            <div class="p-modal-footer">
-              <button class="ghost" id="ptc-cancel">Close</button>
-              <button class="primary" id="ptc-submit" style="background:linear-gradient(135deg, #2fc4b2, #5856d6);">⚡ Run Test Chat</button>
+            <div class="p-modal-footer" style="padding:10px 16px;">
+              <button class="ghost" id="ptc-cancel" style="padding:4px 10px; font-size:11.5px;">Close</button>
+              <button class="primary" id="ptc-submit" style="padding:5px 14px; font-size:11.5px;">Run Test Chat</button>
             </div>
           </div>
         </div>

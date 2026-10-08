@@ -378,18 +378,41 @@ input[type="range"] { accent-color: var(--accent); cursor: pointer; height: 6px;
 #pai-unhinged { accent-color: #ff2d55; }
 .p-tag { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; border: 1px solid transparent; }
 
-/* Full-Page Persona Studio Workspace Styles */
-#p-tab-studio .card { background: var(--panel); border: 1px solid var(--line2); border-radius: 10px; }
-#p-tab-studio h3 { color: var(--text); font-weight: 600; letter-spacing: -0.01em; }
-#p-tab-studio label.l { font-size: 11.5px; font-weight: 600; color: var(--muted); margin-bottom: 4px; display: block; }
+
+/* Compact Professional Desktop Persona Styles */
+#view-personas { max-width: 1040px; margin: 0 auto; }
+.p-tabs { display: flex; gap: 6px; margin-bottom: 12px; border-bottom: 1px solid var(--line); padding-bottom: 8px; }
+.p-tab { background: transparent; border: 1px solid transparent; color: var(--muted); border-radius: 6px; padding: 5px 12px; font-size: 12px; font-weight: 500; cursor: pointer; }
+.p-tab:hover { color: var(--text); background: var(--panel2); }
+.p-tab.active { background: var(--panel2); color: var(--accent); border-color: var(--line2); font-weight: 600; }
+
+.p-metric-card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; }
+.p-metric-card .k { font-size: 10.5px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+.p-metric-card .v { font-size: 18px; font-weight: 650; margin-top: 2px; color: var(--text); }
+.p-metric-card .s { font-size: 10px; color: var(--muted); margin-top: 1px; }
+
+.p-roster-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; margin-top: 8px; }
+.p-card { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+.p-card-header { display: flex; align-items: center; gap: 10px; }
+.p-avatar { width: 28px; height: 28px; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 12px; color: #04211d; flex-shrink: 0; }
+.p-card-title b { font-size: 13px; line-height: 1.2; }
+.p-card-title .hint { font-size: 11px; }
+.p-tag { font-size: 10.5px; padding: 1px 6px; border-radius: 4px; background: var(--panel2); border: 1px solid var(--line2); color: var(--muted); line-height: 1.4; }
+.p-prompt-preview { font-size: 11px; color: var(--muted); line-height: 1.35; background: var(--bg); padding: 6px 8px; border-radius: 5px; border: 1px solid var(--line); min-height: 38px; }
+.p-card-footer { display: flex; align-items: center; gap: 6px; margin-top: auto; padding-top: 4px; }
+
+/* Studio Workspace compact rules */
+#p-tab-studio .card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; margin-bottom: 8px; }
+#p-tab-studio h3 { color: var(--muted); font-size: 11px; font-weight: 650; text-transform: uppercase; letter-spacing: .05em; margin: 0 0 8px; }
+#p-tab-studio label.l { font-size: 10.5px; font-weight: 500; color: #8b93a7; margin-bottom: 2px; display: block; }
 #p-tab-studio input[type="text"], 
 #p-tab-studio input[type="number"], 
 #p-tab-studio select, 
-#p-tab-studio textarea { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; color: var(--text); padding: 7px 10px; font-size: 12.5px; }
+#p-tab-studio textarea { background: #0e1118; border: 1px solid var(--line2); border-radius: 5px; color: var(--text); padding: 5px 8px; font-size: 12px; height: 28px; margin: 1px 0 6px; width: 100%; box-sizing: border-box; }
 #p-tab-studio input[type="text"]:focus, 
 #p-tab-studio input[type="number"]:focus, 
 #p-tab-studio select:focus, 
 #p-tab-studio textarea:focus { border-color: var(--accent); outline: none; }
-#p-tab-studio input[type="range"] { accent-color: var(--accent); height: 6px; cursor: pointer; }
+#p-tab-studio textarea { height: auto; font-family: ui-monospace, Menlo, monospace; font-size: 11px; line-height: 1.4; }
+#p-tab-studio input[type="range"] { accent-color: var(--accent); height: 4px; cursor: pointer; margin: 2px 0; padding: 0; }
 #ps-unhinged { accent-color: #ff2d55 !important; }
-.p-tag { display: inline-flex; align-items: center; gap: 4px; padding: 2px 7px; border-radius: 4px; font-size: 11px; font-weight: 600; border: 1px solid var(--line2); background: var(--panel2); color: var(--muted); }

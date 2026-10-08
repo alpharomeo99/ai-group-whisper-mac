@@ -158,7 +158,7 @@
         <div class="gx-ht"><b>${E(o.name || o.phone)}</b><small>${o.username ? '@' + E(o.username) : E(o.phone || '')}</small></div>
         <span class="gx-dot ${o.connected ? 'ok' : o.active ? 'warn' : ''}" title="${o.connected ? 'Connected' : o.active ? 'Not connected' : 'Paused'}"></span></div>
         <div class="gx-foot">
-          ${o.persona_id ? `<span class="gx-chip">${ng} group${ng === 1 ? '' : 's'}</span>` : `<span class="gx-chip" style="background:rgba(245,184,74,.15); color:var(--warn); border-color:rgba(245,184,74,.3);">⚠️ No Persona</span>`}
+          ${o.persona_id ? `<span class="gx-chip">${ng} group${ng === 1 ? '' : 's'}</span>` : `<span class="gx-chip" style="background:rgba(245,184,74,.15); color:var(--warn); border-color:rgba(245,184,74,.3);">No Persona</span>`}
           ${o.proxy_label ? `<span class="gx-chip">&#8644; ${E(o.proxy_label)}</span>` : '<span class="gx-chip dim">no proxy</span>'}
         </div>
         <i class="gx-port out" data-port="out"></i>`;
@@ -363,7 +363,7 @@
           <span>Accounts in group</span><b>${memberAccs_insp.length}</b>
         </div>
         <button class="gx-btn wide" id="gi-test-chat" style="background:linear-gradient(135deg, #2fc4b2, #5856d6); color:#fff; font-weight:600; margin:10px 0; border:none; border-radius:6px; padding:8px; cursor:pointer;">
-          ⚡ Test Persona Chat in Group
+          Test Persona Chat in Group
         </button>
         <label class="gx-l">Active Accounts in this Group</label>
         <div class="gx-list" id="gi-acc-list">
@@ -372,7 +372,7 @@
             return `<div style="display:flex; justify-content:space-between; align-items:center; padding:6px 8px; border-radius:6px; background:var(--panel2); margin-bottom:4px;">
               <div>
                 <b>${E(a.name || a.phone)}</b>
-                <small style="display:block; color:var(--muted); font-size:11px;">${p ? 'Persona: ' + E(p.name) : '<span style="color:var(--warn);">⚠️ No persona</span>'}</small>
+                <small style="display:block; color:var(--muted); font-size:11px;">${p ? 'Persona: ' + E(p.name) : '<span style="color:var(--warn);">No persona</span>'}</small>
               </div>
               <button class="gx-btn danger ghost xs gi-rm-acc" data-aid="${a.id}" style="padding:2px 8px; font-size:11px;">Remove</button>
             </div>`;

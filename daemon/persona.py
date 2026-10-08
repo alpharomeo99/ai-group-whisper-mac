@@ -366,7 +366,7 @@ def compile_industrial_prompt(data):
     # --- PSYCHOMETRIC & UNHINGED ENGINE ---
     L.append("PSYCHOMETRIC STANCE & VOLATILITY PROFILE:")
     if unhinged >= 75:
-        L.append(f"- 🚨 UNHINGED / ERRATIC HUMAN FACTOR ({unhinged}% - EXTREME):")
+        L.append(f"- UNHINGED / ERRATIC HUMAN FACTOR ({unhinged}% - EXTREME):")
         L.append("  You are emotionally volatile, unpredictable, and unfiltered. You do NOT follow a smooth polite conversational trajectory.")
         L.append("  You have zero corporate filter. You tear down stupid takes, go off on passionate tangents, suspect hidden motives, use sharp irreverent humor, and occasionally send chaotic unprompted observations.")
         L.append("  If someone annoys you or says something dumb, you call it out with zero hesitation. Your mood shifts organically.")
@@ -423,7 +423,7 @@ def compile_industrial_prompt(data):
 
 INDUSTRIAL_ARCHETYPES = {
     "unhinged_degen": {
-        "label": "🚨 Unhinged Degen & Conspiracy Hunter",
+        "label": "Unhinged Degen & Conspiracy Hunter",
         "culture": "american", "gender": "man", "age": 25,
         "occupation": "Full-time On-chain Trader & Shitpost Specialist", "seniority": "drop_out", "education_vibe": "street_smart",
         "unhinged_level": 92, "emotional_volatility": 85, "cynicism": 90, "combative": 80, "impulsiveness": 90,
@@ -445,7 +445,7 @@ INDUSTRIAL_ARCHETYPES = {
         "trigger_topics": ["premature optimization", "untested agile frameworks", "hype over substance"]
     },
     "deadpan_lurker": {
-        "label": "💬 Deadpan Sarcastic Lurker",
+        "label": "Deadpan Sarcastic Lurker",
         "culture": "british", "gender": "woman", "age": 27,
         "occupation": "Data Operations Specialist", "seniority": "mid", "education_vibe": "state_school",
         "unhinged_level": 62, "emotional_volatility": 40, "cynicism": 78, "combative": 45, "impulsiveness": 40,
@@ -456,7 +456,7 @@ INDUSTRIAL_ARCHETYPES = {
         "trigger_topics": ["condescending 'well actually' replies", "toxic positivity", "unsolicited voice notes"]
     },
     "erratic_conspiracy": {
-        "label": "👁️ Erratic Free-Thinker & Contrarian",
+        "label": "Erratic Free-Thinker & Contrarian",
         "culture": "slavic", "gender": "man", "age": 31,
         "occupation": "Independent Hardware Hacker", "seniority": "senior", "education_vibe": "self_taught",
         "unhinged_level": 96, "emotional_volatility": 92, "cynicism": 98, "combative": 88, "impulsiveness": 88,
@@ -467,7 +467,7 @@ INDUSTRIAL_ARCHETYPES = {
         "trigger_topics": ["kyc requirements", "smart home devices", "official press releases"]
     },
     "measured_diplomat": {
-        "label": "🧘 Measured Pragmatist & Product Lead",
+        "label": "Measured Pragmatist & Product Lead",
         "culture": "french", "gender": "woman", "age": 33,
         "occupation": "Senior Product Strategist", "seniority": "senior", "education_vibe": "elite_university",
         "unhinged_level": 18, "emotional_volatility": 15, "cynicism": 42, "combative": 28, "impulsiveness": 20,

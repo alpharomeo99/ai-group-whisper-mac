@@ -1087,7 +1087,7 @@ class Daemon:
                     {"sender": part_a.get("name"), "text": f"hey @{(part_b.get('username') or part_b.get('name')).lower()}, did you catch the latest updates?"},
                     {"sender": part_b.get("name"), "text": "yeah was just reading through, looking good so far"},
                     {"sender": part_a.get("name"), "text": "nice, wanted to make sure we're on the same page"},
-                    {"sender": part_b.get("name"), "text": "definitely, let's keep it moving 👍"}
+                    {"sender": part_b.get("name"), "text": "definitely, let's keep it moving "}
                 ][:turns_cnt]
 
             for t in turns:
