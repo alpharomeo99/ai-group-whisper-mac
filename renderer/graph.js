@@ -118,7 +118,12 @@
   function edgesList() {
     const d = g.data, out = []; if (!d) return out;
     d.accounts.forEach((a) => { if (a.persona_id) out.push({ from: 'per:' + a.persona_id, to: 'acc:' + a.id }); });
-    d.groups.forEach((x) => { if (x.account_id) out.push({ from: 'acc:' + x.account_id, to: 'grp:' + x.chat_id }); });
+    d.groups.forEach((x) => {
+      const aids = (x.account_ids && x.account_ids.length) ? x.account_ids : (x.account_id ? [x.account_id] : []);
+      aids.forEach((aid) => {
+        out.push({ from: 'acc:' + aid, to: 'grp:' + x.chat_id });
+      });
+    });
     return out;
   }
   const label = (n) => n.kind === 'per' ? n.o.name : n.kind === 'acc' ? (n.o.name || n.o.phone || 'Account') : (n.o.title || n.o.chat_id);
@@ -143,11 +148,13 @@
         <div class="gx-foot"><span class="gx-chip">${ng} group${ng === 1 ? '' : 's'}</span>${o.proxy_label ? `<span class="gx-chip">&#8644; ${E(o.proxy_label)}</span>` : '<span class="gx-chip dim">no proxy</span>'}</div>
         <i class="gx-port out" data-port="out"></i>`;
     }
-    const acc = g.data.accounts.find((a) => String(a.id) === String(o.account_id));
-    const c = acc && personaColor(acc.persona_id);
+    const aids = (o.account_ids && o.account_ids.length) ? o.account_ids : (o.account_id ? [o.account_id] : []);
+    const memberAccs = g.data.accounts.filter((a) => aids.map(String).includes(String(a.id)));
+    const c = memberAccs.length && personaColor(memberAccs[0].persona_id);
+    const accLabel = memberAccs.length > 0 ? (memberAccs.length === 1 ? (memberAccs[0].name || memberAccs[0].phone || '1 account') : `${memberAccs.length} accounts`) : 'No account';
     return `<i class="gx-port in" data-port="in"></i>
       <div class="gx-head"><span class="gx-av grp" ${c ? `style="background:${E(c)}22;color:${E(c)}"` : ''}>#</span>
-      <div class="gx-ht"><b>${E(o.title)}</b><small>${o.messages} msgs saved</small></div></div>
+      <div class="gx-ht"><b>${E(o.title || 'Untitled Group')}</b><small>${o.messages} msgs &bull; ${E(accLabel)}</small></div></div>
       <div class="gx-toggles">
         <label class="gx-tg"><input type="checkbox" data-k="watched" ${o.watched ? 'checked' : ''}/><span></span>Watch</label>
         <label class="gx-tg"><input type="checkbox" data-k="auto_reply" ${o.auto_reply ? 'checked' : ''}/><span></span>Auto-reply</label>

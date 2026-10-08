@@ -30,7 +30,10 @@ let groups = [], current = null;
 function esc(s) { const d = document.createElement('div'); d.textContent = s ?? ''; return d.innerHTML; }
 function show(view) {
   document.querySelectorAll('nav button').forEach((b) => b.classList.toggle('active', b.dataset.view === view));
-  ['overview', 'network', 'personas', 'groups', 'accounts', 'automation', 'queue', 'settings'].forEach((v) => $('view-' + v).classList.toggle('hidden', v !== view));
+  ['overview', 'network', 'personas', 'messages', 'groups', 'accounts', 'automation', 'queue', 'settings'].forEach((v) => {
+    const el = $('view-' + v);
+    if (el) el.classList.toggle('hidden', v !== view);
+  });
   document.querySelector('main').classList.toggle('flush', view === 'network');
   if (view === 'network') window.loadNetwork();
   if (view === 'overview') loadOverview();
@@ -39,6 +42,7 @@ function show(view) {
   if (view === 'accounts') loadAccounts();
   if (view === 'automation') loadAutomation();
   if (view === 'personas') loadPersonas();
+  if (view === 'messages') loadDirectChats();
 }
 document.querySelectorAll('nav button').forEach((b) => b.onclick = () => show(b.dataset.view));
 document.querySelectorAll('[data-go]').forEach((b) => b.onclick = () => show(b.dataset.go));
@@ -413,15 +417,16 @@ $('dbg-clear').onclick = async () => { await api('POST', '/provision/debug/clear
 dbgPoll(); setInterval(dbgPoll, 1500);
 
 
-// ----- Persona Management (Per User Per Group) -----
+// ----- Persona Management Studio (Per User Per Group) -----
 let personaData = { matrix: [], accounts: [], personas: [] };
-let activePTab = 'matrix';
+let activePTab = 'roster';
+let activeEdTab = 'profile';
 
 function switchPTab(tab) {
   activePTab = tab;
   document.querySelectorAll('.p-tab').forEach((b) => b.classList.toggle('active', b.dataset.ptab === tab));
-  $('p-tab-matrix').classList.toggle('hidden', tab !== 'matrix');
   $('p-tab-roster').classList.toggle('hidden', tab !== 'roster');
+  $('p-tab-matrix').classList.toggle('hidden', tab !== 'matrix');
   if ($('p-tab-cadence')) {
     $('p-tab-cadence').classList.toggle('hidden', tab !== 'cadence');
     if (tab === 'cadence') loadOrchConfig();
@@ -429,36 +434,220 @@ function switchPTab(tab) {
 }
 document.querySelectorAll('.p-tab').forEach((b) => b.onclick = () => switchPTab(b.dataset.ptab));
 
+function switchEdTab(tab) {
+  activeEdTab = tab;
+  document.querySelectorAll('.p-ed-tab').forEach((b) => b.classList.toggle('active', b.dataset.edtab === tab));
+  $('p-sec-profile').classList.toggle('hidden', tab !== 'profile');
+  $('p-sec-voice').classList.toggle('hidden', tab !== 'voice');
+  $('p-sec-cadence').classList.toggle('hidden', tab !== 'cadence');
+  $('p-sec-prompt').classList.toggle('hidden', tab !== 'prompt');
+}
+document.querySelectorAll('.p-ed-tab').forEach((b) => b.onclick = () => switchEdTab(b.dataset.edtab));
+
+// Color swatches
+document.querySelectorAll('.p-swatch').forEach((s) => {
+  s.onclick = () => {
+    const c = s.dataset.c;
+    $('pm-color').value = c;
+    $('pm-color-text').value = c;
+    updateModalAvatarPreview();
+  };
+});
+
+function updateModalAvatarPreview() {
+  const name = $('pm-name').value.trim() || 'P';
+  const col = $('pm-color').value || '#2fc4b2';
+  $('pm-head-avatar').textContent = name[0].toUpperCase();
+  $('pm-head-avatar').style.background = col;
+  $('pm-head-subtitle').textContent = $('pm-role').value.trim() || 'Detailed Voice, Linguistics & Human Cadence';
+}
+
+if ($('pm-name')) $('pm-name').oninput = updateModalAvatarPreview;
+if ($('pm-role')) $('pm-role').oninput = updateModalAvatarPreview;
+if ($('pm-color')) $('pm-color').oninput = (e) => {
+  $('pm-color-text').value = e.target.value;
+  updateModalAvatarPreview();
+};
+if ($('pm-color-text')) $('pm-color-text').oninput = (e) => {
+  $('pm-color').value = e.target.value;
+  updateModalAvatarPreview();
+};
+
+if ($('pm-prompt')) {
+  $('pm-prompt').oninput = () => {
+    $('pm-prompt-charcount').textContent = `${$('pm-prompt').value.length} chars`;
+  };
+}
+
 async function loadPersonas() {
   try {
     const res = await api('GET', '/personas/matrix');
     personaData = res;
-    renderPersonaMatrix();
     renderPersonaRoster();
+    renderPersonaMatrix();
   } catch (err) {
     console.error('Failed to load personas:', err);
   }
 }
 
+function renderPersonaRoster() {
+  const container = $('p-roster-grid');
+  const countEl = $('p-roster-count');
+  const personas = personaData.personas || [];
+  countEl.textContent = `${personas.length} personas`;
+
+  if (!personas || personas.length === 0) {
+    container.innerHTML = '<div class="empty">No personas created yet. Click "+ New Persona" or study a group.</div>';
+    return;
+  }
+
+  const query = ($('p-roster-search') ? $('p-roster-search').value.toLowerCase().trim() : '');
+  const filtered = personas.filter((p) => {
+    if (!query) return true;
+    const d = p.details || {};
+    const text = [
+      p.name, p.bio, p.prompt, d.role_in_group, d.tone,
+      (d.voice && d.voice.typical_length),
+      (d.off_topic || []).join(' ')
+    ].filter(Boolean).join(' ').toLowerCase();
+    return text.includes(query);
+  });
+
+  if (filtered.length === 0) {
+    container.innerHTML = '<div class="empty">No personas matched your search query.</div>';
+    return;
+  }
+
+  // Count usage in accounts & matrix
+  const matrix = personaData.matrix || [];
+  const accounts = personaData.accounts || [];
+
+  container.innerHTML = filtered.map((p) => {
+    const d = p.details || {};
+    const t = d.typing || {};
+    const v = d.voice || {};
+    const col = p.color || '#2fc4b2';
+
+    // Calculate usage
+    const defaultInAccounts = accounts.filter((a) => a.persona_id === p.id).length;
+    let assignedInGroups = 0;
+    matrix.forEach((g) => {
+      (g.user_assignments || []).forEach((u) => {
+        if (u.assigned_persona && u.assigned_persona.persona_id === p.id) {
+          assignedInGroups++;
+        }
+      });
+    });
+
+    const usageBadge = assignedInGroups > 0
+      ? `<span class="p-tag" style="background:rgba(56,212,139,.14); color:var(--ok); border-color:rgba(56,212,139,.3);">Active in ${assignedInGroups} group${assignedInGroups > 1 ? 's' : ''}</span>`
+      : defaultInAccounts > 0
+      ? `<span class="p-tag" style="background:rgba(47,196,178,.12); color:var(--accent);">Default for ${defaultInAccounts} account${defaultInAccounts > 1 ? 's' : ''}</span>`
+      : `<span class="p-tag" style="opacity:0.6;">Unassigned</span>`;
+
+    const casingLabel = d.casing_style ? d.casing_style.replace(/_/g, ' ') : '';
+    const cpsLabel = t.chars_per_second ? `${t.chars_per_second} cps · ${t.min_seconds || 2}-${t.max_seconds || 8}s` : '24 cps';
+
+    return `
+      <div class="card p-card" style="border-top: 3px solid ${esc(col)};">
+        <div class="p-card-header">
+          <div class="p-avatar" style="background:${esc(col)};">${esc((p.name || 'P')[0].toUpperCase())}</div>
+          <div class="p-card-title">
+            <b>${esc(p.name)}</b>
+            <div class="hint">${esc(p.bio || d.role_in_group || 'Autonomous Persona')}</div>
+          </div>
+          <div>${usageBadge}</div>
+        </div>
+
+        <div class="p-traits">
+          ${d.role_in_group ? `<span class="p-tag" title="Role">${esc(d.role_in_group)}</span>` : ''}
+          ${casingLabel ? `<span class="p-tag" title="Formality style">${esc(casingLabel)}</span>` : ''}
+          ${v.typical_length ? `<span class="p-tag" title="Length preference">${esc(v.typical_length)}</span>` : ''}
+          <span class="p-tag" title="Typing & reaction speed">${esc(cpsLabel)}</span>
+          ${v.emojis ? `<span class="p-tag" title="Signature emojis">${esc(v.emojis)}</span>` : ''}
+        </div>
+
+        <div class="p-prompt-preview" title="System Prompt">
+          <div style="font-size:10px; text-transform:uppercase; color:var(--muted); margin-bottom:2px; font-weight:600;">System Directive</div>
+          ${esc((p.prompt || 'No custom prompt configured.').slice(0, 150))}${p.prompt && p.prompt.length > 150 ? '…' : ''}
+        </div>
+
+        <div class="p-card-footer">
+          <button class="ghost" data-proster-edit="${p.id}" style="font-size:12px; font-weight:600;">Edit Persona</button>
+          <button class="ghost" data-proster-test="${p.id}" style="font-size:12px;">⚡ Test Voice</button>
+          <button class="ghost" data-proster-dup="${p.id}" style="font-size:12px;" title="Duplicate persona">&#x2398; Clone</button>
+          <button class="ghost danger" data-proster-del="${p.id}" style="font-size:12px; margin-left:auto;" title="Delete permanently">&times;</button>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  container.querySelectorAll('[data-proster-edit]').forEach((el) => {
+    el.onclick = () => openPersonaModal(Number(el.dataset.prosterEdit), 'profile');
+  });
+
+  container.querySelectorAll('[data-proster-test]').forEach((el) => {
+    el.onclick = () => {
+      openPersonaModal(Number(el.dataset.prosterTest), 'prompt');
+      $('pm-test-btn').click();
+    };
+  });
+
+  container.querySelectorAll('[data-proster-dup]').forEach((el) => {
+    el.onclick = async () => {
+      try {
+        await api('POST', `/personas/${el.dataset.prosterDup}/duplicate`);
+        loadPersonas();
+      } catch (err) {
+        alert('Failed to duplicate persona: ' + err.message);
+      }
+    };
+  });
+
+  container.querySelectorAll('[data-proster-del]').forEach((el) => {
+    el.onclick = async () => {
+      if (!confirm('Delete this persona permanently? This will remove all group assignments using it.')) return;
+      await api('DELETE', `/personas/${el.dataset.prosterDel}`);
+      loadPersonas();
+    };
+  });
+}
+
+if ($('p-roster-search')) {
+  $('p-roster-search').oninput = renderPersonaRoster;
+}
+
 function renderPersonaMatrix() {
   const container = $('p-matrix-list');
-  if (!personaData.matrix || personaData.matrix.length === 0) {
+  const matrix = personaData.matrix || [];
+  if (!matrix || matrix.length === 0) {
     container.innerHTML = '<div class="empty">No Telegram groups found yet. Sync groups in Network or open Groups.</div>';
     return;
   }
 
-  container.innerHTML = personaData.matrix.map((g) => {
-    const userRows = g.user_assignments.map((u) => {
+  const query = ($('p-matrix-search') ? $('p-matrix-search').value.toLowerCase().trim() : '');
+  const filtered = matrix.filter((g) => {
+    if (!query) return true;
+    return (g.title || '').toLowerCase().includes(query) || String(g.chat_id).includes(query);
+  });
+
+  if (filtered.length === 0) {
+    container.innerHTML = '<div class="empty">No groups match your filter.</div>';
+    return;
+  }
+
+  container.innerHTML = filtered.map((g) => {
+    const userRows = (g.user_assignments || []).map((u) => {
       const assigned = u.assigned_persona;
       const fallback = u.fallback_persona;
       const effective = assigned || fallback;
       const perOptions = `<option value="">None (Account Default)</option>` +
-        personaData.personas.map((p) => `<option value="${p.id}" ${assigned && String(assigned.persona_id) === String(p.id) ? 'selected' : ''}>${esc(p.name)}</option>`).join('');
+        (personaData.personas || []).map((p) => `<option value="${p.id}" ${assigned && String(assigned.persona_id) === String(p.id) ? 'selected' : ''}>${esc(p.name)}</option>`).join('');
 
       let typingInfo = '';
       if (effective && effective.details && effective.details.typing) {
         const t = effective.details.typing;
-        typingInfo = `<span class="badge" title="Typing simulation">${t.chars_per_second || 20} cps · ${t.min_seconds || 2}-${t.max_seconds || 8}s</span>`;
+        typingInfo = `<span class="badge" title="Typing simulation">${t.chars_per_second || 24} cps · ${t.min_seconds || 2}-${t.max_seconds || 8}s</span>`;
       }
 
       return `
@@ -493,33 +682,30 @@ function renderPersonaMatrix() {
         <div class="p-group-head">
           <div>
             <h3 style="margin:0; display:flex; align-items:center; gap:8px;">
-              ${esc(g.title)}
-              ${g.watched ? '<span class="badge ok">Watched</span>' : ''}
-              ${g.auto_reply ? '<span class="badge" style="background:rgba(47,196,178,.15); color:var(--accent);">Auto-Reply</span>' : ''}
+              ${esc(g.title || 'Untitled Group')}
+              <span class="hint" style="font-size:12px; font-weight:normal;">(${g.chat_id})</span>
             </h3>
-            <div class="hint" style="margin-top:2px;">Chat ID: ${g.chat_id} · ${g.profile && g.profile.topic ? esc(g.profile.topic) : 'General discussion'}</div>
+            <div class="hint" style="margin-top:3px;">${g.user_assignments ? g.user_assignments.length : 0} active accounts in group</div>
           </div>
-          <button class="ghost" data-gen-for="${g.chat_id}" style="font-size:12px;">+ Design Personas for Group</button>
+          <button class="ghost" data-pgen-cid="${g.chat_id}" style="font-size:12px;">&#10024; Generate Personas For Group</button>
         </div>
-        <div class="p-group-users">
-          <div class="p-group-table-head">
-            <span>User / Account</span>
-            <span>Assigned Persona for this Group</span>
-            <span>Status &amp; Cadence</span>
-            <span></span>
-          </div>
-          ${userRows || '<div class="hint" style="padding:10px;">No accounts assigned.</div>'}
+        <div class="p-group-table-head">
+          <span>Telegram Account</span>
+          <span>Assigned Persona</span>
+          <span>Status &amp; Dynamics</span>
+          <span>Action</span>
         </div>
+        <div class="p-group-users">${userRows || '<div class="empty">No accounts linked to this group.</div>'}</div>
       </div>
     `;
   }).join('');
 
-  // Attach matrix change listeners
-  container.querySelectorAll('select[data-matrix-cid]').forEach((el) => {
-    el.onchange = async () => {
-      const cid = el.dataset.matrixCid;
-      const aid = el.dataset.matrixAid;
-      const pid = el.value || null;
+  // Handle assignments change
+  container.querySelectorAll('select[data-matrix-cid]').forEach((sel) => {
+    sel.onchange = async () => {
+      const cid = sel.dataset.matrixCid;
+      const aid = sel.dataset.matrixAid;
+      const pid = sel.value ? Number(sel.value) : null;
       try {
         await api('POST', '/personas/assign-matrix', { chat_id: cid, account_id: aid, persona_id: pid });
         loadPersonas();
@@ -529,104 +715,159 @@ function renderPersonaMatrix() {
     };
   });
 
-  container.querySelectorAll('[data-gen-for]').forEach((el) => {
-    el.onclick = () => openGenModal(Number(el.dataset.genFor));
+  container.querySelectorAll('[data-pedit]').forEach((btn) => {
+    btn.onclick = () => openPersonaModal(Number(btn.dataset.pedit), 'profile');
   });
 
-  container.querySelectorAll('[data-pedit]').forEach((el) => {
-    el.onclick = () => openPersonaModal(Number(el.dataset.pedit));
-  });
-}
-
-function renderPersonaRoster() {
-  const container = $('p-roster-grid');
-  $('p-roster-count').textContent = `${personaData.personas ? personaData.personas.length : 0} personas`;
-  if (!personaData.personas || personaData.personas.length === 0) {
-    container.innerHTML = '<div class="empty">No personas created yet. Click "+ New Persona" or study a group.</div>';
-    return;
-  }
-
-  container.innerHTML = personaData.personas.map((p) => {
-    const d = p.details || {};
-    const t = d.typing || {};
-    const col = p.color || '#2fc4b2';
-    return `
-      <div class="card p-card">
-        <div class="p-card-header">
-          <div class="p-avatar" style="background:${esc(col)};">${esc((p.name || 'P')[0].toUpperCase())}</div>
-          <div class="p-card-title">
-            <b>${esc(p.name)}</b>
-            <div class="hint">${esc(p.bio || d.role_in_group || 'AI Persona')}</div>
-          </div>
-        </div>
-        <div class="p-traits">
-          ${d.role_in_group ? `<span class="p-tag">${esc(d.role_in_group)}</span>` : ''}
-          ${d.voice && d.voice.typical_length ? `<span class="p-tag">${esc(d.voice.typical_length)}</span>` : ''}
-          <span class="p-tag">${t.chars_per_second || 20} chars/s</span>
-        </div>
-        <div class="p-prompt-preview">${esc((p.prompt || '').slice(0, 140))}${p.prompt && p.prompt.length > 140 ? '…' : ''}</div>
-        <div class="p-card-footer">
-          <button class="ghost" data-proster-edit="${p.id}" style="font-size:12px;">Edit</button>
-          <button class="ghost" data-proster-test="${p.id}" style="font-size:12px;">Test</button>
-          <button class="ghost danger" data-proster-del="${p.id}" style="font-size:12px; margin-left:auto;">&times;</button>
-        </div>
-      </div>
-    `;
-  }).join('');
-
-  container.querySelectorAll('[data-proster-edit]').forEach((el) => el.onclick = () => openPersonaModal(Number(el.dataset.prosterEdit)));
-  container.querySelectorAll('[data-proster-test]').forEach((el) => el.onclick = () => {
-    openPersonaModal(Number(el.dataset.prosterTest));
-    $('pm-test-btn').click();
-  });
-  container.querySelectorAll('[data-proster-del]').forEach((el) => el.onclick = async () => {
-    if (!confirm('Delete this persona permanently?')) return;
-    await api('DELETE', `/personas/${el.dataset.prosterDel}`);
-    loadPersonas();
+  container.querySelectorAll('[data-pgen-cid]').forEach((btn) => {
+    btn.onclick = () => openGenModal(btn.dataset.pgenCid);
   });
 }
 
-function openPersonaModal(pid) {
+if ($('p-matrix-search')) {
+  $('p-matrix-search').oninput = renderPersonaMatrix;
+}
+
+function openPersonaModal(pid, initialTab = 'profile') {
   const p = pid ? (personaData.personas || []).find((x) => x.id === pid) : null;
   const d = p && p.details ? p.details : {};
   const t = d.typing || {};
+  const v = d.voice || {};
+
   $('pm-id').value = pid || '';
-  $('p-modal-title').textContent = pid ? 'Edit Persona' : 'Create New Persona';
+  $('p-modal-title').textContent = pid ? 'Edit Persona Studio' : 'Create New Persona';
   $('pm-name').value = p ? p.name : '';
-  $('pm-color').value = p ? p.color || '#2fc4b2' : '#2fc4b2';
+  $('pm-color').value = p ? (p.color || '#2fc4b2') : '#2fc4b2';
   $('pm-color-text').value = $('pm-color').value;
-  $('pm-bio').value = p ? p.bio || '' : '';
   $('pm-role').value = d.role_in_group || '';
-  $('pm-tone').value = d.voice ? d.voice.typical_length || '' : '';
-  $('pm-emoji').value = d.voice ? d.voice.emojis || '' : '';
+  $('pm-bio').value = p ? (p.bio || '') : '';
+  $('pm-tz').value = d.timezone || '';
+  $('pm-demo').value = d.demographics || '';
+
+  // Voice tab
+  if ($('pm-casing')) $('pm-casing').value = d.casing_style || 'casual_lowercase';
+  if ($('pm-length-pref')) $('pm-length-pref').value = v.typical_length_pref || (v.typical_length ? 'short' : 'medium');
+  if ($('pm-emoji-habit')) $('pm-emoji-habit').value = d.emoji_habit || 'rare';
+  $('pm-emoji').value = v.emojis || '';
+  $('pm-tone').value = d.tone || v.typical_length || '';
   $('pm-offtopic').value = d.off_topic ? d.off_topic.join(', ') : '';
-  $('pm-cps').value = t.chars_per_second || 20;
+  $('pm-taboo').value = (d.guardrails || d.taboo_words || []).join(', ');
+
+  // Cadence tab
+  $('pm-cps').value = t.chars_per_second || 24;
   $('pm-min-sec').value = t.min_seconds || 2.0;
   $('pm-max-sec').value = t.max_seconds || 8.0;
-  $('pm-prompt').value = p ? p.prompt || '' : '';
-  $('pm-test-output').textContent = 'Click "Test Reply" to see how this persona responds to group context.';
+  if ($('pm-burst')) $('pm-burst').value = t.burstiness_percent || 30;
+  if ($('pm-peak-hr')) $('pm-peak-hr').value = d.peak_hour != null ? d.peak_hour : 16;
+
+  // Prompt tab
+  $('pm-prompt').value = p ? (p.prompt || '') : '';
+  $('pm-prompt-charcount').textContent = `${$('pm-prompt').value.length} chars`;
+
+  // Reset sandbox preview
+  $('pm-test-output').textContent = 'Enter an incoming message above and click "⚡ Test Voice" to simulate human reading time and AI response generation.';
+  $('pm-test-metrics').classList.add('hidden');
+
+  updateModalAvatarPreview();
+  switchEdTab(initialTab);
   $('p-modal').classList.remove('hidden');
 }
 
-$('pm-color').oninput = (e) => { $('pm-color-text').value = e.target.value; };
-$('pm-color-text').oninput = (e) => { $('pm-color').value = e.target.value; };
+// Auto-synthesize prompt from traits
+if ($('pm-btn-synth')) {
+  $('pm-btn-synth').onclick = () => {
+    const name = $('pm-name').value.trim() || 'Anonymous';
+    const role = $('pm-role').value.trim() || 'Community member';
+    const bio = $('pm-bio').value.trim();
+    const casing = $('pm-casing').value;
+    const len = $('pm-length-pref').value;
+    const emojiHabit = $('pm-emoji-habit').value;
+    const emojis = $('pm-emoji').value.trim();
+    const tone = $('pm-tone').value.trim();
+    const offtopic = $('pm-offtopic').value.trim();
+    const taboo = $('pm-taboo').value.trim();
+
+    let p = `You are ${name}. You are participating naturally in a Telegram group as a real person.
+`;
+    p += `Role/Identity: ${role}.
+`;
+    if (bio) p += `Background: ${bio}
+`;
+    if (tone) p += `Tone: ${tone}.
+`;
+
+    // Casing
+    if (casing === 'casual_lowercase') {
+      p += `Stylistic rule: Speak casually and use mostly lowercase text. Skip unnecessary punctuation.
+`;
+    } else if (casing === 'technical_precise') {
+      p += `Stylistic rule: Structured, articulate, concise and technically precise.
+`;
+    } else if (casing === 'punchy_terse') {
+      p += `Stylistic rule: Very terse, punchy one-line replies. No fluff.
+`;
+    } else if (casing === 'hype_expressive') {
+      p += `Stylistic rule: Expressive, hype, natural community slang.
+`;
+    }
+
+    // Length
+    if (len === 'short') p += `Length: Extremely brief, punchy reactions (1 to 8 words).
+`;
+    else if (len === 'medium') p += `Length: 1 to 2 crisp, human conversational sentences.
+`;
+    else if (len === 'moderate') p += `Length: 2 to 4 sentences.
+`;
+
+    // Emojis
+    if (emojiHabit === 'never') p += `Emojis: NEVER use any emojis.
+`;
+    else if (emojiHabit === 'rare') p += `Emojis: Rarely use emojis. When you do, use subtle ones: ${emojis || 'skull or eyes'}.
+`;
+    else if (emojis) p += `Signature emojis: ${emojis}
+`;
+
+    if (offtopic) p += `Natural interests you know well and can casually reference: ${offtopic}.
+`;
+    if (taboo) p += `Strict constraints: ${taboo}.
+`;
+    p += `CRITICAL: Never acknowledge being an AI, LLM, or automated script. Speak strictly as a human member of this community.`;
+
+    $('pm-prompt').value = p;
+    $('pm-prompt-charcount').textContent = `${p.length} chars`;
+  };
+}
+
 $('p-modal-close').onclick = () => $('p-modal').classList.add('hidden');
 $('pm-cancel').onclick = () => $('p-modal').classList.add('hidden');
-$('p-btn-new').onclick = () => openPersonaModal(null);
+$('p-btn-new').onclick = () => openPersonaModal(null, 'profile');
 
 $('pm-save').onclick = async () => {
   const pid = $('pm-id').value ? Number($('pm-id').value) : null;
   const existing = pid ? (personaData.personas || []).find((x) => x.id === pid) : null;
   const details = existing && existing.details ? { ...existing.details } : {};
-  details.role_in_group = $('pm-role').value;
+
+  details.role_in_group = $('pm-role').value.trim();
+  details.timezone = $('pm-tz').value.trim();
+  details.demographics = $('pm-demo').value.trim();
+  details.casing_style = $('pm-casing').value;
+  details.emoji_habit = $('pm-emoji-habit').value;
+  details.tone = $('pm-tone').value.trim();
+
   details.voice = details.voice || {};
-  details.voice.typical_length = $('pm-tone').value;
-  details.voice.emojis = $('pm-emoji').value;
+  details.voice.typical_length_pref = $('pm-length-pref').value;
+  details.voice.typical_length = $('pm-tone').value.trim();
+  details.voice.emojis = $('pm-emoji').value.trim();
+
   details.off_topic = $('pm-offtopic').value ? $('pm-offtopic').value.split(',').map((s) => s.trim()).filter(Boolean) : [];
+  details.guardrails = $('pm-taboo').value ? $('pm-taboo').value.split(',').map((s) => s.trim()).filter(Boolean) : [];
+
+  details.peak_hour = parseInt($('pm-peak-hr').value, 10) || 16;
   details.typing = {
-    chars_per_second: parseFloat($('pm-cps').value) || 20,
-    min_seconds: parseFloat($('pm-min-sec').value) || 2,
-    max_seconds: parseFloat($('pm-max-sec').value) || 8,
+    chars_per_second: parseFloat($('pm-cps').value) || 24,
+    min_seconds: parseFloat($('pm-min-sec').value) || 2.0,
+    max_seconds: parseFloat($('pm-max-sec').value) || 8.0,
+    burstiness_percent: parseInt($('pm-burst').value, 10) || 30
   };
 
   const payload = {
@@ -647,18 +888,54 @@ $('pm-save').onclick = async () => {
   }
 };
 
+// Test Voice Sandbox
 $('pm-test-btn').onclick = async () => {
   const pid = $('pm-id').value;
-  if (!pid) {
-    $('pm-test-output').textContent = 'Please save this persona first before testing.';
-    return;
-  }
-  $('pm-test-output').textContent = 'Generating preview reply...';
+  const sampleMsg = $('pm-test-sample').value.trim() || 'Hey what do you think of this?';
+  const cps = parseFloat($('pm-cps').value) || 24;
+  const minSec = parseFloat($('pm-min-sec').value) || 2.0;
+  const maxSec = parseFloat($('pm-max-sec').value) || 8.0;
+
+  // Calculate simulated mathematical dynamics
+  const readingDelay = Math.max(0.8, sampleMsg.length / 32).toFixed(1);
+  const deliberation = (minSec + Math.random() * (maxSec - minSec)).toFixed(1);
+  const totalReaction = (parseFloat(readingDelay) + parseFloat(deliberation)).toFixed(1);
+  const diurnalFactor = (0.8 + 0.35 * Math.sin(Math.PI * (new Date().getHours() / 12.0))).toFixed(2);
+  const relevance = (0.62 + Math.random() * 0.32).toFixed(2);
+
+  $('pm-m-read').textContent = `${readingDelay}s`;
+  $('pm-m-delib').textContent = `${deliberation}s`;
+  $('pm-m-total').textContent = `${totalReaction}s`;
+  $('pm-m-diurnal').textContent = `${diurnalFactor}x`;
+  $('pm-m-rel').textContent = `${relevance}`;
+  $('pm-test-metrics').classList.remove('hidden');
+
+  $('pm-test-output').innerHTML = `
+    <div style="font-size:12px; color:var(--accent); font-weight:600; margin-bottom:4px;">
+      Simulating Poisson reading (${readingDelay}s) &amp; typing reaction (${deliberation}s)...
+    </div>
+  `;
+
   try {
-    const res = await api('POST', `/personas/${pid}/preview`, {});
+    let replyText = '';
+    if (pid) {
+      const res = await api('POST', `/personas/${pid}/preview`, { sample_message: sampleMsg });
+      replyText = res.text;
+    } else {
+      // Temporary preview from current prompt
+      const prompt = $('pm-prompt').value.trim();
+      if (!prompt) {
+        replyText = 'Hello! System prompt is currently empty, please synthesize or type a prompt.';
+      } else {
+        replyText = `(Preview) Simulated reply matching style '${$('pm-casing').value}': Sounds good to me, let me check it out.`;
+      }
+    }
+
     $('pm-test-output').innerHTML = `
-      <div style="font-size:11.5px; color:var(--muted); margin-bottom:4px;">Test Reply Sample:</div>
-      <div style="color:var(--text); font-weight:500;">${esc(res.text)}</div>
+      <div style="font-size:11px; text-transform:uppercase; color:var(--muted); margin-bottom:6px; font-weight:600;">Simulated Real-Time Response</div>
+      <div style="background:rgba(47,196,178,.1); border-left:3px solid var(--accent); padding:10px 14px; border-radius:6px; color:var(--text); font-size:13.5px; line-height:1.45;">
+        ${esc(replyText)}
+      </div>
     `;
   } catch (err) {
     $('pm-test-output').textContent = 'Preview error: ' + err.message;
@@ -683,7 +960,7 @@ $('pg-run').onclick = async () => {
   if (!cid) return;
   const count = Number($('pg-count').value) || 3;
   const dir = $('pg-dir').value.trim();
-  $('pg-status').textContent = 'Reading real group chat messages and generating personas with Claude Sonnet 4.5... This takes 10-25 seconds.';
+  $('pg-status').textContent = 'Reading real group chat messages and generating personas... This takes 10-25 seconds.';
   $('pg-run').disabled = true;
   try {
     const r = await api('POST', `/group-personas/${cid}/generate`, { count, direction: dir });
@@ -700,6 +977,237 @@ $('pg-run').onclick = async () => {
 };
 
 
+// ----- Direct Messages & Inbound Chats Management -----
+let dmChatsList = [];
+let activeDmCid = null;
+let activeDmAid = '';
+
+async function loadDirectChats() {
+  try {
+    const chats = await api('GET', '/direct-chats');
+    dmChatsList = chats || [];
+    renderDmFilters();
+    renderDmChatList();
+  } catch (err) {
+    console.error('Failed to load direct chats:', err);
+    $('dm-chat-list').innerHTML = `<div class="empty">Error loading chats: ${esc(err.message)}</div>`;
+  }
+}
+
+function renderDmFilters() {
+  const container = $('dm-account-filters');
+  const aids = [...new Set(dmChatsList.map((c) => c.account_id).filter(Boolean))];
+  let html = `<button class="dm-filter-btn ${!activeDmAid ? 'active' : ''}" data-aid="">All Accounts</button>`;
+  aids.forEach((aid) => {
+    const sample = dmChatsList.find((c) => c.account_id === aid);
+    const label = sample ? (sample.account_phone || sample.account_name || aid) : aid;
+    html += `<button class="dm-filter-btn ${activeDmAid === aid ? 'active' : ''}" data-aid="${esc(aid)}">${esc(label)}</button>`;
+  });
+  container.innerHTML = html;
+
+  container.querySelectorAll('.dm-filter-btn').forEach((b) => {
+    b.onclick = () => {
+      activeDmAid = b.dataset.aid || '';
+      renderDmFilters();
+      renderDmChatList();
+    };
+  });
+}
+
+function renderDmChatList() {
+  const container = $('dm-chat-list');
+  const query = ($('dm-search') ? $('dm-search').value.toLowerCase().trim() : '');
+
+  const filtered = dmChatsList.filter((c) => {
+    if (activeDmAid && c.account_id !== activeDmAid) return false;
+    if (!query) return true;
+    const searchSpace = [c.title, c.first_name, c.last_name, c.username, c.last_message, c.account_phone].filter(Boolean).join(' ').toLowerCase();
+    return searchSpace.includes(query);
+  });
+
+  if (filtered.length === 0) {
+    container.innerHTML = '<div class="empty">No direct messages found. When users message any of your accounts, they will appear here automatically.</div>';
+    return;
+  }
+
+  container.innerHTML = filtered.map((c) => {
+    const name = [c.first_name, c.last_name].filter(Boolean).join(' ') || c.title || (c.username ? `@${c.username}` : `User ${c.peer_id}`);
+    const initial = (name || 'U')[0].toUpperCase();
+    const isActive = activeDmCid && String(activeDmCid) === String(c.chat_id);
+    const timeStr = c.last_message_at ? new Date(c.last_message_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+
+    return `
+      <div class="dm-chat-item ${isActive ? 'active' : ''}" data-dm-cid="${c.chat_id}">
+        <div class="dm-chat-avatar">${esc(initial)}</div>
+        <div class="dm-chat-meta">
+          <div class="dm-chat-top">
+            <span class="dm-chat-name">${esc(name)}</span>
+            <span class="dm-chat-time">${esc(timeStr)}</span>
+          </div>
+          <div class="dm-chat-snippet">${esc(c.last_message || 'No messages yet')}</div>
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-top:3px;">
+            <span class="hint" style="font-size:10.5px;">on ${esc(c.account_phone || c.account_name || c.account_id)}</span>
+            ${c.unread_count > 0 ? `<span class="dm-chat-badge">${c.unread_count}</span>` : ''}
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  container.querySelectorAll('[data-dm-cid]').forEach((el) => {
+    el.onclick = () => selectDirectChat(el.dataset.dmCid);
+  });
+}
+
+if ($('dm-search')) {
+  $('dm-search').oninput = renderDmChatList;
+}
+
+if ($('dm-btn-sync')) {
+  $('dm-btn-sync').onclick = async () => {
+    $('dm-btn-sync').textContent = 'Syncing...';
+    try {
+      await api('POST', '/graph/sync');
+      await loadDirectChats();
+      $('dm-btn-sync').textContent = 'Synced ✓';
+      setTimeout(() => { $('dm-btn-sync').textContent = '↻ Sync DMs'; }, 1500);
+    } catch (err) {
+      alert('Failed to sync dialogs: ' + err.message);
+      $('dm-btn-sync').textContent = '↻ Sync DMs';
+    }
+  };
+}
+
+async function selectDirectChat(cid) {
+  activeDmCid = cid;
+  renderDmChatList();
+
+  const chat = dmChatsList.find((c) => String(c.chat_id) === String(cid));
+  if (!chat) return;
+
+  $('dm-empty-state').classList.add('hidden');
+  $('dm-chat-view').classList.remove('hidden');
+
+  const name = [chat.first_name, chat.last_name].filter(Boolean).join(' ') || chat.title || (chat.username ? `@${chat.username}` : `User ${chat.peer_id}`);
+  $('dm-head-name').textContent = name;
+  $('dm-head-user').textContent = chat.username ? `@${chat.username}` : '';
+  $('dm-head-avatar').textContent = (name || 'U')[0].toUpperCase();
+  $('dm-head-account').textContent = chat.account_phone || chat.account_name || chat.account_id;
+
+  // Persona selector
+  const pSelect = $('dm-persona-select');
+  pSelect.innerHTML = `<option value="">Account Default Persona</option>` +
+    (personaData.personas || []).map((p) => `<option value="${p.id}" ${chat.persona_id && String(chat.persona_id) === String(p.id) ? 'selected' : ''}>${esc(p.name)}</option>`).join('');
+
+  pSelect.onchange = async () => {
+    const pid = pSelect.value ? Number(pSelect.value) : null;
+    try {
+      await api('POST', `/direct-chats/${cid}/settings`, { persona_id: pid });
+      chat.persona_id = pid;
+    } catch (err) {
+      alert('Failed to update persona for this conversation: ' + err.message);
+    }
+  };
+
+  const autoToggle = $('dm-autoreply-toggle');
+  autoToggle.checked = !!chat.auto_reply;
+  autoToggle.onchange = async () => {
+    try {
+      await api('POST', `/direct-chats/${cid}/settings`, { auto_reply: autoToggle.checked });
+      chat.auto_reply = autoToggle.checked ? 1 : 0;
+    } catch (err) {
+      alert('Failed to update auto-reply: ' + err.message);
+    }
+  };
+
+  // Load message history
+  await loadDirectMessages(cid);
+}
+
+async function loadDirectMessages(cid) {
+  const box = $('dm-messages-box');
+  box.innerHTML = '<div class="empty">Loading message thread...</div>';
+  try {
+    const messages = await api('GET', `/direct-chats/${cid}/messages?limit=60`);
+    if (!messages || messages.length === 0) {
+      box.innerHTML = '<div class="empty">No messages in this conversation yet.</div>';
+      return;
+    }
+
+    box.innerHTML = messages.map((m) => {
+      const isOut = !!m.outgoing;
+      const timeStr = m.created_at ? new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+      return `
+        <div class="dm-bubble ${isOut ? 'outgoing' : 'incoming'}">
+          <div>${esc(m.text || '')}</div>
+          <div class="dm-bubble-meta">${esc(timeStr)} ${isOut ? '· Sent' : ''}</div>
+        </div>
+      `;
+    }).join('');
+
+    box.scrollTop = box.scrollHeight;
+  } catch (err) {
+    box.innerHTML = `<div class="empty">Error loading messages: ${esc(err.message)}</div>`;
+  }
+}
+
+// Sending reply in DM
+async function sendDirectReply() {
+  if (!activeDmCid) return;
+  const input = $('dm-reply-input');
+  const text = input.value.trim();
+  if (!text) return;
+
+  const btn = $('dm-btn-send');
+  btn.disabled = true;
+  btn.textContent = 'Sending...';
+
+  try {
+    await api('POST', `/direct-chats/${activeDmCid}/send`, { text });
+    input.value = '';
+    btn.disabled = false;
+    btn.textContent = 'Send';
+    await loadDirectMessages(activeDmCid);
+    await loadDirectChats();
+  } catch (err) {
+    alert('Failed to send direct message: ' + err.message);
+    btn.disabled = false;
+    btn.textContent = 'Send';
+  }
+}
+
+if ($('dm-btn-send')) $('dm-btn-send').onclick = sendDirectReply;
+
+if ($('dm-reply-input')) {
+  $('dm-reply-input').onkeydown = (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+      e.preventDefault();
+      sendDirectReply();
+    }
+  };
+}
+
+// AI Persona Draft in DM
+if ($('dm-btn-ai-draft')) {
+  $('dm-btn-ai-draft').onclick = async () => {
+    if (!activeDmCid) return;
+    const status = $('dm-draft-status');
+    status.textContent = 'Drafting reply in persona voice...';
+    try {
+      const res = await api('POST', `/direct-chats/${activeDmCid}/draft`);
+      if (res && res.draft) {
+        $('dm-reply-input').value = res.draft;
+        status.textContent = 'Draft ready! Review and hit Send.';
+      } else {
+        status.textContent = 'No draft generated.';
+      }
+      setTimeout(() => { status.textContent = ''; }, 4000);
+    } catch (err) {
+      status.textContent = 'Draft failed: ' + err.message;
+      setTimeout(() => { status.textContent = ''; }, 4000);
+    }
+  };
+}
 // ----- Cadence & Orchestrator Configuration -----
 async function loadOrchConfig() {
   try {

@@ -9,11 +9,24 @@ PRAGMA journal_mode=WAL;
 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);
 CREATE TABLE IF NOT EXISTS groups (
   chat_id INTEGER PRIMARY KEY, title TEXT, watched INTEGER DEFAULT 0,
-  auto_reply INTEGER DEFAULT 0, persona TEXT DEFAULT ''
+  auto_reply INTEGER DEFAULT 0, persona TEXT DEFAULT '', account_id INTEGER
+);
+CREATE TABLE IF NOT EXISTS group_accounts (
+  chat_id INTEGER, account_id INTEGER, PRIMARY KEY(chat_id, account_id)
 );
 CREATE TABLE IF NOT EXISTS messages (
   chat_id INTEGER, msg_id INTEGER, sender TEXT, text TEXT, ts INTEGER,
   PRIMARY KEY (chat_id, msg_id)
+);
+CREATE TABLE IF NOT EXISTS direct_chats (
+  account_id INTEGER, peer_id INTEGER, peer_name TEXT, peer_username TEXT,
+  peer_phone TEXT, last_msg TEXT, last_ts INTEGER, unread_count INTEGER DEFAULT 0,
+  auto_reply INTEGER DEFAULT 0, persona_id INTEGER,
+  PRIMARY KEY(account_id, peer_id)
+);
+CREATE TABLE IF NOT EXISTS direct_messages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, account_id INTEGER, peer_id INTEGER,
+  msg_id INTEGER, sender_name TEXT, incoming INTEGER DEFAULT 1, text TEXT, ts INTEGER
 );
 CREATE TABLE IF NOT EXISTS summaries (
   id INTEGER PRIMARY KEY AUTOINCREMENT, chat_id INTEGER, body TEXT, created INTEGER
@@ -35,12 +48,14 @@ CREATE TABLE IF NOT EXISTS proxies (
   last_check INTEGER, ok INTEGER DEFAULT 0, created INTEGER
 );
 CREATE TABLE IF NOT EXISTS personas (
-  id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, prompt TEXT DEFAULT '', color TEXT DEFAULT '#2fc4b2', created INTEGER
+  id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, prompt TEXT DEFAULT '', color TEXT DEFAULT '#2fc4b2',
+  bio TEXT DEFAULT '', details TEXT DEFAULT '{}', created INTEGER
 );
 CREATE TABLE IF NOT EXISTS group_personas (
   chat_id INTEGER, persona_id INTEGER, account_id INTEGER, created INTEGER, PRIMARY KEY(chat_id, persona_id)
 );
 CREATE INDEX IF NOT EXISTS idx_queue_status ON queue(status, not_before);
+CREATE INDEX IF NOT EXISTS idx_dm_chat ON direct_messages(account_id, peer_id, ts);
 """
 
 
@@ -50,14 +65,19 @@ class Store:
         self.db.row_factory = sqlite3.Row
         self.lock = threading.Lock()
         self.db.executescript(SCHEMA)
-        for ddl in ("ALTER TABLE groups ADD COLUMN account_id INTEGER",
-                    "ALTER TABLE accounts ADD COLUMN api_id INTEGER",
-                    "ALTER TABLE accounts ADD COLUMN api_hash TEXT",
-                    "ALTER TABLE accounts ADD COLUMN proxy_id INTEGER",
-                    "ALTER TABLE accounts ADD COLUMN persona_id INTEGER",
-                    "ALTER TABLE personas ADD COLUMN bio TEXT DEFAULT ''",
-                    "ALTER TABLE personas ADD COLUMN details TEXT DEFAULT '{}'",
-                    "ALTER TABLE groups ADD COLUMN profile TEXT DEFAULT ''"):
+        for ddl in (
+            "ALTER TABLE groups ADD COLUMN account_id INTEGER",
+            "ALTER TABLE accounts ADD COLUMN api_id INTEGER",
+            "ALTER TABLE accounts ADD COLUMN api_hash TEXT",
+            "ALTER TABLE accounts ADD COLUMN proxy_id INTEGER",
+            "ALTER TABLE accounts ADD COLUMN persona_id INTEGER",
+            "ALTER TABLE personas ADD COLUMN bio TEXT DEFAULT ''",
+            "ALTER TABLE personas ADD COLUMN details TEXT DEFAULT '{}'",
+            "ALTER TABLE groups ADD COLUMN profile TEXT DEFAULT ''",
+            "CREATE TABLE IF NOT EXISTS group_accounts (chat_id INTEGER, account_id INTEGER, PRIMARY KEY(chat_id, account_id))",
+            "CREATE TABLE IF NOT EXISTS direct_chats (account_id INTEGER, peer_id INTEGER, peer_name TEXT, peer_username TEXT, peer_phone TEXT, last_msg TEXT, last_ts INTEGER, unread_count INTEGER DEFAULT 0, auto_reply INTEGER DEFAULT 0, persona_id INTEGER, PRIMARY KEY(account_id, peer_id))",
+            "CREATE TABLE IF NOT EXISTS direct_messages (id INTEGER PRIMARY KEY AUTOINCREMENT, account_id INTEGER, peer_id INTEGER, msg_id INTEGER, sender_name TEXT, incoming INTEGER DEFAULT 1, text TEXT, ts INTEGER)"
+        ):
             try:
                 self.db.execute(ddl)
             except sqlite3.OperationalError:
@@ -89,6 +109,32 @@ class Store:
     def recent(self, chat_id, limit=80):
         return list(reversed(self.rows(
             "SELECT * FROM messages WHERE chat_id=? ORDER BY ts DESC LIMIT ?", (chat_id, limit))))
+
+    # direct messages & 1-on-1 chats
+    def add_direct_message(self, account_id, peer_id, msg_id, sender_name, incoming, text, ts):
+        self.q(
+            "INSERT INTO direct_messages(account_id, peer_id, msg_id, sender_name, incoming, text, ts) "
+            "VALUES(?,?,?,?,?,?,?)",
+            (account_id, peer_id, msg_id, sender_name, incoming, text, ts)
+        )
+        if incoming:
+            self.q(
+                "UPDATE direct_chats SET last_msg=?, last_ts=?, unread_count=unread_count+1 "
+                "WHERE account_id=? AND peer_id=?",
+                (text, ts, account_id, peer_id)
+            )
+        else:
+            self.q(
+                "UPDATE direct_chats SET last_msg=?, last_ts=? "
+                "WHERE account_id=? AND peer_id=?",
+                (text, ts, account_id, peer_id)
+            )
+
+    def direct_messages_recent(self, account_id, peer_id, limit=60):
+        return self.rows(
+            "SELECT * FROM direct_messages WHERE account_id=? AND peer_id=? ORDER BY ts ASC, id ASC LIMIT ?",
+            (account_id, peer_id, limit)
+        )
 
     # queue
     def enqueue(self, kind, chat_id, payload, dedupe_key=None, delay=0):

@@ -249,8 +249,64 @@ class Daemon:
                 pass
 
     async def on_message(self, event, aid):
+        # 1. Handle 1-on-1 Direct Messages (DMs)
+        if event.is_private:
+            if not event.raw_text:
+                return
+            sender = await event.get_sender()
+            peer_id = event.chat_id
+            name = " ".join(x for x in (getattr(sender, 'first_name', None), getattr(sender, 'last_name', None)) if x) or getattr(sender, 'username', None) or "User"
+            username = getattr(sender, 'username', '') or ''
+            phone = getattr(sender, 'phone', '') or ''
+            ts = int(event.date.timestamp()) if event.date else int(time.time())
+            incoming = 0 if event.out else 1
+
+            self.store.q(
+                "INSERT INTO direct_chats(account_id, peer_id, peer_name, peer_username, peer_phone, last_msg, last_ts, unread_count) "
+                "VALUES(?,?,?,?,?,?,?,?) "
+                "ON CONFLICT(account_id, peer_id) DO UPDATE SET "
+                "peer_name=excluded.peer_name, peer_username=excluded.peer_username, "
+                "peer_phone=COALESCE(excluded.peer_phone, direct_chats.peer_phone), "
+                "last_msg=excluded.last_msg, last_ts=excluded.last_ts, "
+                "unread_count = CASE WHEN ?=1 THEN direct_chats.unread_count + 1 ELSE direct_chats.unread_count END",
+                (aid, peer_id, name, username, phone, event.raw_text, ts, 1 if incoming else 0, 1 if incoming else 0)
+            )
+            self.store.add_direct_message(aid, peer_id, event.id, name if incoming else "Me", incoming, event.raw_text, ts)
+
+            if incoming and not event.out:
+                chat_info = self.store.rows("SELECT * FROM direct_chats WHERE account_id=? AND peer_id=?", (aid, peer_id))
+                if chat_info and chat_info[0].get("auto_reply"):
+                    pid = chat_info[0].get("persona_id")
+                    if not pid:
+                        acc = self.store.rows("SELECT persona_id FROM accounts WHERE id=?", (aid,))
+                        if acc:
+                            pid = acc[0].get("persona_id")
+                    self.store.enqueue("direct_reply", peer_id, {
+                        "account_id": aid,
+                        "persona_id": pid,
+                        "trigger": event.id,
+                        "auto_send": True
+                    }, dedupe_key=f"dm_reply:{aid}:{peer_id}:{event.id}", delay=3)
+            self.wake_event.set()
+            return
+
+        # 2. Handle Group Messages
         if not event.is_group or not event.raw_text:
             return
+        chat_id = event.chat_id
+
+        # Auto-discover group so it instantly appears in Network canvas
+        try:
+            chat = await event.get_chat()
+            title = getattr(chat, 'title', None) or getattr(chat, 'name', None) or f"Group {chat_id}"
+            self.store.q(
+                "INSERT INTO groups(chat_id,title,account_id) VALUES(?,?,?) "
+                "ON CONFLICT(chat_id) DO UPDATE SET title=excluded.title",
+                (chat_id, title, aid)
+            )
+            self.store.q("INSERT OR IGNORE INTO group_accounts(chat_id, account_id) VALUES(?,?)", (chat_id, aid))
+        except Exception:
+            pass
         chat_id = event.chat_id
         g = self.store.rows("SELECT * FROM groups WHERE chat_id=?", (chat_id,))
         if g and g[0]["account_id"] not in (None, aid) and g[0]["account_id"] in self.clients:
@@ -393,6 +449,38 @@ class Daemon:
                 except Exception:  # noqa
                     pass
                 await cl.send_message(job["chat_id"], p["text"], reply_to=p.get("reply_to"))
+            elif job["kind"] == "direct_send":
+                aid = p.get("account_id")
+                cl = self.clients.get(aid)
+                if not cl:
+                    cl = await self.client_for(job["chat_id"], account_id=aid)
+                peer_id = job["chat_id"]
+                try:
+                    async with cl.action(peer_id, "typing"):
+                        await asyncio.sleep(min(5.0, max(1.2, len(p.get("text", "")) * 0.04)))
+                except Exception:
+                    pass
+                sent = await cl.send_message(peer_id, p["text"], reply_to=p.get("reply_to"))
+                self.store.add_direct_message(aid, peer_id, sent.id, "Me", 0, p["text"], int(time.time()))
+            elif job["kind"] == "direct_reply":
+                aid = p.get("account_id")
+                peer_id = job["chat_id"]
+                pid = p.get("persona_id")
+                persona_row = self.store.rows("SELECT * FROM personas WHERE id=?", (pid,)) if pid else []
+                persona_prompt = persona_row[0]["prompt"] if persona_row else "You are chatting 1-on-1 on Telegram. Keep responses natural, human, and direct."
+                recent_msgs = self.store.direct_messages_recent(aid, peer_id, 20)
+                formatted = [{"sender": m["sender_name"], "text": m["text"]} for m in recent_msgs]
+                chat_info = self.store.rows("SELECT * FROM direct_chats WHERE account_id=? AND peer_id=?", (aid, peer_id))
+                peer_name = chat_info[0]["peer_name"] if chat_info else "User"
+                text = await ai.draft_reply(settings, f"1-on-1 conversation with {peer_name}", persona_prompt, formatted)
+                if p.get("auto_send"):
+                    self.store.enqueue("direct_send", peer_id, {
+                        "account_id": aid,
+                        "text": text,
+                        "reply_to": p.get("trigger")
+                    }, dedupe_key=f"dmsend:{job['id']}")
+                else:
+                    self.store.add_direct_message(aid, peer_id, 0, "AI Draft", 0, "[Draft]: " + text, int(time.time()))
             self.store.finish(job["id"], True)
         except asyncio.CancelledError:
             self.store.finish(job["id"], False, "interrupted by sleep", retry_in=5)
@@ -429,6 +517,62 @@ class Daemon:
             except Exception as e:  # network may lag after wake; worker retries
                 log.warning("reconnect after wake failed: %s", e)
             self.wake_event.set()
+
+    async def sync_all_dialogs(self):
+        """Discovers ALL groups and direct chats across all connected accounts automatically."""
+        ready = await self.ensure_clients()
+        if not ready:
+            return
+        for aid, c in ready.items():
+            try:
+                async for d in c.iter_dialogs(limit=None):
+                    is_grp = (
+                        d.is_group or
+                        getattr(d.entity, 'megagroup', False) or
+                        getattr(d.entity, 'gigagroup', False) or
+                        (d.is_channel and not getattr(d.entity, 'broadcast', False))
+                    )
+                    if is_grp:
+                        title = d.name or getattr(d.entity, 'title', None) or f"Group {d.id}"
+                        self.store.q(
+                            "INSERT INTO groups(chat_id,title,account_id) VALUES(?,?,?) "
+                            "ON CONFLICT(chat_id) DO UPDATE SET title=excluded.title, "
+                            "account_id=COALESCE(groups.account_id, excluded.account_id)",
+                            (d.id, title, aid)
+                        )
+                        self.store.q(
+                            "INSERT OR IGNORE INTO group_accounts(chat_id, account_id) VALUES(?,?)",
+                            (d.id, aid)
+                        )
+                    elif d.is_user and not getattr(d.entity, 'is_self', False) and not getattr(d.entity, 'bot', False):
+                        p_name = d.name or "User"
+                        p_user = getattr(d.entity, 'username', '') or ''
+                        p_phone = getattr(d.entity, 'phone', '') or ''
+                        l_msg = (d.message.message if d.message else '') or ''
+                        l_ts = int(d.message.date.timestamp()) if d.message and d.message.date else int(time.time())
+                        unr = d.unread_count or 0
+                        self.store.q(
+                            "INSERT INTO direct_chats(account_id, peer_id, peer_name, peer_username, peer_phone, last_msg, last_ts, unread_count) "
+                            "VALUES(?,?,?,?,?,?,?,?) "
+                            "ON CONFLICT(account_id, peer_id) DO UPDATE SET "
+                            "peer_name=excluded.peer_name, peer_username=excluded.peer_username, "
+                            "peer_phone=COALESCE(excluded.peer_phone, direct_chats.peer_phone), "
+                            "last_msg=excluded.last_msg, last_ts=excluded.last_ts, "
+                            "unread_count=excluded.unread_count",
+                            (aid, d.id, p_name, p_user, p_phone, l_msg, l_ts, unr)
+                        )
+            except Exception as e:
+                log.warning("dialog sync failed for account %s: %s", aid, e)
+
+    async def auto_sync_loop(self):
+        """Continuous background dialog sync loop."""
+        await asyncio.sleep(2)
+        while True:
+            try:
+                await self.sync_all_dialogs()
+            except Exception as e:
+                log.warning("auto_sync_loop error: %s", e)
+            await asyncio.sleep(45)
 
     async def catch_up(self):
         """Fetch messages missed while the Mac slept."""
@@ -762,12 +906,7 @@ class Daemon:
 
         @r.get("/groups")
         async def groups(_):
-            for aid, c in (await self.ensure_clients()).items():
-                async for d in c.iter_dialogs():
-                    if d.is_group:
-                        self.store.q("INSERT INTO groups(chat_id,title,account_id) VALUES(?,?,?) ON CONFLICT(chat_id) "
-                                     "DO UPDATE SET title=excluded.title, account_id=COALESCE(groups.account_id, excluded.account_id)",
-                                     (d.id, d.name, aid))
+            await self.sync_all_dialogs()
             return J(self.store.rows("SELECT g.*, a.name account_name FROM groups g LEFT JOIN accounts a ON a.id=g.account_id "
                                      "ORDER BY g.watched DESC, g.title"))
 
@@ -813,6 +952,11 @@ class Daemon:
         # ----- network graph (personas -> accounts -> groups) -----
         @r.get("/graph")
         async def graph(_):
+            if not self.store.q("SELECT COUNT(*) FROM groups").fetchone()[0] and self.clients:
+                try:
+                    await self.sync_all_dialogs()
+                except Exception:
+                    pass
             accs = self.store.rows("SELECT a.id,a.phone,a.name,a.username,a.active,a.persona_id,a.proxy_id,p.label proxy_label "
                                    "FROM accounts a LEFT JOIN proxies p ON p.id=a.proxy_id ORDER BY a.id")
             for a in accs:
@@ -821,6 +965,8 @@ class Daemon:
             for g in grps:
                 g["chat_id"] = str(g["chat_id"])
                 g["messages"] = self.store.q("SELECT COUNT(*) FROM messages WHERE chat_id=?", (int(g["chat_id"]),)).fetchone()[0]
+                links = self.store.rows("SELECT account_id FROM group_accounts WHERE chat_id=?", (int(g["chat_id"]),))
+                g["account_ids"] = [x["account_id"] for x in links] or ([g["account_id"]] if g.get("account_id") else [])
             return J({"accounts": accs, "groups": grps,
                       "personas": self.store.rows("SELECT * FROM personas ORDER BY id"),
                       "layout": self.store.get("graph_layout", {})})
@@ -832,12 +978,7 @@ class Daemon:
 
         @r.post("/graph/sync")
         async def graph_sync(_):
-            for aid, c in (await self.ensure_clients()).items():
-                async for d in c.iter_dialogs():
-                    if d.is_group:
-                        self.store.q("INSERT INTO groups(chat_id,title,account_id) VALUES(?,?,?) ON CONFLICT(chat_id) "
-                                     "DO UPDATE SET title=excluded.title, account_id=COALESCE(groups.account_id, excluded.account_id)",
-                                     (d.id, d.name, aid))
+            await self.sync_all_dialogs()
             return J({"ok": True})
 
         def _parse(ref):
@@ -858,6 +999,91 @@ class Daemon:
                     self.store.q("UPDATE groups SET account_id=NULL WHERE chat_id=? AND account_id=?", (int(tv), int(fv)))
             else:
                 return J({"error": "Connect Persona to Account, or Account to Group."}, status=400)
+            return J({"ok": True})
+
+        # ----- Direct Messages / 1-on-1 Chats -----
+        @r.get("/direct-chats")
+        async def direct_chats_list(req):
+            aid = req.query.get("account_id")
+            sql = ("SELECT dc.*, a.name account_name, a.phone account_phone, p.name persona_name, p.color persona_color "
+                   "FROM direct_chats dc LEFT JOIN accounts a ON a.id=dc.account_id "
+                   "LEFT JOIN personas p ON p.id=dc.persona_id ")
+            args = ()
+            if aid:
+                sql += "WHERE dc.account_id=? "
+                args = (int(aid),)
+            sql += "ORDER BY dc.last_ts DESC"
+            return J({"chats": self.store.rows(sql, args)})
+
+        @r.post("/direct-chats/sync")
+        async def direct_chats_sync(_):
+            await self.sync_all_dialogs()
+            return J({"ok": True})
+
+        @r.get("/direct-chats/{aid}/{peer_id}/messages")
+        async def direct_chat_messages(req):
+            aid, peer_id = int(req.match_info["aid"]), int(req.match_info["peer_id"])
+            self.store.q("UPDATE direct_chats SET unread_count=0 WHERE account_id=? AND peer_id=?", (aid, peer_id))
+            if aid in self.clients:
+                try:
+                    c = self.clients[aid]
+                    me = await c.get_me()
+                    async for m in c.iter_messages(peer_id, limit=30):
+                        if not m.raw_text:
+                            continue
+                        incoming = 0 if (m.out or m.sender_id == me.id) else 1
+                        sender_name = "Me" if not incoming else "User"
+                        self.store.q("INSERT OR IGNORE INTO direct_messages(account_id,peer_id,msg_id,sender_name,incoming,text,ts) VALUES(?,?,?,?,?,?,?)",
+                                     (aid, peer_id, m.id, sender_name, incoming, m.raw_text, int(m.date.timestamp()) if m.date else int(time.time())))
+                except Exception as e:
+                    log.warning("direct chat history fetch failed: %s", e)
+            return J({"messages": self.store.direct_messages_recent(aid, peer_id, 60)})
+
+        @r.post("/direct-chats/{aid}/{peer_id}/send")
+        async def direct_chat_send(req):
+            aid, peer_id = int(req.match_info["aid"]), int(req.match_info["peer_id"])
+            b = await req.json()
+            text = (b.get("text") or "").strip()
+            if not text:
+                return J({"error": "Message text required"}, status=400)
+            c = self.clients.get(aid)
+            if not c:
+                return J({"error": "Account not connected"}, status=400)
+            try:
+                sent = await c.send_message(peer_id, text, reply_to=b.get("reply_to"))
+                self.store.add_direct_message(aid, peer_id, sent.id, "Me", 0, text, int(time.time()))
+                return J({"ok": True, "msg_id": sent.id})
+            except Exception as e:
+                return J({"error": str(e)}, status=500)
+
+        @r.post("/direct-chats/{aid}/{peer_id}/draft")
+        async def direct_chat_draft(req):
+            aid, peer_id = int(req.match_info["aid"]), int(req.match_info["peer_id"])
+            b = await req.json() if req.can_read_body else {}
+            chat = self.store.rows("SELECT * FROM direct_chats WHERE account_id=? AND peer_id=?", (aid, peer_id))
+            peer_name = chat[0]["peer_name"] if chat else "User"
+            pid = b.get("persona_id") or (chat[0].get("persona_id") if chat else None)
+            if not pid:
+                acc = self.store.rows("SELECT persona_id FROM accounts WHERE id=?", (aid,))
+                pid = acc[0].get("persona_id") if acc else None
+            persona_row = self.store.rows("SELECT * FROM personas WHERE id=?", (pid,)) if pid else []
+            prompt = persona_row[0]["prompt"] if persona_row else "You are chatting 1-on-1 on Telegram. Keep responses natural and concise."
+            msgs = self.store.direct_messages_recent(aid, peer_id, 20)
+            settings = {k: self.store.get(k) for k in ("fal_key", "ai_model")}
+            draft = await ai.draft_reply(settings, f"Private conversation with {peer_name}", prompt,
+                                         [{"sender": m["sender_name"], "text": m["text"]} for m in msgs])
+            return J({"ok": True, "draft": draft})
+
+        @r.post("/direct-chats/{aid}/{peer_id}/settings")
+        async def direct_chat_settings(req):
+            aid, peer_id = int(req.match_info["aid"]), int(req.match_info["peer_id"])
+            b = await req.json()
+            if "auto_reply" in b:
+                self.store.q("UPDATE direct_chats SET auto_reply=? WHERE account_id=? AND peer_id=?",
+                             (1 if b["auto_reply"] else 0, aid, peer_id))
+            if "persona_id" in b:
+                pid = int(b["persona_id"]) if b["persona_id"] else None
+                self.store.q("UPDATE direct_chats SET persona_id=? WHERE account_id=? AND peer_id=?", (pid, aid, peer_id))
             return J({"ok": True})
 
         @r.get("/personas")
@@ -959,14 +1185,26 @@ class Daemon:
         async def persona_save(req):
             b = await req.json()
             name = (b.get("name") or "New persona").strip()[:60]
-            prompt, color = (b.get("prompt") or "")[:4000], (b.get("color") or "#2fc4b2")[:9]
-            bio = (b.get("bio") or "")[:70]
+            prompt, color = (b.get("prompt") or "")[:5000], (b.get("color") or "#2fc4b2")[:9]
+            bio = (b.get("bio") or "")[:120]
+            details = json.dumps(b.get("details") or {})
             if b.get("id"):
-                self.store.q("UPDATE personas SET name=?,prompt=?,color=?,bio=? WHERE id=?", (name, prompt, color, bio, int(b["id"])))
-                if b.get("details") is not None:
-                    self.store.q("UPDATE personas SET details=? WHERE id=?", (json.dumps(b["details"]), int(b["id"])))
+                self.store.q("UPDATE personas SET name=?,prompt=?,color=?,bio=?,details=? WHERE id=?",
+                             (name, prompt, color, bio, details, int(b["id"])))
                 return J({"ok": True, "id": int(b["id"])})
-            cur = self.store.q("INSERT INTO personas(name,prompt,color,created) VALUES(?,?,?,?)", (name, prompt, color, int(time.time())))
+            cur = self.store.q("INSERT INTO personas(name,prompt,color,bio,details,created) VALUES(?,?,?,?,?,?)",
+                               (name, prompt, color, bio, details, int(time.time())))
+            return J({"ok": True, "id": cur.lastrowid})
+
+        @r.post("/personas/{pid}/duplicate")
+        async def persona_duplicate(req):
+            pid = int(req.match_info["pid"])
+            rows = self.store.rows("SELECT * FROM personas WHERE id=?", (pid,))
+            if not rows:
+                return J({"error": "Persona not found"}, status=404)
+            p = rows[0]
+            cur = self.store.q("INSERT INTO personas(name,prompt,color,bio,details,created) VALUES(?,?,?,?,?,?)",
+                               (f"{p['name']} (Copy)"[:60], p["prompt"], p["color"], p.get("bio") or "", p.get("details") or "{}", int(time.time())))
             return J({"ok": True, "id": cur.lastrowid})
 
         @r.get("/group-personas/{cid}")
@@ -1133,6 +1371,7 @@ async def main():
     await web.TCPSite(runner, "127.0.0.1", a.port).start()
     log.info("listening on 127.0.0.1:%d", a.port)
     asyncio.create_task(d.ensure_camoufox())
+    asyncio.create_task(d.auto_sync_loop())
     try:
         await d.ensure_clients()
     except Exception as e:  # noqa

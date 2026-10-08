@@ -17,6 +17,7 @@
         <button data-view="overview" class="active"><span class="ic">&#9673;</span>Overview</button>
         <button data-view="network"><span class="ic">&#10070;</span>Network</button>
         <button data-view="personas"><span class="ic">&#9813;</span>Personas</button>
+        <button data-view="messages"><span class="ic">&#9993;</span>Messages &amp; DMs</button>
         <button data-view="groups"><span class="ic">&#9776;</span>Groups</button>
         <button data-view="queue"><span class="ic">&#8635;</span>Queue</button>
         <div class="nav-label">Accounts</div>
@@ -41,8 +42,8 @@
       <section id="view-personas" class="hidden">
         <div class="page-head">
           <div>
-            <h1>Persona Management</h1>
-            <p class="sub">Configure distinct AI personas per user per group, edit voice &amp; typing profiles, and run test replies.</p>
+            <h1>Persona Management &amp; Studio</h1>
+            <p class="sub">Configure distinct AI personas per user per group, calibrate voice, tone &amp; human cadence, and simulate live group banter.</p>
           </div>
           <div style="display:flex; gap:10px; align-items:center;">
             <button id="p-btn-gen" class="primary">&#10024; Study group &amp; design personas</button>
@@ -52,34 +53,40 @@
 
         <!-- View mode tabs -->
         <div class="p-tabs">
-          <button class="p-tab active" data-ptab="matrix">Per User Per Group Assignments</button>
-          <button class="p-tab" data-ptab="roster">All Personas Library</button>
+          <button class="p-tab active" data-ptab="roster">All Personas &amp; Studio</button>
+          <button class="p-tab" data-ptab="matrix">Per User Per Group Assignments</button>
           <button class="p-tab" data-ptab="cadence">Mathematical Orchestration &amp; Cadence</button>
         </div>
 
-        <!-- Tab 1: Group Matrix (Per User Per Group) -->
-        <div id="p-tab-matrix">
-          <div class="panel" style="margin-bottom:16px;">
+        <!-- Tab 1: Persona Library & Studio -->
+        <div id="p-tab-roster">
+          <div class="panel">
             <div class="panel-head">
-              <h3>Group &amp; User Assignments</h3>
-              <span class="hint">Each user account speaks as a dedicated persona in each group</span>
+              <div style="display:flex; align-items:center; gap:14px; flex:1;">
+                <h3 style="margin:0;">Persona Roster</h3>
+                <span id="p-roster-count" class="hint">0 personas</span>
+                <input type="text" id="p-roster-search" placeholder="Search personas by name, role, tone, tags..." style="max-width:320px; font-size:12.5px; padding:6px 12px; margin-left:auto;" />
+              </div>
             </div>
-            <p class="hint" style="margin-bottom:14px;">Select which persona each Telegram user (account) embodies in each group. When an account has no group-specific persona assigned, it automatically falls back to its default account persona.</p>
-            <div id="p-matrix-list" class="p-matrix-grid">
-              <div class="empty">Loading assignments matrix...</div>
+            <div id="p-roster-grid" class="p-roster-grid">
+              <div class="empty">No personas created yet. Click "+ New Persona" or study a group.</div>
             </div>
           </div>
         </div>
 
-        <!-- Tab 2: Persona Library -->
-        <div id="p-tab-roster" class="hidden">
-          <div class="panel">
+        <!-- Tab 2: Group Matrix (Per User Per Group) -->
+        <div id="p-tab-matrix" class="hidden">
+          <div class="panel" style="margin-bottom:16px;">
             <div class="panel-head">
-              <h3>Persona Roster</h3>
-              <span id="p-roster-count" class="hint">0 personas</span>
+              <div>
+                <h3>Group &amp; User Assignments</h3>
+                <span class="hint">Each user account speaks as a dedicated persona in each group</span>
+              </div>
+              <input type="text" id="p-matrix-search" placeholder="Filter groups..." style="max-width:240px; font-size:12px; padding:4px 10px;" />
             </div>
-            <div id="p-roster-grid" class="p-roster-grid">
-              <div class="empty">No personas created yet.</div>
+            <p class="hint" style="margin-bottom:14px;">Select which persona each Telegram user (account) embodies in each group. When an account has no group-specific persona assigned, it automatically falls back to its default account persona.</p>
+            <div id="p-matrix-list" class="p-matrix-grid">
+              <div class="empty">Loading assignments matrix...</div>
             </div>
           </div>
         </div>
@@ -145,99 +152,211 @@
           </div>
         </div>
 
-        <!-- Persona Editor Drawer / Modal -->
+        <!-- Comprehensive Persona Editor Modal / Drawer -->
         <div id="p-modal" class="p-modal hidden">
-          <div class="p-modal-content">
+          <div class="p-modal-content" style="max-width:760px;">
             <div class="p-modal-header">
-              <h2 id="p-modal-title">Edit Persona</h2>
+              <div style="display:flex; align-items:center; gap:12px;">
+                <span class="p-avatar" id="pm-head-avatar" style="width:36px; height:36px; font-size:15px; font-weight:700; background:#2fc4b2; color:#04211d;">P</span>
+                <div>
+                  <h2 id="p-modal-title" style="margin:0;">Edit Persona</h2>
+                  <div class="hint" id="pm-head-subtitle">Detailed Voice, Linguistics &amp; Human Cadence</div>
+                </div>
+              </div>
               <button class="ghost p-modal-close" id="p-modal-close">&times;</button>
             </div>
-            <div class="p-modal-body">
-              <input type="hidden" id="pm-id" />
-              <div class="grid2">
-                <div>
-                  <label class="l">Persona Name</label>
-                  <input type="text" id="pm-name" placeholder="e.g. Alex Henderson" />
-                </div>
-                <div>
-                  <label class="l">Tag Color</label>
-                  <div style="display:flex; gap:8px; align-items:center;">
-                    <input type="color" id="pm-color" value="#2fc4b2" style="width:44px; height:36px; padding:2px; border-radius:6px; cursor:pointer;" />
-                    <input type="text" id="pm-color-text" value="#2fc4b2" style="flex:1;" />
-                  </div>
-                </div>
-              </div>
-              <div style="margin-top:12px;">
-                <label class="l">Role &amp; Bio</label>
-                <input type="text" id="pm-bio" placeholder="e.g. Biochemist researcher, active on weekends" />
-              </div>
 
-              <!-- Voice & Tone details -->
-              <div class="panel" style="margin-top:16px; background:var(--panel2);">
-                <div class="panel-head">
-                  <h3>Voice &amp; Personality Dynamics</h3>
-                </div>
+            <!-- Sub-tabs within Persona Editor -->
+            <div class="p-editor-nav">
+              <button class="p-ed-tab active" data-edtab="profile">1. Identity &amp; Profile</button>
+              <button class="p-ed-tab" data-edtab="voice">2. Voice &amp; Linguistics</button>
+              <button class="p-ed-tab" data-edtab="cadence">3. Human Cadence &amp; Physics</button>
+              <button class="p-ed-tab" data-edtab="prompt">4. Prompt &amp; Voice Sandbox</button>
+            </div>
+
+            <div class="p-modal-body" style="padding:18px 22px;">
+              <input type="hidden" id="pm-id" />
+
+              <!-- Section 1: Identity & Profile -->
+              <div id="p-sec-profile">
                 <div class="grid2">
                   <div>
-                    <label class="l">Role in Group</label>
-                    <input type="text" id="pm-role" placeholder="e.g. Skeptical veteran member" />
+                    <label class="l">Persona Name</label>
+                    <input type="text" id="pm-name" placeholder="e.g. Alex Henderson" />
                   </div>
                   <div>
-                    <label class="l">Tone / Length</label>
-                    <input type="text" id="pm-tone" placeholder="e.g. Short, lowercase, casual banter" />
+                    <label class="l">Tag Color &amp; Accent</label>
+                    <div style="display:flex; gap:8px; align-items:center;">
+                      <input type="color" id="pm-color" value="#2fc4b2" style="width:42px; height:36px; padding:2px; border-radius:6px; cursor:pointer;" />
+                      <input type="text" id="pm-color-text" value="#2fc4b2" style="flex:1;" />
+                      <div class="p-color-swatches" id="pm-swatches" style="display:flex; gap:4px;">
+                        <span class="p-swatch" data-c="#2fc4b2" style="background:#2fc4b2;"></span>
+                        <span class="p-swatch" data-c="#7c8cff" style="background:#7c8cff;"></span>
+                        <span class="p-swatch" data-c="#ff7a66" style="background:#ff7a66;"></span>
+                        <span class="p-swatch" data-c="#f5b84a" style="background:#f5b84a;"></span>
+                        <span class="p-swatch" data-c="#c77dff" style="background:#c77dff;"></span>
+                        <span class="p-swatch" data-c="#38d48b" style="background:#38d48b;"></span>
+                      </div>
+                    </div>
                   </div>
                 </div>
-                <div class="grid2" style="margin-top:10px;">
+
+                <div style="margin-top:14px;">
+                  <label class="l">Role &amp; Persona Title</label>
+                  <input type="text" id="pm-role" placeholder="e.g. Senior Backend Engineer &amp; Cynical Alpha Hunter" />
+                </div>
+
+                <div style="margin-top:14px;">
+                  <label class="l">Backstory &amp; Biography</label>
+                  <input type="text" id="pm-bio" placeholder="e.g. 29yo developer in Berlin, active evening hours, skeptical of crypto hype" />
+                </div>
+
+                <div class="grid2" style="margin-top:14px;">
+                  <div>
+                    <label class="l">Assumed Timezone / Location</label>
+                    <input type="text" id="pm-tz" placeholder="e.g. Casablanca / London (UTC+0)" />
+                  </div>
+                  <div>
+                    <label class="l">Age / Demographics Presentation</label>
+                    <input type="text" id="pm-demo" placeholder="e.g. Late 20s male, informal, technical" />
+                  </div>
+                </div>
+              </div>
+
+              <!-- Section 2: Voice & Linguistics -->
+              <div id="p-sec-voice" class="hidden">
+                <div class="grid2">
+                  <div>
+                    <label class="l">Formality &amp; Casing Style</label>
+                    <select id="pm-casing" class="p-select">
+                      <option value="casual_lowercase">Casual &amp; Lowercase (no leading caps, relaxed)</option>
+                      <option value="sentence_case">Standard Sentence Case (natural conversational)</option>
+                      <option value="technical_precise">Technical &amp; Precise (structured, clean)</option>
+                      <option value="punchy_terse">Punchy &amp; Terse (short 1-line reactions)</option>
+                      <option value="hype_expressive">Expressive &amp; Slang-heavy (slang, hype)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label class="l">Message Length Preference</label>
+                    <select id="pm-length-pref" class="p-select">
+                      <option value="short">Punchy 1-liners (1 to 8 words)</option>
+                      <option value="medium" selected>Short &amp; Sweet (1 to 2 sentences)</option>
+                      <option value="moderate">Moderate (2 to 4 sentences)</option>
+                      <option value="detailed">Detailed Breakdown (paragraphs)</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div class="grid2" style="margin-top:14px;">
                   <div>
                     <label class="l">Emoji Habit</label>
-                    <input type="text" id="pm-emoji" placeholder="e.g. Rarely, only occasional skulls or fire" />
+                    <select id="pm-emoji-habit" class="p-select">
+                      <option value="never">Never uses emojis</option>
+                      <option value="rare" selected>Rare / Subtle (1 every few messages)</option>
+                      <option value="moderate">Moderate (1 emoji per message)</option>
+                      <option value="frequent">Expressive &amp; Frequent emojis</option>
+                    </select>
                   </div>
                   <div>
-                    <label class="l">Off-topic Interests</label>
-                    <input type="text" id="pm-offtopic" placeholder="e.g. Coffee, lifting, crypto" />
+                    <label class="l">Favorite / Signature Emojis</label>
+                    <input type="text" id="pm-emoji" placeholder="e.g. 💀, 👀, 🚀, 🤷‍♂️" />
                   </div>
+                </div>
+
+                <div style="margin-top:14px;">
+                  <label class="l">Tone &amp; Conversational Style</label>
+                  <input type="text" id="pm-tone" placeholder="e.g. Dry wit, skeptical, friendly banter, avoids corporate buzzwords" />
+                </div>
+
+                <div style="margin-top:14px;">
+                  <label class="l">Off-topic Interests &amp; Knowledge Domains</label>
+                  <input type="text" id="pm-offtopic" placeholder="e.g. Specialty coffee, mechanical keyboards, bouldering, retro computing" />
+                  <small class="hint">Personas use these interests to chime in naturally when mentioned in groups.</small>
+                </div>
+
+                <div style="margin-top:14px;">
+                  <label class="l">Taboo Words &amp; Guardrails</label>
+                  <input type="text" id="pm-taboo" placeholder="e.g. never say AI or bot, don't mention competitors, avoid financial advice disclaimer" />
                 </div>
               </div>
 
-              <!-- Typing simulation -->
-              <div class="panel" style="margin-top:16px; background:var(--panel2);">
-                <div class="panel-head">
-                  <h3>Human Typing Simulation</h3>
-                  <span class="hint">Realistic cadence prevents bot-like behavior</span>
-                </div>
-                <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:12px;">
+              <!-- Section 3: Human Cadence & Typing -->
+              <div id="p-sec-cadence" class="hidden">
+                <p class="hint" style="margin-bottom:14px;">Calibrate mathematical typing speeds, reading rates, and Poisson reaction latencies so this persona is indistinguishable from a real human typing on a phone or keyboard.</p>
+                <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:14px;">
                   <div>
-                    <label class="l">Chars / Sec</label>
-                    <input type="number" id="pm-cps" step="1" min="5" max="60" value="20" />
+                    <label class="l">Typing Speed (chars/sec)</label>
+                    <input type="number" id="pm-cps" step="1" min="8" max="60" value="24" />
+                    <small class="hint">Human phone average: 18-28 cps</small>
                   </div>
                   <div>
-                    <label class="l">Min Delay (s)</label>
+                    <label class="l">Min Reaction Latency (s)</label>
                     <input type="number" id="pm-min-sec" step="0.5" min="0.5" max="15" value="2.0" />
+                    <small class="hint">Fastest initial reaction</small>
                   </div>
                   <div>
-                    <label class="l">Max Delay (s)</label>
-                    <input type="number" id="pm-max-sec" step="0.5" min="1" max="30" value="8.0" />
+                    <label class="l">Max Reaction Latency (s)</label>
+                    <input type="number" id="pm-max-sec" step="0.5" min="1" max="45" value="8.0" />
+                    <small class="hint">Longest deliberation delay</small>
+                  </div>
+                </div>
+
+                <div class="grid2" style="margin-top:16px;">
+                  <div>
+                    <label class="l">Burstiness Factor (%)</label>
+                    <input type="number" id="pm-burst" min="0" max="100" value="30" />
+                    <small class="hint">Chance of splitting replies into 2 back-to-back short messages</small>
+                  </div>
+                  <div>
+                    <label class="l">Diurnal Peak Wakefulness Hour</label>
+                    <input type="number" id="pm-peak-hr" min="0" max="23" value="16" />
+                    <small class="hint">Hour (0-23) when this persona is most active</small>
                   </div>
                 </div>
               </div>
 
-              <!-- Prompt editor -->
-              <div style="margin-top:16px;">
-                <label class="l">System Prompt</label>
-                <textarea id="pm-prompt" rows="6" placeholder="You are... Speak naturally and never admit to being an AI."></textarea>
-              </div>
-
-              <!-- Test Sample Reply -->
-              <div class="panel" style="margin-top:16px; background:var(--panel2);">
-                <div class="panel-head">
-                  <h3>Live Preview Test</h3>
-                  <button type="button" class="primary" id="pm-test-btn" style="padding:4px 12px; font-size:12px;">Test Reply</button>
+              <!-- Section 4: Prompt & Voice Sandbox -->
+              <div id="p-sec-prompt" class="hidden">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                  <label class="l" style="margin:0;">System Prompt</label>
+                  <button type="button" id="pm-btn-synth" class="ghost" style="font-size:12px; padding:3px 10px;">&#10024; Auto-generate Prompt from Traits</button>
                 </div>
-                <div id="pm-test-output" style="font-size:12.5px; color:var(--muted); min-height:40px; border-radius:6px; background:var(--bg); padding:10px; border:1px solid var(--line);">
-                  Click "Test Reply" to see how this persona responds to group context.
+                <textarea id="pm-prompt" rows="6" placeholder="You are... Speak naturally and never admit to being an AI."></textarea>
+                <div style="display:flex; justify-content:space-between; font-size:11px; color:var(--muted); margin-top:4px;">
+                  <span>Include behavioral instructions, forbidden phrases, and voice rules.</span>
+                  <span id="pm-prompt-charcount">0 chars</span>
+                </div>
+
+                <!-- Interactive Voice Sandbox -->
+                <div class="panel" style="margin-top:16px; background:var(--panel2);">
+                  <div class="panel-head">
+                    <h3 style="margin:0;">⚡ Live Voice &amp; Cadence Sandbox</h3>
+                    <span class="hint">Simulate real-time response latency &amp; tone</span>
+                  </div>
+                  <div style="margin-bottom:10px;">
+                    <label class="l" style="font-size:12px;">Simulated Incoming Message</label>
+                    <div style="display:flex; gap:8px;">
+                      <input type="text" id="pm-test-sample" value="Hey, what does everyone think about the latest announcement? Is it worth checking out?" style="flex:1;" />
+                      <button type="button" class="primary" id="pm-test-btn" style="white-space:nowrap; padding:6px 14px; font-size:12px;">⚡ Test Voice</button>
+                    </div>
+                  </div>
+
+                  <!-- Metrics bar -->
+                  <div id="pm-test-metrics" class="p-metrics-bar hidden">
+                    <div class="p-metric"><span class="k">Reading Delay</span><span class="v" id="pm-m-read">-</span></div>
+                    <div class="p-metric"><span class="k">Poisson Deliberation</span><span class="v" id="pm-m-delib">-</span></div>
+                    <div class="p-metric"><span class="k">Total Reaction Time</span><span class="v" id="pm-m-total">-</span></div>
+                    <div class="p-metric"><span class="k">Diurnal Factor</span><span class="v" id="pm-m-diurnal">-</span></div>
+                    <div class="p-metric"><span class="k">Relevance Score</span><span class="v" id="pm-m-rel">-</span></div>
+                  </div>
+
+                  <div id="pm-test-output" style="margin-top:10px; font-size:13px; color:var(--muted); min-height:44px; border-radius:8px; background:var(--bg); padding:12px 14px; border:1px solid var(--line);">
+                    Enter an incoming message above and click "⚡ Test Voice" to simulate human reading time and AI response generation.
+                  </div>
                 </div>
               </div>
             </div>
+
             <div class="p-modal-footer">
               <button class="ghost" id="pm-cancel">Cancel</button>
               <button class="primary" id="pm-save">Save Persona</button>
@@ -278,7 +397,89 @@
         </div>
       </section>
 
-      <section id="view-groups" class="hidden">
+      <!-- Direct Messages Section -->
+      <section id="view-messages" class="hidden">
+        <div class="page-head">
+          <div>
+            <h1>Direct Messages &amp; Inbound Chats</h1>
+            <p class="sub">Monitor everyone who has messaged your Telegram accounts, read 1-on-1 conversations, and reply directly or with AI personas.</p>
+          </div>
+          <div style="display:flex; gap:10px; align-items:center;">
+            <button id="dm-btn-sync" class="ghost">&#8635; Sync DMs</button>
+          </div>
+        </div>
+
+        <div class="dm-container">
+          <!-- Left: Contacts/Conversations List -->
+          <div class="dm-sidebar">
+            <div class="dm-search-bar">
+              <input type="text" id="dm-search" placeholder="Search conversations..." />
+            </div>
+            <div class="dm-account-filters" id="dm-account-filters">
+              <button class="dm-filter-btn active" data-aid="">All Accounts</button>
+            </div>
+            <div class="dm-chat-list" id="dm-chat-list">
+              <div class="empty">Loading conversations...</div>
+            </div>
+          </div>
+
+          <!-- Right: Active Conversation & Reply Studio -->
+          <div class="dm-main" id="dm-main">
+            <div class="dm-empty-state" id="dm-empty-state">
+              <div style="font-size:36px; margin-bottom:12px; opacity:0.6;">&#9993;</div>
+              <h3 style="margin-bottom:6px;">Select a conversation</h3>
+              <p class="hint">Choose a contact from the left to view message history and send replies.</p>
+            </div>
+
+            <div class="dm-chat-view hidden" id="dm-chat-view">
+              <!-- Top bar with contact info & persona controls -->
+              <div class="dm-chat-head">
+                <div class="dm-contact-info">
+                  <span class="dm-contact-avatar" id="dm-head-avatar">U</span>
+                  <div>
+                    <div style="display:flex; align-items:center; gap:8px;">
+                      <b id="dm-head-name">User</b>
+                      <span class="hint" id="dm-head-user">@username</span>
+                    </div>
+                    <div class="hint" style="font-size:11px; margin-top:2px;">
+                      Received on: <span id="dm-head-account" style="color:var(--text); font-weight:600;">+1234...</span>
+                    </div>
+                  </div>
+                </div>
+                <div class="dm-chat-actions">
+                  <div style="display:flex; align-items:center; gap:8px;">
+                    <label class="hint" style="font-size:12px;">Persona:</label>
+                    <select id="dm-persona-select" class="p-select" style="width:160px; font-size:12px;"></select>
+                  </div>
+                  <label class="gx-tg" style="margin:0; font-size:12px;">
+                    <input type="checkbox" id="dm-autoreply-toggle" />
+                    <span></span>AI Auto-reply
+                  </label>
+                </div>
+              </div>
+
+              <!-- Messages Thread -->
+              <div class="dm-messages-box" id="dm-messages-box">
+                <div class="empty">No messages yet.</div>
+              </div>
+
+              <!-- Reply Composer -->
+              <div class="dm-composer">
+                <div class="dm-composer-toolbar">
+                  <button id="dm-btn-ai-draft" class="ghost" style="font-size:12px; padding:4px 10px;">&#10024; Draft Persona Reply</button>
+                  <span id="dm-draft-status" class="hint" style="font-size:11.5px; margin-left:auto;"></span>
+                </div>
+                <div class="dm-input-row">
+                  <textarea id="dm-reply-input" rows="3" placeholder="Type a message to reply... (Press Cmd+Enter to send)"></textarea>
+                  <button id="dm-btn-send" class="primary" style="align-self:flex-end; padding:10px 18px; height:auto;">Send</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+<section id="view-groups" class="hidden">
         <div class="page-head"><div><h1>Groups</h1><p class="sub">Pick a group, turn on Watch to collect messages.</p></div></div>
         <div class="split"><div id="group-list" class="panel list"></div><div class="split-main">
         <div id="group-empty" class="empty">Pick a group on the left. Turn on “Watch” to start collecting messages.</div>
