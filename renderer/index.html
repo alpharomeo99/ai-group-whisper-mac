@@ -690,24 +690,116 @@
       </section>
 
 <section id="view-groups" class="hidden">
-        <div class="page-head"><div><h1>Groups</h1><p class="sub">Pick a group, turn on Watch to collect messages.</p></div></div>
-        <div class="split"><div id="group-list" class="panel list"></div><div class="split-main">
-        <div id="group-empty" class="empty">Pick a group on the left. Turn on “Watch” to start collecting messages.</div>
-        <div id="group-detail" class="hidden">
-          <header>
-            <h2 id="g-title"></h2>
-            <label><input type="checkbox" id="g-watch" /> Watch</label>
-            <label><input type="checkbox" id="g-auto" /> Auto-reply when mentioned</label>
-            <button id="g-summarize">Summarize</button>
-            <button id="g-draft">Draft reply</button>
-          </header>
-          <input id="g-persona" placeholder="Persona / reply instructions (e.g. 'casual, short, no emojis')" />
-          <div class="cols">
-            <div><h3>AI notes</h3><div id="g-summaries"></div></div>
-            <div><h3>Recent messages</h3><div id="g-messages"></div></div>
+        <div class="page-head">
+          <div>
+            <h1>Groups &amp; Communities</h1>
+            <p class="sub">Manage groups, define what they are about, inject specialized domain knowledge, and configure personas.</p>
+          </div>
+          <div class="row">
+            <button id="g-sync-btn" class="ghost" style="font-size: 11.5px;">Sync Dialogs</button>
           </div>
         </div>
-        </div></div>
+
+        <div class="split">
+          <div class="panel list">
+            <div class="g-list-search-wrap">
+              <input type="text" id="g-search-input" placeholder="Search groups..." />
+            </div>
+            <div id="group-list"></div>
+          </div>
+
+          <div class="split-main">
+            <div id="group-empty" class="empty">
+              Select a group from the list on the left to configure what it is about and manage its knowledge base.
+            </div>
+
+            <div id="group-detail" class="hidden">
+              <div class="g-detail-header">
+                <div class="g-detail-title-wrap">
+                  <h2 id="g-title" style="margin: 0; font-size: 15px;"></h2>
+                  <span id="g-chat-id-badge" class="p-tag">ID: 0</span>
+                </div>
+                <div class="g-detail-actions">
+                  <label class="toggle-chip"><input type="checkbox" id="g-watch" /> Watch Group</label>
+                  <label class="toggle-chip"><input type="checkbox" id="g-auto" /> Auto-Reply</label>
+                  <button id="g-save-btn" class="primary" style="font-size: 11.5px; padding: 4px 12px;">Save Changes</button>
+                  <button id="g-test-chat-btn" class="ghost" style="font-size: 11.5px; padding: 4px 10px;">Test Chat</button>
+                  <button id="g-summarize" class="ghost" style="font-size: 11.5px; padding: 4px 10px;">Summarize</button>
+                  <button id="g-draft" class="ghost" style="font-size: 11.5px; padding: 4px 10px;">Draft</button>
+                </div>
+              </div>
+
+              <!-- Sub Tabs -->
+              <div class="p-tabs" style="margin-top: 10px; margin-bottom: 12px;">
+                <button class="p-tab active" data-gtab="about">What It's About &amp; Knowledge Base</button>
+                <button class="p-tab" data-gtab="accounts">Accounts &amp; Personas</button>
+                <button class="p-tab" data-gtab="feed">Recent Feed &amp; Summaries</button>
+              </div>
+
+              <!-- Tab 1: What It's About & Domain Knowledge -->
+              <div id="gtab-about-view">
+                <div class="g-preset-bar">
+                  <span class="hint" style="font-size: 11px;">Configure community topic &amp; peptide domain mastery:</span>
+                  <button id="g-load-xbiolabs-btn" class="ghost btn-xs" style="font-size: 11px; padding: 3px 8px;">Load xbiolabs / Peptides Knowledge Preset</button>
+                </div>
+
+                <div class="g-grid-2">
+                  <div class="g-field-group">
+                    <label class="ps-label">What This Group Is About (Concept &amp; Purpose)</label>
+                    <textarea id="g-about" rows="3" placeholder="e.g. Official vendor and community group for xbiolabs. While it is a vendor group, the community actively discusses peptides, biohacking, and health optimization..."></textarea>
+                  </div>
+                  <div class="g-field-group">
+                    <label class="ps-label">Group Rules &amp; Guidelines</label>
+                    <textarea id="g-rules" rows="3" placeholder="Rules for tone, etiquette, compliance, and interaction..."></textarea>
+                  </div>
+                </div>
+
+                <div class="g-field-group" style="margin-top: 8px;">
+                  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                    <label class="ps-label" style="margin: 0;">Comprehensive Domain Knowledge (Injected Into Persona Prompts)</label>
+                    <span class="hint" style="font-size: 10px;">Peptides, dosing, buying, news, shipping, pricing, gear, wellness, nootropics</span>
+                  </div>
+                  <textarea id="g-domain-knowledge" rows="9" placeholder="Detailed domain knowledge, protocols, product lines, dosing specifics, shipping FAQs, pricing structures, and insider facts that every persona participating in this group will master..."></textarea>
+                </div>
+
+                <div class="g-grid-2" style="margin-top: 8px;">
+                  <div class="g-field-group">
+                    <label class="ps-label">Topic Tags (Comma Separated)</label>
+                    <input type="text" id="g-tags" placeholder="peptides, vendor, dosing, buying, shipping, pricing, coa, gear, trt, nootropics" />
+                  </div>
+                  <div class="g-field-group">
+                    <label class="ps-label">Optional Custom Persona / Prompt Override</label>
+                    <input type="text" id="g-persona" placeholder="Leave empty to use assigned personas, or override here" />
+                  </div>
+                </div>
+              </div>
+
+              <!-- Tab 2: Accounts & Personas -->
+              <div id="gtab-accounts-view" class="hidden">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                  <span class="ps-label" style="margin: 0;">Participating Telegram Accounts &amp; Bound Personas</span>
+                  <span class="hint" id="g-acc-count" style="font-size: 11px;">0 accounts</span>
+                </div>
+                <div id="g-accounts-table" class="g-acc-table"></div>
+              </div>
+
+              <!-- Tab 3: Recent Feed & Summaries -->
+              <div id="gtab-feed-view" class="hidden">
+                <div class="cols">
+                  <div>
+                    <h3 style="font-size: 11.5px; margin-bottom: 6px; text-transform: uppercase; color: var(--muted); font-weight: 600;">AI Notes &amp; Summaries</h3>
+                    <div id="g-summaries"></div>
+                  </div>
+                  <div>
+                    <h3 style="font-size: 11.5px; margin-bottom: 6px; text-transform: uppercase; color: var(--muted); font-weight: 600;">Recent Messages</h3>
+                    <div id="g-messages"></div>
+                  </div>
+                </div>
+              </div>
+
+            </div>
+          </div>
+        </div>
       </section>
       <section id="view-queue" class="hidden"><div class="page-head"><div><h1>Queue</h1><p class="sub">AI jobs waiting, running and finished.</p></div></div><table id="queue-table"></table></section>
       <section id="view-accounts" class="hidden">

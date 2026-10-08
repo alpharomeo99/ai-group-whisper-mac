@@ -223,6 +223,10 @@ class Daemon:
             try:
                 if event.user_left or event.user_kicked or event.user_added or event.user_joined:
                     asyncio.create_task(self.sync_all_dialogs())
+                    if event.user_added or event.user_joined:
+                        cid = getattr(event, 'chat_id', None)
+                        if cid:
+                            self.ensure_group_personas_assigned(cid)
             except Exception:
                 pass
         return h
@@ -344,14 +348,33 @@ class Daemon:
                 except Exception:
                     pass
 
-            # Gather candidate personas for this group:
+            # Ensure all member accounts in this group have personas assigned
+            self.ensure_group_personas_assigned(chat_id)
+
+            # Gather candidate personas for ALL accounts in this group:
             # 1. Group matrix assignments (group_personas) with valid accounts
             candidates = self.store.rows(
                 "SELECT p.*, gp.account_id, gp.persona_id FROM group_personas gp "
                 "JOIN personas p ON p.id=gp.persona_id WHERE gp.chat_id=? AND gp.account_id IS NOT NULL",
                 (chat_id,)
             )
-            # 2. Fallback: group owner account's persona if not in matrix
+
+            # 2. Also include any accounts in group_accounts that have account-level personas
+            all_group_accs = self.store.rows("SELECT account_id FROM group_accounts WHERE chat_id=?", (chat_id,))
+            existing_aids = {c["account_id"] for c in candidates}
+            for ga in all_group_accs:
+                ga_aid = ga.get("account_id")
+                if ga_aid and ga_aid not in existing_aids:
+                    acc_p = self.store.rows(
+                        "SELECT p.*, a.id account_id, p.id persona_id FROM accounts a "
+                        "JOIN personas p ON p.id=a.persona_id WHERE a.id=?",
+                        (ga_aid,)
+                    )
+                    if acc_p:
+                        candidates.extend(acc_p)
+                        existing_aids.add(ga_aid)
+
+            # 3. Fallback: group owner account's persona
             if not candidates and g[0].get("account_id"):
                 acc_p = self.store.rows(
                     "SELECT p.*, a.id account_id, p.id persona_id FROM accounts a "
@@ -398,39 +421,147 @@ class Daemon:
 
     def persona_for(self, g, persona_id=None, account_id=None):
         """Group override text wins; then the chosen persona; then the persona designed for this group and account; then account fallback."""
+        pr = ""
         if (g.get("persona") or "").strip():
-            return g["persona"]
-        if persona_id:
+            pr = g["persona"]
+        elif persona_id:
             p = self.store.rows("SELECT name, prompt FROM personas WHERE id=?", (persona_id,))
             if p and p[0]["prompt"]:
                 pr = p[0]["prompt"]
-                return pr if pr.lstrip().startswith("You are") else f"You are {p[0]['name']}. {pr}"
-        aid = account_id or g.get("account_id")
-        gp = self.store.rows("SELECT p.prompt FROM group_personas gp JOIN personas p ON p.id=gp.persona_id "
-                             "WHERE gp.chat_id=? AND gp.account_id=?", (g.get("chat_id"), aid))
-        if gp and gp[0]["prompt"]:
-            return gp[0]["prompt"]
-        r = self.store.rows("SELECT p.name,p.prompt FROM accounts a JOIN personas p ON p.id=a.persona_id WHERE a.id=?",
-                            (aid,))
-        if not r:
-            return ""
-        pr = r[0]["prompt"] or ""
-        return pr if pr.lstrip().startswith("You are") else f"You are {r[0]['name']}. {pr}"
+                pr = pr if pr.lstrip().startswith("You are") else f"You are {p[0]['name']}. {pr}"
+        if not pr:
+            aid = account_id or g.get("account_id")
+            gp = self.store.rows("SELECT p.prompt FROM group_personas gp JOIN personas p ON p.id=gp.persona_id "
+                                 "WHERE gp.chat_id=? AND gp.account_id=?", (g.get("chat_id"), aid))
+            if gp and gp[0]["prompt"]:
+                pr = gp[0]["prompt"]
+            else:
+                r = self.store.rows("SELECT p.name,p.prompt FROM accounts a JOIN personas p ON p.id=a.persona_id WHERE a.id=?", (aid,))
+                if r:
+                    raw_pr = r[0]["prompt"] or ""
+                    pr = raw_pr if raw_pr.lstrip().startswith("You are") else f"You are {r[0]['name']}. {raw_pr}"
+
+        if not pr:
+            pr = "You are a regular member of this Telegram group."
+
+        # Fetch complete group profile if about/domain_knowledge not present in g dict
+        if isinstance(g, dict) and g.get("chat_id") and not g.get("domain_knowledge"):
+            full_g = self.store.rows("SELECT * FROM groups WHERE chat_id=?", (g["chat_id"],))
+            if full_g:
+                g = full_g[0]
+
+        # Inject group context & what the group is about
+        group_ctx = []
+        if isinstance(g, dict):
+            if g.get("title"):
+                group_ctx.append(f"CURRENT TELEGRAM GROUP: {g['title']}")
+            if g.get("about"):
+                group_ctx.append(f"WHAT THIS GROUP IS ABOUT: {g['about']}")
+            if g.get("domain_knowledge"):
+                group_ctx.append(f"DOMAIN KNOWLEDGE & TOPICS DISCUSSED:\n{g['domain_knowledge']}")
+            if g.get("rules"):
+                group_ctx.append(f"GROUP RULES & PARTICIPATION GUIDELINES: {g['rules']}")
+            if g.get("tags"):
+                group_ctx.append(f"KEY TOPIC TAGS: {g['tags']}")
+
+        if group_ctx:
+            pr = pr + "\n\n--- GROUP CONTEXT & TOPIC MASTERY ---\n" + "\n".join(group_ctx)
+
+        return pr
+
+    def ensure_group_personas_assigned(self, chat_id):
+        """Ensures every account participating in this group has an active persona assigned.
+        If a new account joined or was discovered without a persona, automatically binds
+        an available persona from the library and connects it to this group so it can participate immediately.
+        """
+        try:
+            acc_rows = self.store.rows("SELECT account_id FROM group_accounts WHERE chat_id=?", (chat_id,))
+            acc_ids = {r["account_id"] for r in acc_rows if r.get("account_id")}
+            g = self.store.rows("SELECT account_id FROM groups WHERE chat_id=?", (chat_id,))
+            if g and g[0].get("account_id"):
+                acc_ids.add(g[0]["account_id"])
+
+            all_personas = self.store.rows("SELECT id FROM personas ORDER BY id ASC")
+            if not all_personas:
+                return
+
+            for aid in acc_ids:
+                if not aid:
+                    continue
+                # 1. Check if group-specific persona exists
+                gp = self.store.rows("SELECT persona_id FROM group_personas WHERE chat_id=? AND account_id=?", (chat_id, aid))
+                if gp and gp[0].get("persona_id"):
+                    continue
+
+                # 2. Check if account has a default persona
+                acc = self.store.rows("SELECT persona_id FROM accounts WHERE id=?", (aid,))
+                pid = acc[0].get("persona_id") if acc else None
+
+                if not pid:
+                    # Find persona least used across accounts
+                    used_pids = [r["persona_id"] for r in self.store.rows("SELECT persona_id FROM accounts WHERE persona_id IS NOT NULL")]
+                    available = [p["id"] for p in all_personas if p["id"] not in used_pids]
+                    pid = available[0] if available else all_personas[0]["id"]
+                    self.store.q("UPDATE accounts SET persona_id=? WHERE id=?", (pid, aid))
+
+                # 3. Bind to group_personas matrix
+                self.store.q(
+                    "INSERT INTO group_personas(chat_id, persona_id, account_id) VALUES(?,?,?) "
+                    "ON CONFLICT(chat_id, account_id) DO UPDATE SET persona_id=excluded.persona_id",
+                    (chat_id, pid, aid)
+                )
+        except Exception:
+            pass
 
     def typing_secs(self, g, text):
-        """Typing-indicator delay scaled to length, from the account persona's typing profile."""
+        """Typing-indicator delay accurately scaled to outgoing message size and realistic human typing cadence.
+        Features lognormal keystroke velocity (18-24 CPS), cognitive initiation hesitation,
+        and micro-pauses for punctuation and length.
+        """
         import json as _j
-        t = {"min_seconds": 2.0, "max_seconds": 8.0, "chars_per_second": 20.0}
-        r = self.store.rows("SELECT p.details FROM group_personas gp JOIN personas p ON p.id=gp.persona_id "
-                            "WHERE gp.chat_id=? AND gp.account_id=?", (g.get("chat_id"), g.get("account_id"))) or \
-            self.store.rows("SELECT p.details FROM accounts a JOIN personas p ON p.id=a.persona_id WHERE a.id=?",
-                            (g.get("account_id"),))
+        import random, math
+        msg_len = max(len(text or ""), 1)
+
+        t = {"min_seconds": 1.5, "max_seconds": 35.0, "chars_per_second": 21.0}
+        cid = g.get("chat_id") if isinstance(g, dict) else None
+        aid = g.get("account_id") if isinstance(g, dict) else None
+        r = []
+        if cid and aid:
+            r = self.store.rows("SELECT p.details FROM group_personas gp JOIN personas p ON p.id=gp.persona_id "
+                                "WHERE gp.chat_id=? AND gp.account_id=?", (cid, aid))
+        if not r and aid:
+            r = self.store.rows("SELECT p.details FROM accounts a JOIN personas p ON p.id=a.persona_id WHERE a.id=?", (aid,))
+
         try:
-            t.update((_j.loads(r[0]["details"] or "{}").get("typing") or {}) if r else {})
-        except Exception:  # noqa
+            if r and r[0].get("details"):
+                dt = _j.loads(r[0]["details"] or "{}").get("typing") or {}
+                t.update(dt)
+        except Exception:
             pass
-        cps = max(float(t["chars_per_second"]), 1.0)
-        return min(max(len(text) / cps, float(t["min_seconds"])), float(t["max_seconds"])) * random.uniform(0.85, 1.2)
+
+        base_cps = max(float(t.get("chars_per_second") or 21.0), 5.0)
+
+        # Human keystroke variance (lognormal distribution around base CPS)
+        effective_cps = base_cps * random.lognormvariate(0.0, 0.12)
+
+        # Initial cognitive hesitation (looking at screen / placing fingers before typing)
+        hesitation = random.uniform(1.2, 2.4)
+
+        # Typing duration proportional to text length
+        typing_duration = msg_len / effective_cps
+
+        # Micro-pauses for longer messages (phone autocorrect, punctuation pauses)
+        # Add ~0.6s per 80 characters of text
+        micro_pauses = (msg_len / 80.0) * random.uniform(0.4, 0.8)
+
+        total_secs = hesitation + typing_duration + micro_pauses
+
+        # Dynamic max_seconds: allow longer messages to take proportional time rather than arbitrary clipping
+        dynamic_max = max(float(t.get("max_seconds", 35.0)), (msg_len / 12.0) + 4.0)
+        dynamic_max = min(dynamic_max, 40.0)  # absolute safety ceiling
+
+        min_secs = max(float(t.get("min_seconds", 1.5)), 1.2)
+        return max(min_secs, min(total_secs, dynamic_max))
 
     async def run_job(self, job):
         import json
@@ -472,7 +603,8 @@ class Daemon:
                 peer_id = job["chat_id"]
                 try:
                     async with cl.action(peer_id, "typing"):
-                        await asyncio.sleep(min(5.0, max(1.2, len(p.get("text", "")) * 0.04)))
+                        secs = self.typing_secs({"chat_id": peer_id, "account_id": aid}, p.get("text", ""))
+                        await asyncio.sleep(secs)
                 except Exception:
                     pass
                 sent = await cl.send_message(peer_id, p["text"], reply_to=p.get("reply_to"))
@@ -1139,17 +1271,59 @@ class Daemon:
             })
 
 
+        @r.get("/groups/{cid}")
+        async def get_group(req):
+            cid = int(req.match_info["cid"])
+            g = self.store.rows("SELECT g.*, a.name account_name FROM groups g LEFT JOIN accounts a ON a.id=g.account_id WHERE g.chat_id=?", (cid,))
+            if not g:
+                return J({"error": "Group not found"}, status=404)
+            data = dict(g[0])
+            # Include accounts associated with this group
+            accs = self.store.rows(
+                "SELECT a.id, a.name, a.username, a.phone, gp.persona_id, p.name persona_name, p.color persona_color "
+                "FROM group_accounts ga "
+                "JOIN accounts a ON a.id=ga.account_id "
+                "LEFT JOIN group_personas gp ON gp.chat_id=ga.chat_id AND gp.account_id=a.id "
+                "LEFT JOIN personas p ON p.id=gp.persona_id "
+                "WHERE ga.chat_id=?", (cid,)
+            )
+            data["accounts"] = accs
+            return J(data)
+
         @r.post("/groups/{cid}")
         async def update_group(req):
             b = await req.json()
             cid = int(req.match_info["cid"])
-            for k in ("watched", "auto_reply", "persona"):
+            for k in ("watched", "auto_reply", "persona", "title", "about", "domain_knowledge", "tags", "rules", "account_id"):
                 if k in b:
                     self.store.q(f"UPDATE groups SET {k}=? WHERE chat_id=?", (b[k], cid))
             if b.get("watched"):
                 asyncio.create_task(self.catch_up())
             return J({"ok": True})
 
+        @r.post("/groups/{cid}/load-xbiolabs-preset")
+        async def load_xbiolabs_preset(req):
+            cid = int(req.match_info["cid"])
+            about = "Official vendor and community group for xbiolabs. While it is a vendor group, the community actively discusses everything related to peptides, underground biohacking, and health optimization."
+            domain_knowledge = (
+                "Comprehensive domain mastery across all topics discussed in xbiolabs:\n"
+                "1. PEPTIDES & RESEARCH CHEMICALS: In-depth familiarity with BPC-157 (gut repair, tendon healing), TB-500/Thymosin Beta-4 (tissue regeneration), Semaglutide/Ozempic, Tirzepatide/Mounjaro, Retatrutide (triple GIP/GLP-1/glucagon agonist), GHK-Cu (copper peptide for tissue/skin/collagen), CJC-1295 no DAC & Ipamorelin (GH secretagogues), Sermorelin, MOTS-c (mitochondrial optimization), Epitalon (telomere elongation), NAD+ injections, Kisspeptin, MT-2.\n"
+                "2. RECONSTITUTION & DOSING PROTOCOLS: Proper mixing techniques with bacteriostatic water (BAC), calculating mcg per tick on 100-unit/30-unit insulin syringes, sterile needle hygiene, subQ vs IM administration sites, cold fridge storage, avoiding vigorous shaking.\n"
+                "3. VENDOR OPERATIONS & BUYING: Sourcing, batch COA purity verification, HPLC/Janoshik lab test reports, ordering procedures, payment methods (crypto/Bitcoin/USDT, wire), tracking numbers, customs handling, stealth domestic shipping, discrete packaging, pricing per vial vs kit (10 vials), reship policies, customer service resolution.\n"
+                "4. GEAR & ANABOLIC PROTOCOLS: TRT bases (test cypionate, test enanthate), Primobolan, Masteron, Anavar/Oxandrolone, Deca/NPP, estrogen management (Arimidex/anastrozole, Aromasin), prolactin control (Cabergoline), post cycle therapy (PCT - Enclomiphene, Nolvadex, HCG).\n"
+                "5. PROGRESS & HEALTH MONITORING: Bloodwork interpretation (CBC, CMP, lipid panels, ApoB, hs-CRP, total/free test, sensitive estradiol, ALT/AST liver enzymes, eGFR kidney health), DEXA scans, body composition, fatigue markers.\n"
+                "6. SEXUAL ENHANCEMENT: PT-141/Bremelanotide (melanocortin receptor agonist for libido), PDE5 inhibitors (Tadalafil/Cialis daily vs as-needed, Sildenafil/Viagra), Melanotan-2 (tanning + libido synergy).\n"
+                "7. WELLNESS & LONGEVITY: Mitochondrial health, sleep optimization, metabolic flexibility, anti-inflammatory protocols.\n"
+                "8. NOOTROPICS & NEUROCHEMISTRY: Semax (NA-Semax-Amidate for BDNF and focus), Selank (anxiolytic peptide), Bromantane (dopamine upregulation), Modafinil/Armodafinil, L-Tyrosine, Alpha-GPC.\n"
+                "9. TONE & PARTICIPATION: Speak as experienced, grounded community insiders who share real personal experiences, troubleshoot reconstitutions, exchange batch updates, and talk shop casually without generic corporate disclaimers."
+            )
+            tags = "peptides, vendor, dosing, buying, shipping, pricing, coa, bpc157, retatrutide, tirzepatide, gear, trt, sexual-enhancement, pt141, nootropics, wellness, xbiolabs"
+            rules = "Be authentic, direct, and knowledgeable. Share real protocol experiences, discuss batch quality honestly, offer practical dosing and reconstitution tips, and respect vendor shipping/payment guidelines."
+            self.store.q(
+                "UPDATE groups SET about=?, domain_knowledge=?, tags=?, rules=? WHERE chat_id=?",
+                (about, domain_knowledge, tags, rules, cid)
+            )
+            return J({"ok": True, "about": about, "domain_knowledge": domain_knowledge, "tags": tags, "rules": rules})
         @r.get("/groups/{cid}/feed")
         async def feed(req):
             cid = int(req.match_info["cid"])

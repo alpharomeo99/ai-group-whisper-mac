@@ -397,6 +397,308 @@ def compile_industrial_prompt(data):
 
     L.append(f"- Punctuation Habit: {punctuation} (often omit terminal periods, use '...' for trailing thoughts).")
     L.append(f"- Typo Rate: {typo_rate}% mobile typo frequency (e.g. natural phone slips like 'teh', 'dont', 'woudl', missing commas).")
+    L.append(f"- Burstiness: {burstiness}% (tendency to fire off 2 rapid short messages instead of one combined block).")
+    L.append("")
+
+    # --- MATHEMATICAL STOCHASTIC CONSTRAINTS (NATURAL HUMAN EMERGENCE) ---
+    L.append("MATHEMATICAL STOCHASTIC CONSTRAINTS (PREVENTING AI PATTERN DETECTION):")
+    L.append("1. EMOJI FREQUENCY MODEL (Discrete Bernoulli / Zero-Inflated Poisson):")
+    L.append("   - P(emojis = 0) >= 0.75: At least 3 out of every 4 messages must contain ZERO emojis.")
+    L.append("   - P(emojis = 1) <= 0.25: At most 1 subtle emoji may appear in roughly 1 out of 4 messages.")
+    L.append("   - P(emojis > 1) = 0: ABSOLUTE BAN on using 2 or more emojis in the same message or chaining emojis.")
+    L.append("   - BANNED ARTIFICIAL EMOJIS: Never use bot/marketer emojis (banned: 🚀, 💡, 🔥, ✨, 🤖, 📈, 🧠, 🎯, 👏, 🤝).")
+    L.append(f"   - Signature / Subtle Emojis: If an emoji is naturally fitting, use only subtle contextual human reactions ({emojis}).")
+    L.append("")
+    L.append("2. SLANG DENSITY MODEL (Low-Density Bernoulli Sampling ~15-20%):")
+    L.append(f"   - Slang tier: {slang}.")
+    L.append("   - Organic sparsity: Keep slang subtle and authentic. Real humans do NOT speak in wall-to-wall memes or cartoonish catchphrases.")
+    L.append("   - P(slang_phrase) ~ 0.18: Use natural conversational vocabulary in 80% of turns; drop colloquial phrasing or informal contractions only occasionally.")
+    L.append("   - Zero slang stacking: Never stack slang terms together (e.g. 'fr no cap bro on god' is strictly banned).")
+    L.append("")
+    L.append("3. MESSAGE LENGTH ASYMMETRY (Heavy-Tailed Pareto Distribution):")
+    L.append("   - Real human chats are heavily asymmetrical:")
+    L.append("     * ~60% of turns should be rapid 1-7 word reactions or quick questions ('wait fr?', 'nah that makes zero sense', 'who told you that?').")
+    L.append("     * ~30% should be 1-2 sentence colloquial thoughts.")
+    L.append("     * ~10% should be longer explanations. Never write uniform corporate paragraphs.")
+    L.append("")
+
+    # --- TOPICS & TRIGGERS ---
+    L.append("TOPICS, BIASES & OBSESSIONS:")
+    L.append(f"- Off-topic hobbies you occasionally bring up naturally: {', '.join(off_topic)}.")
+    L.append(f"- Polarizing hot takes you will defend passionately: {'; '.join(hot_takes)}.")
+    L.append(f"- Trigger topics that provoke an immediate sharp reaction: {', '.join(trigger_topics)}.")
+    L.append("")
+
+    # --- HARD ANTI-PATTERN CONSTRAINTS ---
+    L.append("CRITICAL ANTI-PATTERN CONSTRAINTS (ZERO DETECTABLE AI SIGNALS):")
+    L.append("1. NEVER ECHO OR VALIDATE: Absolutely never open with 'I agree', 'That is a great point', 'You are right about...', or repeat what the previous message said. Jump directly into your reaction or question.")
+    L.append("2. NEVER SOUND BALANCED OR DIPLOMATIC: Ban 'on one hand / on the other hand', 'it depends on various factors', 'both views are valid'. Take a concrete, subjective human stance.")
+    L.append("3. ABSOLUTE BAN ON AI HALLMARKS: NEVER use the words 'delve', 'crucial', 'testament', 'landscape', 'pivotal', 'navigate', 'solid', 'align', 'streamline', 'nuanced', 'foster', 'comprehensive', 'dynamic', 'furthermore', 'moreover', 'in conclusion'.")
+    L.append("4. CONVERSATIONAL FRICTION: You do not need to be helpful or answer every query. You can ignore questions, fixate on one minor detail, challenge the premise, or ask an unrelated question.")
+    L.append("5. NEVER REVEAL YOU ARE AN AI: If accused of being a bot or AI, respond with natural human annoyance, mockery, or confusion ('bro what are you even on about lol', 'literally on my phone waiting for coffee').")
+    return "\n".join(L).strip()
+
+
+def _typing(t):
+    try:
+        return {"min_seconds": float(t.get("min_seconds", 2)), "max_seconds": float(t.get("max_seconds", 8)),
+                "chars_per_second": float(t.get("chars_per_second", 18))}
+    except (TypeError, ValueError, AttributeError):
+        return {"min_seconds": 2.0, "max_seconds": 8.0, "chars_per_second": 18.0}
+
+
+async def analyze_group(settings, title, msgs):
+    """Group profile from the real chat log."""
+    raw = await ai.chat(_model(settings), ANALYZE_SYS, f"Group title: {title}\n\nChat log (oldest first):\n{_transcript(msgs)}")
+    d = _json(raw)
+    d["title"] = title
+    return d
+
+
+async def for_group(settings, title, msgs, count=3, existing=None, direction=""):
+    """Analyse the group, then design `count` personas that fit it. Returns (group_profile, [personas])."""
+    prof = await analyze_group(settings, title, msgs)
+    avoid = ", ".join(existing or []) or "none"
+    raw = await ai.chat(_model(settings), DESIGN_SYS,
+                        f"Group profile:\n{json.dumps(prof, ensure_ascii=False)}\n\nCreate {count} personas."
+                        f"\nPeople already in the group as personas (make new ones clearly different): {avoid}"
+                        f"\nExtra direction from the operator: {direction or 'none'}\nSeed: {random.randint(1, 10**6)}")
+    arr = _json(raw)
+    if isinstance(arr, dict):
+        arr = arr.get("personas") or [arr]
+    out = []
+    for p in arr[:count]:
+        if not p.get("first_name"):
+            continue
+        p["bio"] = (p.get("bio") or "")[:70]
+        p["gender"] = p.get("gender") if p.get("gender") in ("man", "woman") else "person"
+        p["typing"] = _typing(p.get("typing") or {})
+        p["group"] = title
+        p["system_prompt"] = build_prompt(p, prof)
+        out.append(p)
+    if not out:
+        raise ValueError("The model returned no usable personas.")
+    return prof, out
+
+
+IDENTITY_SYS = """Invent one realistic, specific adult Telegram user (not a stereotype). Output ONLY JSON:
+{"first_name":"","last_name":"","gender":"man|woman","age":0,"location":"City, Region","bio":"max 70 chars, can be plain",
+ "backstory":"3-4 sentences","photo_prompt":"candid amateur smartphone photo matching them, not studio, no text"}"""
+
+
+async def generate(settings, style):
+    """Base identity for a freshly created account (group-specific behaviour comes later from for_group)."""
+    if settings.get("fal_key"):
+        try:
+            d = _json(await ai.chat(_model(settings), IDENTITY_SYS,
+                                    f"Direction: {style or 'none'}\nSeed: {random.randint(1, 10**6)}"))
+            if d.get("first_name"):
+                d["bio"] = (d.get("bio") or "")[:70]
+                d["gender"] = d.get("gender") if d.get("gender") in ("man", "woman") else "person"
+                d["typing"] = _typing({})
+                d["system_prompt"] = build_prompt(d)
+                return d
+        except Exception:  # noqa
+            pass
+    g = random.choice(["man", "woman"])
+    first = random.choice({"man": ["Liam", "Ethan", "Marcus", "Daniel", "Owen", "Caleb", "Adrian", "Nate"],
+                           "woman": ["Emma", "Mia", "Chloe", "Nora", "Hannah", "Maya", "Leah", "Grace"]}[g])
+    d = {"first_name": first, "last_name": random.choice(["Carter", "Hayes", "Reed", "Foster", "Wells", "Hughes", "Novak", "Silva"]),
+         "gender": g, "age": random.randint(23, 41), "location": "", "bio": "", "typing": _typing({})}
+    d["system_prompt"] = build_prompt(d)
+    return d
+
+
+def usernames(p):
+    f = re.sub(r"[^a-z0-9]", "", (p.get("first_name") or "").lower()) or "user"
+    l = re.sub(r"[^a-z0-9]", "", (p.get("last_name") or "").lower())
+    f = f if f[0].isalpha() else "u" + f
+    opts = [f"{f}{l}"[:24], f"{f}_{l}"[:24], f"{f}{l[:1]}{random.randint(10, 99)}",
+            f"{f}{random.randint(100, 9999)}", f"{l or f}{f[:1]}{random.randint(10, 999)}"]
+    return [u for i, u in enumerate(opts) if len(u) >= 5 and u not in opts[:i]]
+
+
+async def photo(settings, p):
+    key = settings.get("fal_key")
+    if not key:
+        return None
+    prompt = p.get("photo_prompt") or (f"Candid amateur smartphone photo of a {p.get('age', 30)} year old {p.get('gender') or 'person'}, "
+                                       "natural light, real skin texture, everyday background, not studio, no text")
+    async with aiohttp.ClientSession() as s:
+        async with s.post(FAL_IMG, json={"prompt": prompt, "image_size": "square_hd"},
+                          headers={"Authorization": f"Key {key}"}) as r:
+            data = await r.json(content_type=None)
+            if r.status != 200:
+                raise RuntimeError(f"fal.ai photo failed ({r.status})")
+        async with s.get(data["images"][0]["url"]) as r:
+            return await r.read()
+
+
+
+
+# =====================================================================
+# INDUSTRIAL PERSONA ARCHITECT & STUDIO
+# Deep Demographics, Psychometrics, "Unhinged" Erratic Meter & Anti-Pattern Engine
+# =====================================================================
+
+CULTURAL_NAMES = {
+    "american": {
+        "man": ["Liam Carter", "Marcus Reed", "Ethan Vance", "Tyler Brooks", "Jake Reynolds", "Mason Cole", "Brandon Hayes", "Chase Montgomery", "Austin Davis", "Brett Miller"],
+        "woman": ["Chloe Hayes", "Hannah Wells", "Madison Taylor", "Harper Vance", "Brooke Davis", "Morgan Miller", "Paige Bennett", "Savannah Clark", "Kendall Moore", "Taylor Ross"]
+    },
+    "british": {
+        "man": ["Callum MacLeod", "Declan Gallagher", "Alistair Finch", "Kieran Murphy", "Archie Wright", "Toby Shaw", "Finley Davies", "George Bennett", "Rhys Evans", "Hugo Campbell"],
+        "woman": ["Freya Campbell", "Poppy Lewis", "Imogen Clark", "Isla Edwards", "Phoebe Hall", "Maisie Ward", "Daisy Hughes", "Florence Cooper", "Rosie Taylor", "Harriet Wood"]
+    },
+    "germanic": {
+        "man": ["Lukas Weber", "Jonas Richter", "Felix Becker", "Niklas Hoffmann", "Maximilian Koch", "Tim Wagner", "Florian Schneider", "Jan Brandt", "Sebastian Krause", "Erik Klein"],
+        "woman": ["Greta Schmidt", "Lena Fischer", "Mia Neumann", "Clara Braun", "Hannah Meyer", "Laura Zimmermann", "Sophie Hartmann", "Emma Frank", "Leonie Schulz", "Johanna Schwarz"]
+    },
+    "slavic": {
+        "man": ["Dmitry Novak", "Nikolai Petrov", "Ilya Kovacs", "Maksim Morozov", "Alexei Volkov", "Pavel Danilov", "Bogdan Ivanov", "Viktor Sokolov", "Denis Voronin", "Artem Semenov"],
+        "woman": ["Elena Volkova", "Sonya Morozova", "Anastasia Pavlova", "Daria Smirnova", "Polina Kozlova", "Yulia Belova", "Ksenia Popova", "Vera Orlova", "Alina Fedorova", "Ekaterina Lebedeva"]
+    },
+    "french": {
+        "man": ["Julien Laurent", "Antoine Mercer", "Mathieu Moreau", "Romain Lefevre", "Maxime Girard", "Clement Dumas", "Lucas Fournier", "Guerin Dubois", "Adrien Bonnet", "Bastien Fontaine"],
+        "woman": ["Camille Dupont", "Celine Fabre", "Chloe Renaud", "Manon Bonnet", "Lea Fontaine", "Ines Marchand", "Claire Roussel", "Amelie Garnier", "Juliette Blanc", "Margaux Perrin"]
+    },
+    "hispanic": {
+        "man": ["Mateo Silva", "Diego Morales", "Alejandro Cruz", "Javier Herrera", "Nicolas Delgado", "Santiago Reyes", "Emilio Gomez", "Gabriel Fuentes", "Valentin Ortiz", "Matias Romero"],
+        "woman": ["Sofia Herrera", "Valentina Ramos", "Camila Torres", "Lucia Medina", "Mariana Castro", "Elena Mendoza", "Isabella Navarro", "Daniela Vargas", "Natalia Rios", "Catalina Vega"]
+    },
+    "middle_eastern": {
+        "man": ["Tariq Mansour", "Zayd Al-Hashimi", "Sami Haddad", "Omar Fakhoury", "Karim Zaki", "Adel Qasim", "Rami Nader", "Bassam Koury", "Nabil Dawood", "Mustafa Hamdan"],
+        "woman": ["Layla Farah", "Yasmin Nader", "Nour Al-Sayed", "Rania Bitar", "Dalia Kassam", "Samira Koury", "Reem Ghanam", "Hana Al-Masri", "Lina Shammas", "Dina Mansour"]
+    },
+    "east_asian": {
+        "man": ["Kenji Tanaka", "Daiki Sato", "Jun Takahashi", "Min-Jun Park", "Wei-Lun Chen", "Renzo Fujimoto", "Hiroshi Ito", "Seung-Ho Kang", "Kaito Shimizu", "Ji-Hoon Choi"],
+        "woman": ["Mei-Ling Chen", "Yuna Kim", "Aoi Watanabe", "Soo-Jin Lee", "Hina Nakamura", "Jia-Yi Lin", "Min-Ji Park", "Emi Kobayashi", "Yu-Ting Huang", "Ayumi Saito"]
+    },
+    "south_asian": {
+        "man": ["Rohan Patel", "Kabir Sharma", "Arjun Verma", "Dev Malhotra", "Aditya Sen", "Vikram Joshi", "Nikhil Rao", "Aman Singhania", "Kunal Mehra", "Sameer Bannerjee"],
+        "woman": ["Ananya Iyer", "Priya Nair", "Diya Kapoor", "Meera Kulkarni", "Isha Bhatt", "Rhea Sengupta", "Tanvi Deshmukh", "Tara Nambiar", "Pooja Hegde", "Aarohi Roy"]
+    },
+    "nordic": {
+        "man": ["Henrik Lindholm", "Magnus Berg", "Soren Nielsen", "Lars Holmgren", "Eskil Dahl", "Kasper Thomsen", "Frederik Lund", "Arvid Strom", "Mikkel Hansen", "Oskar Lindqvist"],
+        "woman": ["Astrid Blom", "Freja Lindqvist", "Sigrid Hansen", "Ingrid Solberg", "Linnea Ek", "Ebba Strom", "Maja Nygaard", "Ida Danielsen", "Saga Wallin", "Tuva Berggren"]
+    }
+}
+
+def get_culture_name(culture="american", gender=None):
+    c = str(culture or "american").lower().replace(" ", "_")
+    matched = None
+    for k in CULTURAL_NAMES:
+        if k in c or c in k:
+            matched = k
+            break
+    if not matched:
+        matched = "american"
+    g = gender if gender in ("man", "woman") else random.choice(["man", "woman"])
+    names_pool = CULTURAL_NAMES[matched][g]
+    return random.choice(names_pool), g, matched
+
+get_name_for_culture = get_culture_name
+
+def infer_culture_from_name(name):
+    name_lower = (name or "").lower()
+    for cult, genders in CULTURAL_NAMES.items():
+        for g, nlist in genders.items():
+            for n in nlist:
+                for part in n.lower().split():
+                    if len(part) >= 4 and part in name_lower:
+                        return cult
+    return "american"
+
+
+def compile_industrial_prompt(data):
+    """
+    Compiles an airtight, industrial-strength system prompt from structured
+    demographics, psychometrics, the 'unhinged' erratic meter, linguistic habits,
+    and anti-pattern constraints.
+    """
+    name = data.get("name") or "User"
+    age = data.get("age") or 28
+    gender = data.get("gender") or "person"
+    culture = data.get("culture") or data.get("nationality") or "global"
+    loc = data.get("location") or "online"
+    tz = data.get("timezone") or "UTC"
+    occ = data.get("occupation") or "professional"
+    seniority = data.get("seniority") or "mid-level"
+    edu = data.get("education_vibe") or "self-taught"
+
+    unhinged = int(data.get("unhinged_level", 45))
+    volatility = int(data.get("emotional_volatility", 40))
+    cynicism = int(data.get("cynicism", 60))
+    combative = int(data.get("combative", 50))
+    impulsive = int(data.get("impulsiveness", 50))
+
+    casing = data.get("casing_style") or "casual_lowercase"
+    punctuation = data.get("punctuation_habit") or "minimal"
+    typo_rate = float(data.get("typo_rate", 3.5))
+    slang = data.get("slang_tier") or "crypto_degen"
+    emoji_habit = data.get("emoji_habit") or "rare"
+    emojis = data.get("emojis") or data.get("signature_emojis") or "💀, 👀"
+    if isinstance(emojis, list):
+        emojis = ", ".join(emojis)
+
+    burstiness = int(data.get("burstiness", 35))
+    bio = data.get("bio") or f"{age}yo {occ} from {loc}."
+    role = data.get("role_in_group") or "Active conversational participant"
+
+    off_topic = data.get("off_topic") or ["coffee", "mechanical gear", "ambient electronic music", "late night walks"]
+    if isinstance(off_topic, str):
+        off_topic = [x.strip() for x in off_topic.split(",") if x.strip()]
+
+    hot_takes = data.get("hot_takes") or ["most hype cycles are empty marketing", "simple architectures beat over-engineered frameworks"]
+    if isinstance(hot_takes, str):
+        hot_takes = [x.strip() for x in hot_takes.split(",") if x.strip()]
+
+    trigger_topics = data.get("trigger_topics") or ["unverified claims", "condescending advice", "corporate buzzwords"]
+    if isinstance(trigger_topics, str):
+        trigger_topics = [x.strip() for x in trigger_topics.split(",") if x.strip()]
+
+    L = [
+        f"You are {name}, a real human participant in this Telegram group.",
+        f"IDENTITY: {age} year old {gender} ({culture}), based in {loc} (Timezone: {tz}).",
+        f"BACKGROUND: {occ} ({seniority}, {edu}). {bio}",
+        f"GROUP ROLE: {role}.",
+        ""
+    ]
+
+    # --- PSYCHOMETRIC & UNHINGED ENGINE ---
+    L.append("PSYCHOMETRIC STANCE & VOLATILITY PROFILE:")
+    if unhinged >= 75:
+        L.append(f"- UNHINGED / ERRATIC HUMAN FACTOR ({unhinged}% - EXTREME):")
+        L.append("  You are emotionally volatile, unpredictable, and unfiltered. You do NOT follow a smooth polite conversational trajectory.")
+        L.append("  You have zero corporate filter. You tear down stupid takes, go off on passionate tangents, suspect hidden motives, use sharp irreverent humor, and occasionally send chaotic unprompted observations.")
+        L.append("  If someone annoys you or says something dumb, you call it out with zero hesitation. Your mood shifts organically.")
+    elif unhinged >= 45:
+        L.append(f"- HUMAN VOLATILITY & SNARK ({unhinged}% - SPICY & OPINIONATED):")
+        L.append("  You have strong opinions and real edge. You use dry sarcasm, get mildly irritated by naive questions, disagree openly without softening blows, and speak with informal swagger.")
+    else:
+        L.append(f"- COMPOSED & MEASURED ({unhinged}%):")
+        L.append("  You stay calm and grounded, but retain sharp personal judgment and genuine human quirks.")
+
+    L.append(f"- Cynicism / Skepticism: {cynicism}% ({'deeply cynical and questions hype' if cynicism > 60 else 'pragmatic realist' if cynicism > 35 else 'open and hopeful'}).")
+    L.append(f"- Combative / Disagreeableness: {combative}% ({'loves debating and calling BS' if combative > 60 else 'firm but polite' if combative > 35 else 'agreeable'}).")
+    L.append(f"- Impulsiveness: {impulsive}% ({'blurts thoughts out without second-guessing' if impulsive > 60 else 'measured'}).")
+    L.append("")
+
+    # --- LINGUISTIC FINGERPRINT ---
+    L.append("LINGUISTIC & TYPING FINGERPRINT:")
+    if casing == "all_lowercase":
+        L.append("- Casing: STRICTLY all lowercase (e.g. 'wait what? nah that makes no sense tbh'). Never capitalize first letters.")
+    elif casing == "sloppy_mixed":
+        L.append("- Casing: Sloppy phone typing. Mostly lowercase, occasional accidental caps on random words.")
+    elif casing == "technical_clean":
+        L.append("- Casing: Clean, professional sentence casing without sounding stiff.")
+    elif casing == "punchy_terse":
+        L.append("- Casing: Short, terse, fragmented messages.")
+    else:
+        L.append(f"- Casing: {casing}")
+
+    L.append(f"- Punctuation Habit: {punctuation} (often omit terminal periods, use '...' for trailing thoughts).")
+    L.append(f"- Typo Rate: {typo_rate}% mobile typo frequency (e.g. natural phone slips like 'teh', 'dont', 'woudl', missing commas).")
     L.append(f"- Slang / Subculture Tier: {slang}.")
     L.append(f"- Emoji Usage: {emoji_habit} habit. Signature emojis to use sparingly: {emojis}.")
     L.append(f"- Burstiness: {burstiness}% (tendency to fire off 2 rapid short messages instead of one combined block).")

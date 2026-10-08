@@ -42,6 +42,7 @@ function show(view) {
   if (view === 'accounts') loadAccounts();
   if (view === 'automation') loadAutomation();
   if (view === 'personas') loadPersonas();
+  if (view === 'groups') loadGroups();
   if (view === 'messages') loadDirectChats();
 }
 document.querySelectorAll('nav button').forEach((b) => b.onclick = () => show(b.dataset.view));
@@ -70,36 +71,253 @@ async function refreshStatus() {
   } catch { $('status').textContent = 'Background service starting…'; }
 }
 
+let currentGroupData = null;
+let groupSearchQuery = '';
+
 async function loadGroups() {
   try { groups = await api('GET', '/groups'); } catch { return; }
   const multiAcc = new Set(groups.map((g) => g.account_id).filter(Boolean)).size > 1;
-  $('group-list').innerHTML = groups.map((g) =>
-    `<div class="gitem ${current === g.chat_id ? 'sel' : ''}" data-id="${g.chat_id}"><span>${esc(g.title)}${g.account_name && multiAcc ? ` <small class="hint">· ${esc(g.account_name)}</small>` : ''}</span>${g.watched ? '<span class="dot"></span>' : ''}</div>`).join('');
-  document.querySelectorAll('#group-list .gitem').forEach((el) => el.onclick = () => openGroup(Number(el.dataset.id)));
+
+  const filtered = groups.filter((g) => {
+    if (!groupSearchQuery) return true;
+    const q = groupSearchQuery.toLowerCase();
+    return (g.title || '').toLowerCase().includes(q) ||
+           (g.about || '').toLowerCase().includes(q) ||
+           (g.tags || '').toLowerCase().includes(q) ||
+           String(g.chat_id).includes(q);
+  });
+
+  if (!$('group-list')) return;
+
+  if (filtered.length === 0) {
+    $('group-list').innerHTML = '<div class="hint" style="padding: 10px;">No matching groups found.</div>';
+  } else {
+    $('group-list').innerHTML = filtered.map((g) => {
+      const isSel = current === g.chat_id;
+      const isBio = (g.title || '').toLowerCase().includes('xbio') || (g.tags || '').toLowerCase().includes('peptide');
+      const tagSnippet = isBio ? 'Peptides / Vendor' : (g.tags ? g.tags.split(',')[0].trim() : '');
+      return `<div class="gitem ${isSel ? 'sel' : ''}" data-id="${g.chat_id}">
+        <div style="flex: 1; min-width: 0;">
+          <div style="font-weight: 600; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+            ${esc(g.title || 'Untitled Group')}
+          </div>
+          <div class="hint" style="font-size: 10.5px; display: flex; gap: 4px; align-items: center; margin-top: 2px;">
+            ${tagSnippet ? `<span class="p-tag" style="font-size: 9.5px; padding: 1px 4px;">${esc(tagSnippet)}</span>` : ''}
+            ${g.account_name && multiAcc ? `<span>· ${esc(g.account_name)}</span>` : ''}
+          </div>
+        </div>
+        <div style="display: flex; gap: 4px; align-items: center;">
+          ${g.auto_reply ? '<span style="font-size: 9px; padding: 1px 4px; border-radius: 3px; background: rgba(47,196,178,.15); color: var(--accent);">AUTO</span>' : ''}
+          ${g.watched ? '<span class="dot" title="Watched"></span>' : ''}
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  document.querySelectorAll('#group-list .gitem').forEach((el) => {
+    el.onclick = () => openGroup(Number(el.dataset.id));
+  });
+
+  // If none selected but groups exist, open the first one (prefer xbiolabs if present)
+  if (!current && groups.length > 0) {
+    const xbio = groups.find((g) => (g.title || '').toLowerCase().includes('xbio'));
+    openGroup(xbio ? xbio.chat_id : groups[0].chat_id);
+  }
 }
 
 async function openGroup(id) {
-  current = id; show('groups');
-  const g = groups.find((x) => x.chat_id === id);
-  $('group-empty').classList.add('hidden'); $('group-detail').classList.remove('hidden');
-  $('g-title').textContent = g.title; $('g-watch').checked = !!g.watched; $('g-auto').checked = !!g.auto_reply;
-  $('g-persona').value = g.persona || '';
-  loadGroups(); loadFeed();
+  current = id;
+  $('group-empty').classList.add('hidden');
+  $('group-detail').classList.remove('hidden');
+
+  try {
+    const g = await api('GET', `/groups/${id}`);
+    currentGroupData = g;
+
+    $('g-title').textContent = g.title || 'Group ' + g.chat_id;
+    $('g-chat-id-badge').textContent = 'ID: ' + g.chat_id;
+    $('g-watch').checked = !!g.watched;
+    $('g-auto').checked = !!g.auto_reply;
+
+    $('g-about').value = g.about || '';
+    $('g-rules').value = g.rules || '';
+    $('g-domain-knowledge').value = g.domain_knowledge || '';
+    $('g-tags').value = g.tags || '';
+    $('g-persona').value = g.persona || '';
+
+    // Render group accounts table
+    renderGroupAccounts(g);
+  } catch (e) {
+    const fallback = groups.find((x) => x.chat_id === id);
+    if (fallback) {
+      $('g-title').textContent = fallback.title || 'Group ' + fallback.chat_id;
+      $('g-chat-id-badge').textContent = 'ID: ' + fallback.chat_id;
+      $('g-watch').checked = !!fallback.watched;
+      $('g-auto').checked = !!fallback.auto_reply;
+      $('g-about').value = fallback.about || '';
+      $('g-rules').value = fallback.rules || '';
+      $('g-domain-knowledge').value = fallback.domain_knowledge || '';
+      $('g-tags').value = fallback.tags || '';
+      $('g-persona').value = fallback.persona || '';
+    }
+  }
+
+  // Refresh active selection highlight in list
+  document.querySelectorAll('#group-list .gitem').forEach((el) => {
+    el.classList.toggle('sel', Number(el.dataset.id) === id);
+  });
+
+  loadFeed();
 }
+
+function renderGroupAccounts(g) {
+  const container = $('g-accounts-table');
+  const countLabel = $('g-acc-count');
+  if (!container) return;
+
+  const accs = g.accounts || [];
+  countLabel.textContent = `${accs.length} account${accs.length === 1 ? '' : 's'} linked`;
+
+  if (accs.length === 0) {
+    container.innerHTML = '<div class="hint" style="padding: 12px;">No Telegram accounts currently detected in this group. Sync dialogs or add an account.</div>';
+    return;
+  }
+
+  // Fetch personas for dropdown
+  const personaOpts = (allPersonas || []).map((p) =>
+    `<option value="${p.id}">${esc(p.name)}</option>`
+  ).join('');
+
+  container.innerHTML = accs.map((a) => {
+    return `<div class="g-acc-row">
+      <div>
+        <div class="acc-name">${esc(a.name || 'Account ' + a.id)}</div>
+        <div class="acc-user">${esc(a.username ? '@' + a.username : a.phone || '')}</div>
+      </div>
+      <div>
+        <select class="p-select" data-acc-id="${a.id}" style="height: 28px; font-size: 11.5px;">
+          <option value="">No Persona Assigned</option>
+          ${(allPersonas || []).map((p) => `<option value="${p.id}" ${p.id === a.persona_id ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}
+        </select>
+      </div>
+      <div style="text-align: right;">
+        <span class="p-tag" style="font-size: 10px;">${a.persona_id ? 'Active Persona' : 'Unassigned'}</span>
+      </div>
+    </div>`;
+  }).join('');
+
+  container.querySelectorAll('select').forEach((sel) => {
+    sel.onchange = async (e) => {
+      const aid = Number(sel.dataset.accId);
+      const pid = sel.value ? Number(sel.value) : null;
+      try {
+        await api('POST', '/personas/assign-matrix', {
+          chat_id: current,
+          account_id: aid,
+          persona_id: pid
+        });
+        if (currentGroupData) openGroup(current);
+      } catch (err) {
+        alert('Failed to update persona assignment: ' + err.message);
+      }
+    };
+  });
+}
+
+// Sub Tab Switching for Groups
+document.querySelectorAll('[data-gtab]').forEach((tab) => {
+  tab.onclick = () => {
+    document.querySelectorAll('[data-gtab]').forEach((t) => t.classList.toggle('active', t === tab));
+    const target = tab.dataset.gtab;
+    $('gtab-about-view').classList.toggle('hidden', target !== 'about');
+    $('gtab-accounts-view').classList.toggle('hidden', target !== 'accounts');
+    $('gtab-feed-view').classList.toggle('hidden', target !== 'feed');
+  };
+});
+
+// Search input
+$('g-search-input')?.addEventListener('input', (e) => {
+  groupSearchQuery = e.target.value.trim();
+  loadGroups();
+});
+
+// Save Group Changes
+$('g-save-btn').onclick = async () => {
+  if (!current) return;
+  const btn = $('g-save-btn');
+  btn.disabled = true;
+  btn.textContent = 'Saving...';
+  try {
+    await api('POST', `/groups/${current}`, {
+      about: $('g-about').value,
+      rules: $('g-rules').value,
+      domain_knowledge: $('g-domain-knowledge').value,
+      tags: $('g-tags').value,
+      persona: $('g-persona').value,
+      watched: $('g-watch').checked ? 1 : 0,
+      auto_reply: $('g-auto').checked ? 1 : 0
+    });
+    btn.textContent = 'Saved!';
+    setTimeout(() => { btn.textContent = 'Save Changes'; btn.disabled = false; }, 1500);
+    loadGroups();
+  } catch (err) {
+    alert('Failed to save group details: ' + err.message);
+    btn.textContent = 'Save Changes';
+    btn.disabled = false;
+  }
+};
+
+// Load xbiolabs Preset Button
+$('g-load-xbiolabs-btn').onclick = async () => {
+  if (!current) return;
+  if (!confirm('Load comprehensive xbiolabs vendor and peptide community domain knowledge into this group?')) return;
+  try {
+    const res = await api('POST', `/groups/${current}/load-xbiolabs-preset`);
+    $('g-about').value = res.about || '';
+    $('g-domain-knowledge').value = res.domain_knowledge || '';
+    $('g-tags').value = res.tags || '';
+    $('g-rules').value = res.rules || '';
+    alert('xbiolabs / peptide domain knowledge loaded successfully!');
+    loadGroups();
+  } catch (err) {
+    alert('Could not load preset: ' + err.message);
+  }
+};
+
+// Test Chat Button
+$('g-test-chat-btn').onclick = () => {
+  if (current) runGroupTestChat(current);
+};
+
+// Sync Dialogs Button
+$('g-sync-btn').onclick = async () => {
+  const btn = $('g-sync-btn');
+  btn.disabled = true;
+  btn.textContent = 'Syncing...';
+  try {
+    await api('GET', '/groups');
+    loadGroups();
+  } catch (_) {}
+  btn.textContent = 'Sync Dialogs';
+  btn.disabled = false;
+};
+
+// Watch & Auto-Reply Quick Toggles
+$('g-watch').onchange = (e) => api('POST', `/groups/${current}`, { watched: e.target.checked ? 1 : 0 }).then(loadGroups);
+$('g-auto').onchange = (e) => api('POST', `/groups/${current}`, { auto_reply: e.target.checked ? 1 : 0 }).then(loadGroups);
+
+// Summarize & Draft Actions
+$('g-summarize').onclick = () => api('POST', `/groups/${current}/summarize`).then(() => setTimeout(loadFeed, 3000));
+$('g-draft').onclick = () => api('POST', `/groups/${current}/draft_reply`).then(() => setTimeout(loadFeed, 3000));
 
 async function loadFeed() {
   if (!current) return;
-  const f = await api('GET', `/groups/${current}/feed`);
-  $('g-summaries').innerHTML = f.summaries.map((s) => `<div class="card">${esc(s.body)}<div class="hint">${new Date(s.created * 1000).toLocaleString()}</div></div>`).join('') || '<div class="hint">No notes yet.</div>';
-  $('g-messages').innerHTML = f.messages.slice(-60).map((m) => `<div class="msg"><b>${esc(m.sender)}</b> ${esc(m.text)}</div>`).join('') || '<div class="hint">No messages collected yet.</div>';
+  try {
+    const f = await api('GET', `/groups/${current}/feed`);
+    $('g-summaries').innerHTML = f.summaries.map((s) => `<div class="card">${esc(s.body)}<div class="hint">${new Date(s.created * 1000).toLocaleString()}</div></div>`).join('') || '<div class="hint">No notes yet.</div>';
+    $('g-messages').innerHTML = f.messages.slice(-60).map((m) => `<div class="msg"><b>${esc(m.sender)}</b> ${esc(m.text)}</div>`).join('') || '<div class="hint">No messages collected yet.</div>';
+  } catch (_) {}
 }
-
-const upd = (b) => api('POST', `/groups/${current}`, b).then(loadGroups);
-$('g-watch').onchange = (e) => upd({ watched: e.target.checked ? 1 : 0 });
-$('g-auto').onchange = (e) => upd({ auto_reply: e.target.checked ? 1 : 0 });
-$('g-persona').onchange = (e) => upd({ persona: e.target.value });
-$('g-summarize').onclick = () => api('POST', `/groups/${current}/summarize`).then(() => setTimeout(loadFeed, 4000));
-$('g-draft').onclick = () => api('POST', `/groups/${current}/draft_reply`).then(() => setTimeout(loadFeed, 4000));
 
 async function loadQueue() {
   const rows = await api('GET', '/queue');

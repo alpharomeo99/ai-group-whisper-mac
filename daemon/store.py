@@ -76,14 +76,83 @@ class Store:
             "ALTER TABLE groups ADD COLUMN profile TEXT DEFAULT ''",
             "CREATE TABLE IF NOT EXISTS group_accounts (chat_id INTEGER, account_id INTEGER, PRIMARY KEY(chat_id, account_id))",
             "CREATE TABLE IF NOT EXISTS direct_chats (account_id INTEGER, peer_id INTEGER, peer_name TEXT, peer_username TEXT, peer_phone TEXT, last_msg TEXT, last_ts INTEGER, unread_count INTEGER DEFAULT 0, auto_reply INTEGER DEFAULT 0, persona_id INTEGER, PRIMARY KEY(account_id, peer_id))",
-            "CREATE TABLE IF NOT EXISTS direct_messages (id INTEGER PRIMARY KEY AUTOINCREMENT, account_id INTEGER, peer_id INTEGER, msg_id INTEGER, sender_name TEXT, incoming INTEGER DEFAULT 1, text TEXT, ts INTEGER)"
-        ):
+                        "CREATE TABLE IF NOT EXISTS direct_messages (id INTEGER PRIMARY KEY AUTOINCREMENT, account_id INTEGER, peer_id INTEGER, msg_id INTEGER, sender_name TEXT, incoming INTEGER DEFAULT 1, text TEXT, ts INTEGER)",
+            "ALTER TABLE groups ADD COLUMN topic TEXT DEFAULT ''",
+            "ALTER TABLE groups ADD COLUMN about TEXT DEFAULT ''",
+            "ALTER TABLE groups ADD COLUMN domain_knowledge TEXT DEFAULT ''",
+            "ALTER TABLE groups ADD COLUMN tags TEXT DEFAULT ''",
+            "ALTER TABLE groups ADD COLUMN rules TEXT DEFAULT ''"
+):
             try:
                 self.db.execute(ddl)
             except sqlite3.OperationalError:
                 pass  # already migrated
         self.db.commit()
+        self.seed_xbiolabs_and_personas()
 
+    def seed_xbiolabs_and_personas(self):
+        """Seeds or updates xbiolabs group domain context and updates personas with peptide mastery."""
+        try:
+            xbiolabs_about = "Official vendor and community group for xbiolabs. While it is a vendor group, the community actively discusses everything related to peptides, underground biohacking, and health optimization."
+            xbiolabs_domain = (
+                "Comprehensive domain mastery across all topics discussed in xbiolabs: "
+                "1. PEPTIDES & RESEARCH CHEMICALS: In-depth familiarity with BPC-157 (gut repair, tendon healing), TB-500/Thymosin Beta-4 (tissue regeneration), Semaglutide/Ozempic, Tirzepatide/Mounjaro, Retatrutide (triple GIP/GLP-1/glucagon agonist), GHK-Cu (copper peptide for tissue/skin/collagen), CJC-1295 no DAC & Ipamorelin (GH secretagogues), Sermorelin, MOTS-c (mitochondrial optimization), Epitalon (telomere elongation), NAD+ injections, Kisspeptin, MT-2. "
+                "2. RECONSTITUTION & DOSING PROTOCOLS: Proper mixing techniques with bacteriostatic water (BAC), calculating mcg per tick on 100-unit/30-unit insulin syringes, sterile needle hygiene, subQ vs IM administration sites, cold fridge storage, avoiding vigorous shaking. "
+                "3. VENDOR OPERATIONS & BUYING: Sourcing, batch COA purity verification, HPLC/Janoshik lab test reports, ordering procedures, payment methods (crypto/Bitcoin/USDT, wire), tracking numbers, customs handling, stealth domestic shipping, discrete packaging, pricing per vial vs kit (10 vials), reship policies, customer service resolution. "
+                "4. GEAR & ANABOLIC PROTOCOLS: TRT bases (test cypionate, test enanthate), Primobolan, Masteron, Anavar/Oxandrolone, Deca/NPP, estrogen management (Arimidex/anastrozole, Aromasin), prolactin control (Cabergoline), post cycle therapy (PCT - Enclomiphene, Nolvadex, HCG). "
+                "5. PROGRESS & HEALTH MONITORING: Bloodwork interpretation (CBC, CMP, lipid panels, ApoB, hs-CRP, total/free test, sensitive estradiol, ALT/AST liver enzymes, eGFR kidney health), DEXA scans, body composition, fatigue markers. "
+                "6. SEXUAL ENHANCEMENT: PT-141/Bremelanotide (melanocortin receptor agonist for libido), PDE5 inhibitors (Tadalafil/Cialis daily vs as-needed, Sildenafil/Viagra), Melanotan-2 (tanning + libido synergy). "
+                "7. WELLNESS & LONGEVITY: Mitochondrial health, sleep optimization, metabolic flexibility, anti-inflammatory protocols. "
+                "8. NOOTROPICS & NEUROCHEMISTRY: Semax (NA-Semax-Amidate for BDNF and focus), Selank (anxiolytic peptide), Bromantane (dopamine upregulation), Modafinil/Armodafinil, L-Tyrosine, Alpha-GPC. "
+                "9. TONE & PARTICIPATION: Speak as experienced, grounded community insiders who share real personal experiences, troubleshoot reconstitutions, exchange batch updates, and talk shop casually without generic corporate disclaimers."
+            )
+            xbiolabs_tags = "peptides, vendor, dosing, buying, shipping, pricing, coa, bpc157, retatrutide, tirzepatide, gear, trt, sexual-enhancement, pt141, nootropics, wellness, xbiolabs"
+            xbiolabs_rules = "Be authentic, direct, and knowledgeable. Share real protocol experiences, discuss batch quality honestly, offer practical dosing and reconstitution tips, and respect vendor shipping/payment guidelines."
+
+            cur = self.db.cursor()
+            cur.execute("SELECT chat_id FROM groups WHERE LOWER(title) LIKE '%xbiolabs%' OR LOWER(title) LIKE '%xbio%'")
+            rows = cur.fetchall()
+            if rows:
+                for r in rows:
+                    cur.execute(
+                        "UPDATE groups SET about=?, domain_knowledge=?, tags=?, rules=? WHERE chat_id=?",
+                        (xbiolabs_about, xbiolabs_domain, xbiolabs_tags, xbiolabs_rules, r[0])
+                    )
+            else:
+                cur.execute(
+                    "INSERT INTO groups(chat_id, title, watched, auto_reply, about, domain_knowledge, tags, rules) "
+                    "VALUES(?, ?, 1, 1, ?, ?, ?, ?)",
+                    (-1001988234120, "xbiolabs", xbiolabs_about, xbiolabs_domain, xbiolabs_tags, xbiolabs_rules)
+                )
+
+            # Update personas: enrich old and current personas with xbiolabs & peptide domain mastery
+            cur.execute("SELECT id, name, prompt, details FROM personas")
+            persona_rows = cur.fetchall()
+            for pid, pname, prompt, dt_raw in persona_rows:
+                prompt_str = prompt or ""
+                if "xbiolabs" not in prompt_str.lower() and "peptides" not in prompt_str.lower():
+                    prompt_str += (
+                        f"\n\nCOMMUNITY DOMAIN MASTERY (xbiolabs & Peptides):\n"
+                        f"- You are a veteran member of the xbiolabs vendor & peptide community.\n"
+                        f"- Deeply knowledgeable in: peptides (BPC-157, TB-500, Tirzepatide, Retatrutide, Semaglutide, GHK-Cu, CJC/Ipamorelin), "
+                        f"dosing, reconstitution math (BAC water), vendor shipping, tracking, pricing, batch COAs, "
+                        f"gear/TRT (test, primo, mast, var), sexual enhancements (PT-141, Cialis), wellness, and nootropics.\n"
+                        f"- Discuss these topics casually and conversationally like a true insider."
+                    )
+                    try:
+                        d = json.loads(dt_raw or "{}")
+                    except Exception:
+                        d = {}
+                    off_topic = d.get("off_topic") or d.get("off_topic_interests") or []
+                    if "peptide protocols & sourcing" not in off_topic:
+                        off_topic.extend(["peptide protocols & sourcing", "gear & bloodwork", "nootropics", "xbiolabs batch testing"])
+                        d["off_topic"] = off_topic
+                    d["domain_mastery"] = "xbiolabs peptides, dosing, buying, shipping, gear, sexual enhancement, nootropics"
+                    cur.execute("UPDATE personas SET prompt=?, details=? WHERE id=?", (prompt_str, json.dumps(d), pid))
+
+            self.db.commit()
+        except Exception:
+            pass
     def q(self, sql, args=()):
         with self.lock:
             cur = self.db.execute(sql, args)

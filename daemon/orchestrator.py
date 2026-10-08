@@ -61,21 +61,21 @@ class PersonaCadenceOrchestrator:
     # ---------------- 2. Non-homogeneous Poisson Process & Delays ----------------
     def calculate_deliberation_delay(self, text, reading_cps=32.0, poisson_lambda=0.08):
         """Calculates human-realistic response delay:
-        Total Delay = Reading Time + Deliberation Reaction (Exponential stochastic process).
+        Total Delay = Reading Time (log-normal on incoming text size) + Deliberation Reaction (Poisson/exponential).
         """
         text_len = max(len(text or ""), 1)
-        # Reading time with log-normal variability
+        # Reading time with log-normal cognitive variability (humans read ~250-350 WPM -> ~25-35 CPS)
         mean_read = text_len / max(reading_cps, 5.0)
-        read_time = mean_read * random.lognormvariate(0.0, 0.2)
+        read_time = mean_read * random.lognormvariate(0.0, 0.22)
 
-        # Exponential reaction latency: -ln(U) / lambda
+        # Exponential reaction latency: -ln(U) / lambda (Poisson process)
         u = max(random.random(), 1e-6)
         deliberation_time = -math.log(u) / max(poisson_lambda, 0.01)
 
-        # Clamp deliberation to realistic ranges [2.0s, 45.0s]
-        deliberation_time = max(2.0, min(deliberation_time, 45.0))
+        # Clamp deliberation to realistic ranges [1.5s, 35.0s]
+        deliberation_time = max(1.5, min(deliberation_time, 35.0))
         total_delay = read_time + deliberation_time
-        return max(3.0, min(total_delay, 60.0))
+        return max(2.5, min(total_delay, 45.0))
 
     # ---------------- 3. Fatigue & Cooldown Dynamics (Hawkes Decay) ----------------
     def compute_fatigue(self, chat_id, persona_id, tau=240.0):
@@ -127,8 +127,8 @@ class PersonaCadenceOrchestrator:
         # Scan persona interests & keywords
         role = (details.get("role_in_group") or "").lower()
         backstory = (details.get("backstory") or "").lower()
-        off_topic = [str(x).lower() for x in (details.get("off_topic_interests") or [])]
-        opinions = [str(x).lower() for x in (details.get("opinions_and_habits") or [])]
+        off_topic = [str(x).lower() for x in (details.get("off_topic_interests") or details.get("off_topic") or [])]
+        opinions = [str(x).lower() for x in (details.get("opinions_and_habits") or details.get("hot_takes") or [])]
 
         keyword_hits = 0
         tokens = set(re.findall(r"\b\w{3,}\b", text_lower))
@@ -141,7 +141,7 @@ class PersonaCadenceOrchestrator:
             score += min(0.40, keyword_hits * 0.12)
 
         # Taboo suppression
-        taboos = [str(t).lower() for t in (details.get("taboos_and_dislikes") or [])]
+        taboos = [str(t).lower() for t in (details.get("taboos_and_dislikes") or details.get("trigger_topics") or [])]
         for t in taboos:
             if t and t in text_lower:
                 score -= 0.30
@@ -156,7 +156,6 @@ class PersonaCadenceOrchestrator:
         """
         cfg = self.get_config()
         if not cfg["enabled"]:
-            # If disabled, only respond on direct mention
             if is_direct_mention and candidate_personas:
                 p = candidate_personas[0]
                 return p["persona_id"], p["account_id"], 3.0, "Direct mention (cadence disabled)"
@@ -165,12 +164,26 @@ class PersonaCadenceOrchestrator:
         now = time.time()
         chat_id = int(chat_id)
 
-        # Check anti-dogpile window: did any of our personas in this group speak very recently?
+        # Multi-persona turn-taking & anti-dogpile control:
         if chat_id in self.last_group_speakers:
             last_pid, last_time = self.last_group_speakers[chat_id]
             time_since_last = now - last_time
-            if time_since_last < cfg["anti_dogpile_window"] and not is_direct_mention:
-                return None, None, 0, f"Anti-dogpile active: persona {last_pid} spoke {int(time_since_last)}s ago"
+
+            # 1. Self-suppression / Refractory period:
+            # Prevent the SAME persona from monopolizing the conversation and talking to itself
+            same_speaker_cooldown = float(cfg.get("same_speaker_cooldown", 28.0))
+            if time_since_last < same_speaker_cooldown and not is_direct_mention:
+                other_candidates = [cp for cp in candidate_personas if cp.get("persona_id") != last_pid]
+                if other_candidates:
+                    candidate_personas = other_candidates
+                else:
+                    return None, None, 0, f"Same-speaker refractory cooldown active for persona {last_pid} ({int(time_since_last)}s < {int(same_speaker_cooldown)}s)"
+
+            # 2. Inter-bot team spacing:
+            # Enforce a natural human pause between different personas so they don't blast replies at the same second
+            inter_spacing = min(float(cfg.get("anti_dogpile_window", 8.0)), 12.0)
+            if time_since_last < inter_spacing and not is_direct_mention:
+                return None, None, 0, f"Inter-persona spacing buffer active ({int(time_since_last)}s < {int(inter_spacing)}s)"
 
         # Calculate time-of-day circadian activity factor
         circadian_mod = 1.0
@@ -195,23 +208,29 @@ class PersonaCadenceOrchestrator:
             # 2. Direct mention or reply boost
             salience_boost = 0.50 if is_direct_mention else 0.0
 
-            # 3. Fatigue penalty (Hawkes process)
+            # 3. Fatigue penalty (Hawkes process self-excitation decay)
             fatigue = self.compute_fatigue(chat_id, pid, tau=cfg["fatigue_decay_tau"])
             fatigue_penalty = fatigue * cfg["fatigue_increment"]
 
-            # 4. Total probability utility score
-            # Score = (Relevance + Salience) * Circadian - Fatigue
-            utility = ((rel_score + salience_boost) * circadian_mod) - fatigue_penalty
+            # 4. Freshness / Novelty Boost:
+            # If an account/persona hasn't spoken yet (e.g. newly added user or quiet member),
+            # give it a strong priority bonus so it is elected next!
+            freshness_boost = 0.30 if fatigue < 0.05 else (0.15 if fatigue < 0.20 else 0.0)
+
+            # 5. Total probability utility score
+            # Score = (Relevance + Salience) * Circadian - Fatigue + Freshness
+            utility = ((rel_score + salience_boost) * circadian_mod) - fatigue_penalty + freshness_boost
 
             # Add stochastic perturbation to break ties
-            perturbed_utility = utility + random.uniform(-0.04, 0.04)
+            perturbed_utility = utility + random.uniform(-0.03, 0.03)
 
             scored_candidates.append({
                 "persona_id": pid,
                 "account_id": aid,
                 "utility": perturbed_utility,
                 "fatigue": fatigue,
-                "rel_score": rel_score
+                "rel_score": rel_score,
+                "freshness": freshness_boost
             })
 
         if not scored_candidates:
@@ -232,11 +251,11 @@ class PersonaCadenceOrchestrator:
         if best["utility"] < effective_threshold:
             return None, None, 0, f"Utility {best['utility']:.2f} below threshold {effective_threshold:.2f} (Fatigue: {best['fatigue']:.2f})"
 
-        # Calculate stochastic Poisson delay
+        # Calculate stochastic Poisson delay for cognitive deliberation
         delay = self.calculate_deliberation_delay(
             msg_text,
             reading_cps=cfg["reading_cps"],
             poisson_lambda=cfg["poisson_lambda"]
         )
 
-        return best["persona_id"], best["account_id"], delay, f"Elected (utility: {best['utility']:.2f}, fatigue: {best['fatigue']:.2f}, delay: {delay:.1f}s)"
+        return best["persona_id"], best["account_id"], delay, f"Elected (utility: {best['utility']:.2f}, fatigue: {best['fatigue']:.2f}, freshness: {best['freshness']:.2f}, delay: {delay:.1f}s)"
