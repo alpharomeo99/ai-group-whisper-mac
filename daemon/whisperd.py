@@ -318,10 +318,7 @@ class Daemon:
                 "ON CONFLICT(chat_id) DO UPDATE SET title=excluded.title",
                 (chat_id, title, aid if has_persona else None)
             )
-            if has_persona:
-                self.store.q("INSERT OR IGNORE INTO group_accounts(chat_id, account_id) VALUES(?,?)", (chat_id, aid))
-            else:
-                self.store.q("DELETE FROM group_accounts WHERE chat_id=? AND account_id=?", (chat_id, aid))
+            self.store.q("INSERT OR IGNORE INTO group_accounts(chat_id, account_id) VALUES(?,?)", (chat_id, aid))
         except Exception:
             pass
         chat_id = event.chat_id
@@ -562,16 +559,10 @@ class Daemon:
                             "account_id=COALESCE(groups.account_id, ?)",
                             (d.id, title, aid if has_persona else None)
                         )
-                        if has_persona:
-                            self.store.q(
-                                "INSERT OR IGNORE INTO group_accounts(chat_id, account_id) VALUES(?,?)",
-                                (d.id, aid)
-                            )
-                        else:
-                            self.store.q(
-                                "DELETE FROM group_accounts WHERE chat_id=? AND account_id=?",
-                                (d.id, aid)
-                            )
+                        self.store.q(
+                            "INSERT OR IGNORE INTO group_accounts(chat_id, account_id) VALUES(?,?)",
+                            (d.id, aid)
+                        )
                     elif d.is_user and not getattr(d.entity, 'is_self', False) and not getattr(d.entity, 'bot', False):
                         p_name = d.name or "User"
                         p_user = getattr(d.entity, 'username', '') or ''
@@ -1190,9 +1181,7 @@ class Daemon:
         # ----- network graph (personas -> accounts -> groups) -----
         @r.get("/graph")
         async def graph(_):
-            # Clean up orphaned group linkages: accounts without a persona cannot be connected to groups
-            self.store.q("DELETE FROM group_accounts WHERE account_id IN (SELECT id FROM accounts WHERE persona_id IS NULL)")
-            self.store.q("UPDATE groups SET account_id=NULL WHERE account_id IN (SELECT id FROM accounts WHERE persona_id IS NULL)")
+            # Groups and accounts graph query: only accounts with active persona are wired to groups
 
             if not self.store.q("SELECT COUNT(*) FROM groups").fetchone()[0] and self.clients:
                 try:
@@ -1318,6 +1307,9 @@ class Daemon:
             aid = int(b["account_id"])
             pid = int(b["persona_id"]) if b.get("persona_id") else None
             self.store.q("UPDATE accounts SET persona_id=? WHERE id=?", (pid, aid))
+            if pid:
+                # Update groups default account_id if needed
+                self.store.q("UPDATE groups SET account_id=COALESCE(account_id, ?) WHERE chat_id IN (SELECT chat_id FROM group_accounts WHERE account_id=?)", (aid, aid))
             return J({"ok": True})
 
         @r.post("/graph/link")
@@ -1533,6 +1525,8 @@ class Daemon:
                 if r.rowcount == 0:
                     self.store.q("INSERT INTO group_personas(chat_id,persona_id,account_id,created) VALUES(?,?,?,?)",
                                  (cid, pid, aid, int(time.time())))
+                self.store.q("INSERT OR IGNORE INTO group_accounts(chat_id, account_id) VALUES(?,?)", (cid, aid))
+                self.store.q("UPDATE groups SET account_id=COALESCE(account_id, ?) WHERE chat_id=?", (aid, cid))
             return J({"ok": True})
 
         @r.post("/personas")

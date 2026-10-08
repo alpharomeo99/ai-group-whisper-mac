@@ -530,63 +530,126 @@ async function loadPersonas() {
   }
 }
 
+// ----- Primary Persona View & Tab Controller -----
+let currentStudioPersonaId = null;
+
+function switchPersonaTab(tabKey) {
+  const tabs = ['roster', 'studio', 'matrix', 'cadence'];
+  tabs.forEach((t) => {
+    const el = $('p-tab-' + t);
+    if (el) el.classList.toggle('hidden', t !== tabKey);
+  });
+  if ($('p-main-tabs')) {
+    $('p-main-tabs').querySelectorAll('.p-tab').forEach((b) => {
+      b.classList.toggle('active', b.dataset.ptab === tabKey);
+    });
+  }
+}
+
+if ($('p-main-tabs')) {
+  $('p-main-tabs').querySelectorAll('.p-tab').forEach((b) => {
+    b.onclick = () => {
+      const tabKey = b.dataset.ptab;
+      if (tabKey === 'studio' && !currentStudioPersonaId) {
+        openPersonaStudio(null);
+      } else {
+        switchPersonaTab(tabKey);
+      }
+    };
+  });
+}
+
 function renderPersonaRoster() {
   const container = $('p-roster-grid');
   const countEl = $('p-roster-count');
   const personas = personaData.personas || [];
-  countEl.textContent = `${personas.length} personas`;
+  const matrix = personaData.matrix || [];
+  const accounts = personaData.accounts || [];
+
+  if (countEl) countEl.textContent = `${personas.length} persona${personas.length === 1 ? '' : 's'}`;
+
+  // Calculate high-level summary metrics
+  const boundAccountIds = new Set(accounts.filter((a) => a.persona_id).map((a) => a.id));
+  const activeGroupsCount = matrix.filter((g) => (g.user_assignments || []).some((u) => u.assigned_persona || u.fallback_persona)).length;
+
+  let totalUnhinged = 0;
+  let unhingedCount = 0;
+  personas.forEach((p) => {
+    const d = p.details || {};
+    const u = d.unhinged_level != null ? d.unhinged_level : (d.psychometrics && d.psychometrics.unhinged_level);
+    if (u != null) {
+      totalUnhinged += Number(u);
+      unhingedCount++;
+    }
+  });
+  const avgUnhinged = unhingedCount > 0 ? Math.round(totalUnhinged / unhingedCount) : null;
+
+  if ($('p-metric-total')) $('p-metric-total').textContent = personas.length;
+  if ($('p-metric-bound')) $('p-metric-bound').textContent = `${boundAccountIds.size} / ${accounts.length}`;
+  if ($('p-metric-groups')) $('p-metric-groups').textContent = activeGroupsCount;
+  if ($('p-metric-unhinged')) $('p-metric-unhinged').textContent = avgUnhinged != null ? `${avgUnhinged}%` : '--';
 
   if (!personas || personas.length === 0) {
-    container.innerHTML = '<div class="empty">No personas created yet. Click "+ New Persona" or study a group.</div>';
+    container.innerHTML = `
+      <div class="empty" style="grid-column: 1 / -1; padding: 36px 20px; text-align: center;">
+        <div style="font-size:24px; margin-bottom:8px;">🎛️</div>
+        <strong style="font-size:15px; display:block; margin-bottom:4px;">No personas created yet</strong>
+        <p class="hint" style="margin-bottom:14px;">Open the Persona Studio to configure your first autonomous agent persona.</p>
+        <button type="button" class="primary" id="p-btn-empty-studio" style="padding:8px 18px; font-weight:600;">+ Open Persona Studio</button>
+      </div>
+    `;
+    const emptyBtn = $('p-btn-empty-studio');
+    if (emptyBtn) emptyBtn.onclick = () => openPersonaStudio(null);
     return;
   }
 
   const query = ($('p-roster-search') ? $('p-roster-search').value.toLowerCase().trim() : '');
   const filtered = personas.filter((p) => {
     if (!query) return true;
-    const d = p.details || {};
-    const text = [
-      p.name, p.bio, p.prompt, d.role_in_group, d.tone,
-      (d.voice && d.voice.typical_length),
-      (d.off_topic || []).join(' ')
-    ].filter(Boolean).join(' ').toLowerCase();
-    return text.includes(query);
+    const nameMatch = (p.name || '').toLowerCase().includes(query);
+    const bioMatch = (p.bio || '').toLowerCase().includes(query);
+    const details = JSON.stringify(p.details || {}).toLowerCase();
+    return nameMatch || bioMatch || details.includes(query);
   });
 
   if (filtered.length === 0) {
-    container.innerHTML = '<div class="empty">No personas matched your search query.</div>';
+    container.innerHTML = '<div class="empty" style="grid-column: 1 / -1;">No personas match your search.</div>';
     return;
   }
-
-  // Count usage in accounts & matrix
-  const matrix = personaData.matrix || [];
-  const accounts = personaData.accounts || [];
 
   container.innerHTML = filtered.map((p) => {
     const d = p.details || {};
     const t = d.typing || {};
-    const v = d.voice || {};
     const col = p.color || '#2fc4b2';
 
-    // Calculate usage
-    const defaultInAccounts = accounts.filter((a) => a.persona_id === p.id).length;
+    // Check account bindings
+    const boundAccs = accounts.filter((a) => String(a.persona_id) === String(p.id));
+    const boundAccLabel = boundAccs.length > 0
+      ? boundAccs.map((a) => esc(a.name || a.phone)).join(', ')
+      : null;
+
+    // Check group assignments
     let assignedInGroups = 0;
     matrix.forEach((g) => {
       (g.user_assignments || []).forEach((u) => {
-        if (u.assigned_persona && u.assigned_persona.persona_id === p.id) {
-          assignedInGroups++;
-        }
+        if (u.assigned_persona && String(u.assigned_persona.persona_id) === String(p.id)) assignedInGroups++;
       });
     });
 
-    const usageBadge = assignedInGroups > 0
-      ? `<span class="p-tag" style="background:rgba(56,212,139,.14); color:var(--ok); border-color:rgba(56,212,139,.3);">Active in ${assignedInGroups} group${assignedInGroups > 1 ? 's' : ''}</span>`
-      : defaultInAccounts > 0
-      ? `<span class="p-tag" style="background:rgba(47,196,178,.12); color:var(--accent);">Default for ${defaultInAccounts} account${defaultInAccounts > 1 ? 's' : ''}</span>`
-      : `<span class="p-tag" style="opacity:0.6;">Unassigned</span>`;
+    const unhingedVal = d.unhinged_level != null ? d.unhinged_level : (d.psychometrics && d.psychometrics.unhinged_level != null ? d.psychometrics.unhinged_level : 85);
+    const unhingedBadge = unhingedVal >= 80
+      ? `<span class="p-tag" style="background:rgba(255,45,85,.15); color:#ff2d55; border-color:rgba(255,45,85,.3); font-weight:700;">🚨 ${unhingedVal}% Unhinged</span>`
+      : unhingedVal >= 55
+      ? `<span class="p-tag" style="background:rgba(255,149,0,.15); color:var(--warn); border-color:rgba(255,149,0,.3); font-weight:600;">⚡ ${unhingedVal}% Edgy</span>`
+      : `<span class="p-tag" style="background:rgba(56,212,139,.12); color:var(--ok); border-color:rgba(56,212,139,.3);">🧘 ${unhingedVal}% Composed</span>`;
 
-    const casingLabel = d.casing_style ? d.casing_style.replace(/_/g, ' ') : '';
-    const cpsLabel = t.chars_per_second ? `${t.chars_per_second} cps · ${t.min_seconds || 2}-${t.max_seconds || 8}s` : '24 cps';
+    const demoLabel = [d.culture, d.age ? d.age + 'yo' : null, d.occupation || d.role_in_group].filter(Boolean).join(' · ');
+
+    // Account binding options
+    const accOptions = '<option value="">(None - Unbound)</option>' + accounts.map((a) => {
+      const isSelected = String(a.persona_id) === String(p.id);
+      return `<option value="${a.id}" ${isSelected ? 'selected' : ''}>${esc(a.name || a.phone)}</option>`;
+    }).join('');
 
     return `
       <div class="card p-card" style="border-top: 3px solid ${esc(col)};">
@@ -594,49 +657,79 @@ function renderPersonaRoster() {
           <div class="p-avatar" style="background:${esc(col)};">${esc((p.name || 'P')[0].toUpperCase())}</div>
           <div class="p-card-title">
             <b>${esc(p.name)}</b>
-            <div class="hint">${esc(p.bio || d.role_in_group || 'Autonomous Persona')}</div>
+            <div class="hint">${esc(p.bio || d.occupation || 'Autonomous Persona')}</div>
           </div>
-          <div>${usageBadge}</div>
+          <div>${unhingedBadge}</div>
         </div>
 
         <div class="p-traits">
-          ${d.role_in_group ? `<span class="p-tag" title="Role">${esc(d.role_in_group)}</span>` : ''}
-          ${casingLabel ? `<span class="p-tag" title="Formality style">${esc(casingLabel)}</span>` : ''}
-          ${v.typical_length ? `<span class="p-tag" title="Length preference">${esc(v.typical_length)}</span>` : ''}
-          <span class="p-tag" title="Typing & reaction speed">${esc(cpsLabel)}</span>
-          ${v.emojis ? `<span class="p-tag" title="Signature emojis">${esc(v.emojis)}</span>` : ''}
+          ${demoLabel ? `<span class="p-tag" style="background:rgba(88,86,214,.12); color:#9997ff;">${esc(demoLabel)}</span>` : ''}
+          ${d.casing_style ? `<span class="p-tag">${esc(d.casing_style.replace(/_/g, ' '))}</span>` : ''}
+          ${d.slang_tier ? `<span class="p-tag">${esc(d.slang_tier.replace(/_/g, ' '))}</span>` : ''}
+          ${t.chars_per_second ? `<span class="p-tag">${t.chars_per_second} cps</span>` : ''}
         </div>
 
-        <div class="p-prompt-preview" title="System Prompt">
-          <div style="font-size:10px; text-transform:uppercase; color:var(--muted); margin-bottom:2px; font-weight:600;">System Directive</div>
-          ${esc((p.prompt || 'No custom prompt configured.').slice(0, 150))}${p.prompt && p.prompt.length > 150 ? '…' : ''}
+        <!-- Inline Account Quick-Binding -->
+        <div style="background:var(--bg); border:1px solid var(--line); border-radius:6px; padding:6px 10px; display:flex; align-items:center; justify-content:space-between; gap:8px;">
+          <span style="font-size:11.5px; font-weight:600; color:var(--muted); white-space:nowrap;">Default Account:</span>
+          <select class="p-select" data-roster-bind-pid="${p.id}" style="font-size:12px; padding:3px 6px; flex:1; max-width:180px;">
+            ${accOptions}
+          </select>
+        </div>
+
+        <div class="p-prompt-preview" title="System Directive">
+          <div style="font-size:10px; text-transform:uppercase; color:var(--muted); margin-bottom:2px; font-weight:600; display:flex; justify-content:space-between;">
+            <span>System Directive</span>
+            <span>${p.prompt ? p.prompt.length : 0} chars</span>
+          </div>
+          ${esc((p.prompt || 'No custom directive compiled.').slice(0, 140))}${p.prompt && p.prompt.length > 140 ? '…' : ''}
         </div>
 
         <div class="p-card-footer">
-          <button class="ghost" data-proster-edit="${p.id}" style="font-size:12px; font-weight:600;">Edit Persona</button>
-          <button class="ghost" data-proster-test="${p.id}" style="font-size:12px;">⚡ Test Voice</button>
-          <button class="ghost" data-proster-dup="${p.id}" style="font-size:12px;" title="Duplicate persona">&#x2398; Clone</button>
-          <button class="ghost danger" data-proster-del="${p.id}" style="font-size:12px; margin-left:auto;" title="Delete permanently">&times;</button>
+          <button type="button" class="primary" data-proster-edit="${p.id}" style="font-size:12px; font-weight:600; padding:5px 12px; background:linear-gradient(135deg, #007aff, #5856d6); color:#fff; border:none; border-radius:5px; cursor:pointer;">
+            🎛️ Open Studio
+          </button>
+          <button type="button" class="ghost" data-proster-dup="${p.id}" style="font-size:12px;" title="Duplicate persona">&#x2398; Clone</button>
+          <button type="button" class="ghost danger" data-proster-del="${p.id}" style="font-size:12px; margin-left:auto;" title="Delete permanently">&times;</button>
         </div>
       </div>
     `;
   }).join('');
 
-  container.querySelectorAll('[data-proster-edit]').forEach((el) => {
-    el.onclick = () => openPersonaModal(Number(el.dataset.prosterEdit), 'profile');
+  // Handle direct account binding change
+  container.querySelectorAll('[data-roster-bind-pid]').forEach((sel) => {
+    sel.onchange = async () => {
+      const pid = sel.dataset.rosterBindPid;
+      const aid = sel.value;
+      try {
+        if (aid) {
+          await api('POST', '/personas/account-bind', { account_id: aid, persona_id: pid });
+          toast('Account bound to persona and synced to Network!');
+        } else {
+          // Unbind any account currently bound to this persona
+          const bound = (personaData.accounts || []).find((a) => String(a.persona_id) === String(pid));
+          if (bound) {
+            await api('POST', '/personas/account-bind', { account_id: bound.id, persona_id: null });
+            toast('Account unbound from persona.');
+          }
+        }
+        await loadPersonas();
+        if (window.loadNetwork) window.loadNetwork();
+      } catch (err) {
+        alert('Failed to bind account: ' + err.message);
+      }
+    };
   });
 
-  container.querySelectorAll('[data-proster-test]').forEach((el) => {
-    el.onclick = () => {
-      openPersonaModal(Number(el.dataset.prosterTest), 'prompt');
-      $('pm-test-btn').click();
-    };
+  container.querySelectorAll('[data-proster-edit]').forEach((el) => {
+    el.onclick = () => openPersonaStudio(Number(el.dataset.prosterEdit));
   });
 
   container.querySelectorAll('[data-proster-dup]').forEach((el) => {
     el.onclick = async () => {
       try {
         await api('POST', `/personas/${el.dataset.prosterDup}/duplicate`);
+        toast('Persona duplicated!');
         loadPersonas();
       } catch (err) {
         alert('Failed to duplicate persona: ' + err.message);
@@ -646,9 +739,15 @@ function renderPersonaRoster() {
 
   container.querySelectorAll('[data-proster-del]').forEach((el) => {
     el.onclick = async () => {
-      if (!confirm('Delete this persona permanently? This will remove all group assignments using it.')) return;
-      await api('DELETE', `/personas/${el.dataset.prosterDel}`);
-      loadPersonas();
+      if (!confirm('Delete this persona permanently? This will remove all account and group assignments using it.')) return;
+      try {
+        await api('DELETE', `/personas/${el.dataset.prosterDel}`);
+        toast('Persona deleted.');
+        await loadPersonas();
+        if (window.loadNetwork) window.loadNetwork();
+      } catch (err) {
+        alert('Failed to delete persona: ' + err.message);
+      }
     };
   });
 }
@@ -656,6 +755,356 @@ function renderPersonaRoster() {
 if ($('p-roster-search')) {
   $('p-roster-search').oninput = renderPersonaRoster;
 }
+
+
+// ----- Dedicated Persona Studio (Full-Page Workspace) -----
+
+function updateStudioUnhingedMeter(val) {
+  const badge = $('ps-unhinged-badge');
+  const desc = $('ps-unhinged-desc');
+  if (!badge) return;
+
+  if (val >= 81) {
+    badge.textContent = `${val}% • Extreme Chaotic Wildcard`;
+    badge.style.background = 'rgba(255,45,85,.15)';
+    badge.style.color = '#ff2d55';
+    badge.style.borderColor = 'rgba(255,45,85,.3)';
+    desc.innerHTML = `🚨 <b>Extreme Chaos & Volatility:</b> Zero corporate filter. Unpredictable mood swings, fierce skepticism, sudden tangents, blunt dismissal of weak takes, and spontaneous non-sequiturs.`;
+  } else if (val >= 56) {
+    badge.textContent = `${val}% • Edgy & Unfiltered`;
+    badge.style.background = 'rgba(255,149,0,.15)';
+    badge.style.color = 'var(--warn)';
+    badge.style.borderColor = 'rgba(255,149,0,.3)';
+    desc.innerHTML = `⚡ <b>Edgy & High Energy:</b> Sharp, candid, and prone to passionate arguments. Challenges weak claims with biting humor and zero patience for fluff.`;
+  } else if (val >= 26) {
+    badge.textContent = `${val}% • Grounded Realist`;
+    badge.style.background = 'rgba(88,86,214,.15)';
+    badge.style.color = '#9997ff';
+    badge.style.borderColor = 'rgba(88,86,214,.3)';
+    desc.innerHTML = `🧘 <b>Grounded & Authentic:</b> Balanced human persona with natural conversational quirks, mild skepticism, and relatable day-to-day opinions.`;
+  } else {
+    badge.textContent = `${val}% • Composed & Structured`;
+    badge.style.background = 'rgba(56,212,139,.15)';
+    badge.style.color = 'var(--ok)';
+    badge.style.borderColor = 'rgba(56,212,139,.3)';
+    desc.innerHTML = `🧘 <b>Measured & Composed:</b> Thoughtful, low-reactivity tone with constructive takes and structured sentence flow.`;
+  }
+}
+
+function getStudioPayload() {
+  return {
+    id: $('ps-id') && $('ps-id').value ? parseInt($('ps-id').value, 10) : null,
+    name: ($('ps-name') ? $('ps-name').value.trim() : '') || 'Liam Carter',
+    culture: $('ps-culture') ? $('ps-culture').value : 'american',
+    gender: $('ps-gender') ? $('ps-gender').value : 'man',
+    age: parseInt($('ps-age') ? $('ps-age').value : '25', 10),
+    location: ($('ps-loc') ? $('ps-loc').value.trim() : '') || 'Austin, TX',
+    timezone: ($('ps-tz') ? $('ps-tz').value.trim() : '') || 'America/Chicago (UTC-6)',
+    occupation: ($('ps-occ') ? $('ps-occ').value.trim() : '') || 'On-chain Trader',
+    seniority: $('ps-seniority') ? $('ps-seniority').value : 'drop_out',
+    education: $('ps-education') ? $('ps-education').value : 'street_smart',
+    telegram_bio: ($('ps-bio') ? $('ps-bio').value.trim() : ''),
+    color: $('ps-color') ? $('ps-color').value : '#2fc4b2',
+    unhinged_level: parseInt($('ps-unhinged') ? $('ps-unhinged').value : '88', 10),
+    emotional_volatility: parseInt($('ps-volatility') ? $('ps-volatility').value : '85', 10),
+    cynicism: parseInt($('ps-cynicism') ? $('ps-cynicism').value : '90', 10),
+    combative: parseInt($('ps-combative') ? $('ps-combative').value : '80', 10),
+    impulsive: parseInt($('ps-impulse') ? $('ps-impulse').value : '85', 10),
+    casing_style: $('ps-casing') ? $('ps-casing').value : 'all_lowercase',
+    punctuation_style: $('ps-punctuation') ? $('ps-punctuation').value : 'none',
+    typo_rate: parseFloat($('ps-typo') ? $('ps-typo').value : '6.0'),
+    slang_tier: $('ps-slang') ? $('ps-slang').value : 'crypto_degen',
+    burstiness: parseInt($('ps-burst') ? $('ps-burst').value : '65', 10),
+    emoji_habit: $('ps-emoji-habit') ? $('ps-emoji-habit').value : 'frequent',
+    signature_emojis: ($('ps-emojis') ? $('ps-emojis').value : '💀, 🤡, 🫠').split(',').map((s) => s.trim()).filter(Boolean),
+    expertise: ($('ps-expertise') ? $('ps-expertise').value.trim() : ''),
+    off_topic_obsessions: ($('ps-offtopic') ? $('ps-offtopic').value.trim() : ''),
+    polarizing_takes: ($('ps-hottakes') ? $('ps-hottakes').value.trim() : ''),
+    trigger_topics: ($('ps-triggers') ? $('ps-triggers').value.trim() : ''),
+    reading_cps: parseInt($('ps-reading-cps') ? $('ps-reading-cps').value : '28', 10),
+    min_delay: parseFloat($('ps-min-delay') ? $('ps-min-delay').value : '2.0'),
+    max_delay: parseFloat($('ps-max-delay') ? $('ps-max-delay').value : '8.0'),
+    bind_account_id: $('ps-bind-account') ? $('ps-bind-account').value : ''
+  };
+}
+
+async function compileStudioPrompt() {
+  const payload = getStudioPayload();
+  try {
+    const res = await api('POST', '/personas/compile-prompt', payload);
+    if (res && res.prompt) {
+      if ($('ps-compiled-prompt')) $('ps-compiled-prompt').value = res.prompt;
+      if ($('ps-prompt-chars')) $('ps-prompt-chars').textContent = `${res.prompt.length} characters`;
+    }
+  } catch (e) {
+    console.warn('Compile prompt error:', e);
+  }
+}
+
+function openPersonaStudio(pid) {
+  currentStudioPersonaId = pid;
+  const p = pid ? (personaData.personas || []).find((x) => x.id === pid) : null;
+  const d = p && p.details ? p.details : {};
+  const t = d.typing || {};
+  const psych = d.psychometrics || {};
+  const ling = d.linguistic || {};
+  const topics = d.topics || {};
+  const accounts = personaData.accounts || [];
+
+  // Populate account binding options
+  const boundAcc = pid ? accounts.find((a) => String(a.persona_id) === String(pid)) : null;
+  const accSel = $('ps-bind-account');
+  if (accSel) {
+    accSel.innerHTML = '<option value="">None (Library Persona / Manual Group Binding)</option>' +
+      accounts.map((a) => {
+        const isSel = boundAcc && String(boundAcc.id) === String(a.id);
+        return `<option value="${a.id}" ${isSel ? 'selected' : ''}>${esc(a.name || a.phone)} ${a.username ? '(@' + esc(a.username) + ')' : ''}</option>`;
+      }).join('');
+  }
+
+  if (p) {
+    $('ps-id').value = p.id;
+    $('ps-studio-title').textContent = `Editing: ${p.name}`;
+    $('ps-name').value = p.name || '';
+    $('ps-culture').value = d.culture || 'american';
+    $('ps-gender').value = d.gender || 'man';
+    const ageVal = d.age || 25;
+    $('ps-age').value = ageVal;
+    $('ps-age-val').textContent = ageVal;
+    $('ps-loc').value = d.location || 'Austin, TX';
+    $('ps-tz').value = d.timezone || 'America/Chicago (UTC-6)';
+    $('ps-occ').value = d.occupation || d.role_in_group || 'On-chain Trader';
+    $('ps-seniority').value = d.seniority || 'drop_out';
+    $('ps-education').value = d.education || 'street_smart';
+    $('ps-bio').value = p.bio || '';
+
+    const col = p.color || '#2fc4b2';
+    $('ps-color').value = col;
+    $('ps-color-text').value = col;
+    $('ps-avatar-preview').style.background = col;
+    $('ps-avatar-preview').textContent = (p.name || 'P')[0].toUpperCase();
+
+    const u = d.unhinged_level != null ? d.unhinged_level : (psych.unhinged_level != null ? psych.unhinged_level : 88);
+    $('ps-unhinged').value = u;
+    updateStudioUnhingedMeter(u);
+
+    const vVol = psych.emotional_volatility != null ? psych.emotional_volatility : 85;
+    $('ps-volatility').value = vVol;
+    $('ps-volatility-val').textContent = vVol + '%';
+
+    const vCyn = psych.cynicism != null ? psych.cynicism : 90;
+    $('ps-cynicism').value = vCyn;
+    $('ps-cynicism-val').textContent = vCyn + '%';
+
+    const vCom = psych.combative != null ? psych.combative : 80;
+    $('ps-combative').value = vCom;
+    $('ps-combative-val').textContent = vCom + '%';
+
+    const vImp = psych.impulsive != null ? psych.impulsive : 85;
+    $('ps-impulse').value = vImp;
+    $('ps-impulse-val').textContent = vImp + '%';
+
+    $('ps-casing').value = ling.casing || d.casing_style || 'all_lowercase';
+    $('ps-punctuation').value = ling.punctuation || 'none';
+    const typoVal = ling.typo_rate != null ? ling.typo_rate : 6.0;
+    $('ps-typo').value = typoVal;
+    $('ps-typo-val').textContent = typoVal + '%';
+
+    $('ps-slang').value = ling.slang_tier || 'crypto_degen';
+    const burstVal = ling.burstiness != null ? ling.burstiness : (t.burstiness_percent || 65);
+    $('ps-burst').value = burstVal;
+    $('ps-burst-val').textContent = burstVal + '%';
+
+    $('ps-emoji-habit').value = ling.emoji_habit || d.emoji_habit || 'frequent';
+    $('ps-emojis').value = Array.isArray(ling.signature_emojis) ? ling.signature_emojis.join(', ') : (ling.signature_emojis || '💀, 🤡, 🫠, 🚩');
+
+    $('ps-expertise').value = topics.expertise || 'On-chain token flows, memecoin liquidity pools, smart contract exploits';
+    $('ps-offtopic').value = Array.isArray(topics.off_topic) ? topics.off_topic.join(', ') : (topics.off_topic || 'yerba mate, conspiracy rabbit holes, adderall shortages');
+    $('ps-hottakes').value = topics.hot_takes || '99% of web3 founders are grifters who never wrote code; centralized exchanges are rigged casinos';
+    $('ps-triggers').value = (Array.isArray(topics.triggers) ? topics.triggers.join(', ') : (topics.triggers || 'VC token unlock schedules, sponsored influencer shills'));
+
+    $('ps-reading-cps').value = t.chars_per_second || 28;
+    $('ps-min-delay').value = t.min_seconds || 2.0;
+    $('ps-max-delay').value = t.max_seconds || 8.0;
+
+    $('ps-compiled-prompt').value = p.prompt || '';
+    $('ps-prompt-chars').textContent = `${(p.prompt || '').length} characters`;
+  } else {
+    // New persona default template
+    $('ps-id').value = '';
+    $('ps-studio-title').textContent = 'Create New Industrial Persona';
+    $('ps-name').value = '';
+    $('ps-culture').value = 'american';
+    $('ps-gender').value = 'man';
+    $('ps-age').value = 25;
+    $('ps-age-val').textContent = '25';
+    $('ps-loc').value = 'Austin, TX';
+    $('ps-tz').value = 'America/Chicago (UTC-6)';
+    $('ps-occ').value = 'Quantitative Trader';
+    $('ps-seniority').value = 'drop_out';
+    $('ps-education').value = 'street_smart';
+    $('ps-bio').value = 'on-chain analytics by day, insomnia by night. skeptical of everything.';
+
+    const col = '#2fc4b2';
+    $('ps-color').value = col;
+    $('ps-color-text').value = col;
+    $('ps-avatar-preview').style.background = col;
+    $('ps-avatar-preview').textContent = '+';
+
+    $('ps-unhinged').value = 88;
+    updateStudioUnhingedMeter(88);
+    $('ps-volatility').value = 85;
+    $('ps-volatility-val').textContent = '85%';
+    $('ps-cynicism').value = 90;
+    $('ps-cynicism-val').textContent = '90%';
+    $('ps-combative').value = 80;
+    $('ps-combative-val').textContent = '80%';
+    $('ps-impulse').value = 85;
+    $('ps-impulse-val').textContent = '85%';
+
+    $('ps-casing').value = 'all_lowercase';
+    $('ps-punctuation').value = 'none';
+    $('ps-typo').value = 6.0;
+    $('ps-typo-val').textContent = '6.0%';
+    $('ps-slang').value = 'crypto_degen';
+    $('ps-burst').value = 65;
+    $('ps-burst-val').textContent = '65%';
+    $('ps-emoji-habit').value = 'frequent';
+    $('ps-emojis').value = '💀, 🤡, 🫠, 🚩';
+
+    $('ps-expertise').value = 'On-chain token flows, memecoin liquidity pools, smart contract exploits';
+    $('ps-offtopic').value = 'yerba mate, conspiracy rabbit holes, adderall shortages, obscure memecoins';
+    $('ps-hottakes').value = '99% of web3 founders are grifters who never wrote code; centralized exchanges are rigged casinos';
+    $('ps-triggers').value = 'VC token unlock schedules, sponsored influencer shills, overly polite corporate bots';
+
+    $('ps-reading-cps').value = 28;
+    $('ps-min-delay').value = 2.0;
+    $('ps-max-delay').value = 8.0;
+
+    compileStudioPrompt();
+  }
+
+  switchPersonaTab('studio');
+}
+
+async function savePersonaStudio() {
+  const p = getStudioPayload();
+  const name = p.name || 'Anonymous Persona';
+  let prompt = $('ps-compiled-prompt') ? $('ps-compiled-prompt').value.trim() : '';
+  if (!prompt) {
+    await compileStudioPrompt();
+    prompt = $('ps-compiled-prompt') ? $('ps-compiled-prompt').value.trim() : '';
+  }
+
+  const bio = p.telegram_bio || `${p.culture} ${p.occupation}`;
+  const color = p.color || '#2fc4b2';
+
+  const details = {
+    culture: p.culture,
+    gender: p.gender,
+    age: p.age,
+    location: p.location,
+    timezone: p.timezone,
+    occupation: p.occupation,
+    seniority: p.seniority,
+    education: p.education,
+    unhinged_level: p.unhinged_level,
+    psychometrics: {
+      unhinged_level: p.unhinged_level,
+      emotional_volatility: p.emotional_volatility,
+      cynicism: p.cynicism,
+      combative: p.combative,
+      impulsive: p.impulsive
+    },
+    linguistic: {
+      casing: p.casing_style,
+      punctuation: p.punctuation_style,
+      typo_rate: p.typo_rate,
+      slang_tier: p.slang_tier,
+      burstiness: p.burstiness,
+      emoji_habit: p.emoji_habit,
+      signature_emojis: p.signature_emojis
+    },
+    topics: {
+      expertise: p.expertise,
+      off_topic: p.off_topic_obsessions,
+      hot_takes: p.polarizing_takes,
+      triggers: p.trigger_topics
+    },
+    typing: {
+      chars_per_second: p.reading_cps,
+      min_seconds: p.min_delay,
+      max_seconds: p.max_delay,
+      burstiness_percent: p.burstiness
+    },
+    role_in_group: p.occupation
+  };
+
+  try {
+    const res = await api('POST', '/personas', {
+      id: p.id || undefined,
+      name,
+      prompt,
+      color,
+      bio,
+      details
+    });
+
+    const savedId = res.id || p.id;
+
+    // Handle direct account binding if selected
+    if (p.bind_account_id && savedId) {
+      await api('POST', '/personas/account-bind', {
+        account_id: p.bind_account_id,
+        persona_id: savedId
+      });
+    }
+
+    toast(`Saved persona “${name}” and synced to Network!`);
+    await loadPersonas();
+    if (window.loadNetwork) window.loadNetwork();
+    switchPersonaTab('roster');
+  } catch (err) {
+    alert('Failed to save persona: ' + err.message);
+  }
+}
+
+// Live Studio Input Listeners
+if ($('ps-unhinged')) $('ps-unhinged').oninput = (e) => updateStudioUnhingedMeter(parseInt(e.target.value, 10));
+if ($('ps-age')) $('ps-age').oninput = (e) => { $('ps-age-val').textContent = e.target.value; };
+if ($('ps-volatility')) $('ps-volatility').oninput = (e) => { $('ps-volatility-val').textContent = e.target.value + '%'; };
+if ($('ps-cynicism')) $('ps-cynicism').oninput = (e) => { $('ps-cynicism-val').textContent = e.target.value + '%'; };
+if ($('ps-combative')) $('ps-combative').oninput = (e) => { $('ps-combative-val').textContent = e.target.value + '%'; };
+if ($('ps-impulse')) $('ps-impulse').oninput = (e) => { $('ps-impulse-val').textContent = e.target.value + '%'; };
+if ($('ps-typo')) $('ps-typo').oninput = (e) => { $('ps-typo-val').textContent = e.target.value + '%'; };
+if ($('ps-burst')) $('ps-burst').oninput = (e) => { $('ps-burst-val').textContent = e.target.value + '%'; };
+
+if ($('ps-color')) $('ps-color').oninput = (e) => {
+  $('ps-color-text').value = e.target.value;
+  $('ps-avatar-preview').style.background = e.target.value;
+};
+if ($('ps-color-text')) $('ps-color-text').oninput = (e) => {
+  $('ps-color').value = e.target.value;
+  $('ps-avatar-preview').style.background = e.target.value;
+};
+if ($('ps-name')) $('ps-name').oninput = (e) => {
+  const n = e.target.value.trim();
+  $('ps-avatar-preview').textContent = (n || 'P')[0].toUpperCase();
+  $('ps-studio-title').textContent = n ? `Editing: ${n}` : 'Create New Industrial Persona';
+};
+
+if ($('ps-btn-recompile')) $('ps-btn-recompile').onclick = compileStudioPrompt;
+if ($('ps-btn-save')) $('ps-btn-save').onclick = savePersonaStudio;
+if ($('ps-btn-save-side')) $('ps-btn-save-side').onclick = savePersonaStudio;
+if ($('ps-btn-cancel')) $('ps-btn-cancel').onclick = () => switchPersonaTab('roster');
+if ($('ps-btn-cancel-side')) $('ps-btn-cancel-side').onclick = () => switchPersonaTab('roster');
+if ($('ps-btn-back')) $('ps-btn-back').onclick = () => switchPersonaTab('roster');
+
+if ($('p-btn-new')) $('p-btn-new').onclick = () => openPersonaStudio(null);
+if ($('p-btn-new-roster')) $('p-btn-new-roster').onclick = () => openPersonaStudio(null);
+
+
+// ----- Matrix View (Per User Per Group Assignments) -----
 
 function renderPersonaMatrix() {
   const container = $('p-matrix-list');
@@ -713,7 +1162,7 @@ function renderPersonaMatrix() {
             ${!hasBaseline ? `<button class="p-bind-acc-btn" data-bind-aid="${u.account_id}" data-bind-aname="${esc(u.account_name)}" style="margin-top:4px;">Connect Persona to Account</button>` : ''}
           </div>
           <div class="p-user-actions">
-            ${effective ? `<button class="ghost" data-pedit="${effective.id || effective.persona_id}" style="padding:4px 8px; font-size:12px;">Edit</button>` : ''}
+            ${effective ? `<button type="button" class="ghost" data-pedit="${effective.id || effective.persona_id}" style="padding:4px 8px; font-size:12px;">Studio</button>` : ''}
           </div>
         </div>
       `;
@@ -757,21 +1206,23 @@ function renderPersonaMatrix() {
           persona_id: pid,
           set_as_account_persona: shouldAutoBind
         });
-        loadPersonas();
+        toast('Assignment saved & synced to Network!');
+        await loadPersonas();
+        if (window.loadNetwork) window.loadNetwork();
       } catch (err) {
         alert('Failed to update persona assignment: ' + err.message);
       }
     };
   });
 
-  // Handle direct account binding button
+  // Handle direct account binding button in matrix
   container.querySelectorAll('[data-bind-aid]').forEach((btn) => {
     btn.onclick = async () => {
       const aid = btn.dataset.bindAid;
       const aname = btn.dataset.bindAname || 'Account';
       const personas = personaData.personas || [];
       if (personas.length === 0) {
-        alert('No personas created yet! Use "AI Persona Architect" or "+ New Persona" first.');
+        alert('No personas created yet! Click "+ New Persona Studio" first.');
         return;
       }
       const choices = personas.map((p, idx) => `${idx + 1}. ${p.name}`).join('\n');
@@ -785,7 +1236,9 @@ function renderPersonaMatrix() {
       const selectedPersona = personas[num - 1];
       try {
         await api('POST', '/personas/account-bind', { account_id: aid, persona_id: selectedPersona.id });
-        loadPersonas();
+        toast(`Bound ${selectedPersona.name} to ${aname} and synced to Network!`);
+        await loadPersonas();
+        if (window.loadNetwork) window.loadNetwork();
       } catch (err) {
         alert('Failed to bind persona: ' + err.message);
       }
@@ -793,7 +1246,7 @@ function renderPersonaMatrix() {
   });
 
   container.querySelectorAll('[data-pedit]').forEach((btn) => {
-    btn.onclick = () => openPersonaModal(Number(btn.dataset.pedit), 'profile');
+    btn.onclick = () => openPersonaStudio(Number(btn.dataset.pedit));
   });
 
   container.querySelectorAll('[data-pgen-cid]').forEach((btn) => {
@@ -805,221 +1258,7 @@ if ($('p-matrix-search')) {
   $('p-matrix-search').oninput = renderPersonaMatrix;
 }
 
-function openPersonaModal(pid, initialTab = 'profile') {
-  const p = pid ? (personaData.personas || []).find((x) => x.id === pid) : null;
-  const d = p && p.details ? p.details : {};
-  const t = d.typing || {};
-  const v = d.voice || {};
-
-  $('pm-id').value = pid || '';
-  $('p-modal-title').textContent = pid ? 'Edit Persona Studio' : 'Create New Persona';
-  $('pm-name').value = p ? p.name : '';
-  $('pm-color').value = p ? (p.color || '#2fc4b2') : '#2fc4b2';
-  $('pm-color-text').value = $('pm-color').value;
-  $('pm-role').value = d.role_in_group || '';
-  $('pm-bio').value = p ? (p.bio || '') : '';
-  $('pm-tz').value = d.timezone || '';
-  $('pm-demo').value = d.demographics || '';
-
-  // Voice tab
-  if ($('pm-casing')) $('pm-casing').value = d.casing_style || 'casual_lowercase';
-  if ($('pm-length-pref')) $('pm-length-pref').value = v.typical_length_pref || (v.typical_length ? 'short' : 'medium');
-  if ($('pm-emoji-habit')) $('pm-emoji-habit').value = d.emoji_habit || 'rare';
-  $('pm-emoji').value = v.emojis || '';
-  $('pm-tone').value = d.tone || v.typical_length || '';
-  $('pm-offtopic').value = d.off_topic ? d.off_topic.join(', ') : '';
-  $('pm-taboo').value = (d.guardrails || d.taboo_words || []).join(', ');
-
-  // Cadence tab
-  $('pm-cps').value = t.chars_per_second || 24;
-  $('pm-min-sec').value = t.min_seconds || 2.0;
-  $('pm-max-sec').value = t.max_seconds || 8.0;
-  if ($('pm-burst')) $('pm-burst').value = t.burstiness_percent || 30;
-  if ($('pm-peak-hr')) $('pm-peak-hr').value = d.peak_hour != null ? d.peak_hour : 16;
-
-  // Prompt tab
-  $('pm-prompt').value = p ? (p.prompt || '') : '';
-  $('pm-prompt-charcount').textContent = `${$('pm-prompt').value.length} chars`;
-
-  // Reset sandbox preview
-  $('pm-test-output').textContent = 'Enter an incoming message above and click "⚡ Test Voice" to simulate human reading time and AI response generation.';
-  $('pm-test-metrics').classList.add('hidden');
-
-  updateModalAvatarPreview();
-  switchEdTab(initialTab);
-  $('p-modal').classList.remove('hidden');
-}
-
-// Auto-synthesize prompt from traits
-if ($('pm-btn-synth')) {
-  $('pm-btn-synth').onclick = () => {
-    const name = $('pm-name').value.trim() || 'Anonymous';
-    const role = $('pm-role').value.trim() || 'Community member';
-    const bio = $('pm-bio').value.trim();
-    const casing = $('pm-casing').value;
-    const len = $('pm-length-pref').value;
-    const emojiHabit = $('pm-emoji-habit').value;
-    const emojis = $('pm-emoji').value.trim();
-    const tone = $('pm-tone').value.trim();
-    const offtopic = $('pm-offtopic').value.trim();
-    const taboo = $('pm-taboo').value.trim();
-
-    let p = `You are ${name}. You are participating naturally in a Telegram group as a real person.
-`;
-    p += `Role/Identity: ${role}.
-`;
-    if (bio) p += `Background: ${bio}
-`;
-    if (tone) p += `Tone: ${tone}.
-`;
-
-    // Casing
-    if (casing === 'casual_lowercase') {
-      p += `Stylistic rule: Speak casually and use mostly lowercase text. Skip unnecessary punctuation.
-`;
-    } else if (casing === 'technical_precise') {
-      p += `Stylistic rule: Structured, articulate, concise and technically precise.
-`;
-    } else if (casing === 'punchy_terse') {
-      p += `Stylistic rule: Very terse, punchy one-line replies. No fluff.
-`;
-    } else if (casing === 'hype_expressive') {
-      p += `Stylistic rule: Expressive, hype, natural community slang.
-`;
-    }
-
-    // Length
-    if (len === 'short') p += `Length: Extremely brief, punchy reactions (1 to 8 words).
-`;
-    else if (len === 'medium') p += `Length: 1 to 2 crisp, human conversational sentences.
-`;
-    else if (len === 'moderate') p += `Length: 2 to 4 sentences.
-`;
-
-    // Emojis
-    if (emojiHabit === 'never') p += `Emojis: NEVER use any emojis.
-`;
-    else if (emojiHabit === 'rare') p += `Emojis: Rarely use emojis. When you do, use subtle ones: ${emojis || 'skull or eyes'}.
-`;
-    else if (emojis) p += `Signature emojis: ${emojis}
-`;
-
-    if (offtopic) p += `Natural interests you know well and can casually reference: ${offtopic}.
-`;
-    if (taboo) p += `Strict constraints: ${taboo}.
-`;
-    p += `CRITICAL: Never acknowledge being an AI, LLM, or automated script. Speak strictly as a human member of this community.`;
-
-    $('pm-prompt').value = p;
-    $('pm-prompt-charcount').textContent = `${p.length} chars`;
-  };
-}
-
-$('p-modal-close').onclick = () => $('p-modal').classList.add('hidden');
-$('pm-cancel').onclick = () => $('p-modal').classList.add('hidden');
-$('p-btn-new').onclick = () => openPersonaModal(null, 'profile');
-
-$('pm-save').onclick = async () => {
-  const pid = $('pm-id').value ? Number($('pm-id').value) : null;
-  const existing = pid ? (personaData.personas || []).find((x) => x.id === pid) : null;
-  const details = existing && existing.details ? { ...existing.details } : {};
-
-  details.role_in_group = $('pm-role').value.trim();
-  details.timezone = $('pm-tz').value.trim();
-  details.demographics = $('pm-demo').value.trim();
-  details.casing_style = $('pm-casing').value;
-  details.emoji_habit = $('pm-emoji-habit').value;
-  details.tone = $('pm-tone').value.trim();
-
-  details.voice = details.voice || {};
-  details.voice.typical_length_pref = $('pm-length-pref').value;
-  details.voice.typical_length = $('pm-tone').value.trim();
-  details.voice.emojis = $('pm-emoji').value.trim();
-
-  details.off_topic = $('pm-offtopic').value ? $('pm-offtopic').value.split(',').map((s) => s.trim()).filter(Boolean) : [];
-  details.guardrails = $('pm-taboo').value ? $('pm-taboo').value.split(',').map((s) => s.trim()).filter(Boolean) : [];
-
-  details.peak_hour = parseInt($('pm-peak-hr').value, 10) || 16;
-  details.typing = {
-    chars_per_second: parseFloat($('pm-cps').value) || 24,
-    min_seconds: parseFloat($('pm-min-sec').value) || 2.0,
-    max_seconds: parseFloat($('pm-max-sec').value) || 8.0,
-    burstiness_percent: parseInt($('pm-burst').value, 10) || 30
-  };
-
-  const payload = {
-    id: pid,
-    name: $('pm-name').value.trim() || 'New Persona',
-    prompt: $('pm-prompt').value.trim(),
-    color: $('pm-color').value,
-    bio: $('pm-bio').value.trim(),
-    details: details
-  };
-
-  try {
-    await api('POST', '/personas', payload);
-    $('p-modal').classList.add('hidden');
-    loadPersonas();
-  } catch (err) {
-    alert('Failed to save persona: ' + err.message);
-  }
-};
-
-// Test Voice Sandbox
-$('pm-test-btn').onclick = async () => {
-  const pid = $('pm-id').value;
-  const sampleMsg = $('pm-test-sample').value.trim() || 'Hey what do you think of this?';
-  const cps = parseFloat($('pm-cps').value) || 24;
-  const minSec = parseFloat($('pm-min-sec').value) || 2.0;
-  const maxSec = parseFloat($('pm-max-sec').value) || 8.0;
-
-  // Calculate simulated mathematical dynamics
-  const readingDelay = Math.max(0.8, sampleMsg.length / 32).toFixed(1);
-  const deliberation = (minSec + Math.random() * (maxSec - minSec)).toFixed(1);
-  const totalReaction = (parseFloat(readingDelay) + parseFloat(deliberation)).toFixed(1);
-  const diurnalFactor = (0.8 + 0.35 * Math.sin(Math.PI * (new Date().getHours() / 12.0))).toFixed(2);
-  const relevance = (0.62 + Math.random() * 0.32).toFixed(2);
-
-  $('pm-m-read').textContent = `${readingDelay}s`;
-  $('pm-m-delib').textContent = `${deliberation}s`;
-  $('pm-m-total').textContent = `${totalReaction}s`;
-  $('pm-m-diurnal').textContent = `${diurnalFactor}x`;
-  $('pm-m-rel').textContent = `${relevance}`;
-  $('pm-test-metrics').classList.remove('hidden');
-
-  $('pm-test-output').innerHTML = `
-    <div style="font-size:12px; color:var(--accent); font-weight:600; margin-bottom:4px;">
-      Simulating Poisson reading (${readingDelay}s) &amp; typing reaction (${deliberation}s)...
-    </div>
-  `;
-
-  try {
-    let replyText = '';
-    if (pid) {
-      const res = await api('POST', `/personas/${pid}/preview`, { sample_message: sampleMsg });
-      replyText = res.text;
-    } else {
-      // Temporary preview from current prompt
-      const prompt = $('pm-prompt').value.trim();
-      if (!prompt) {
-        replyText = 'Hello! System prompt is currently empty, please synthesize or type a prompt.';
-      } else {
-        replyText = `(Preview) Simulated reply matching style '${$('pm-casing').value}': Sounds good to me, let me check it out.`;
-      }
-    }
-
-    $('pm-test-output').innerHTML = `
-      <div style="font-size:11px; text-transform:uppercase; color:var(--muted); margin-bottom:6px; font-weight:600;">Simulated Real-Time Response</div>
-      <div style="background:rgba(47,196,178,.1); border-left:3px solid var(--accent); padding:10px 14px; border-radius:6px; color:var(--text); font-size:13.5px; line-height:1.45;">
-        ${esc(replyText)}
-      </div>
-    `;
-  } catch (err) {
-    $('pm-test-output').textContent = 'Preview error: ' + err.message;
-  }
-};
-
-// Generation Modal
+// Generation Modal (Study Group)
 function openGenModal(preselectedCid) {
   const select = $('pg-group');
   select.innerHTML = (personaData.matrix || []).map((g) =>
@@ -1028,455 +1267,32 @@ function openGenModal(preselectedCid) {
   $('p-gen-modal').classList.remove('hidden');
 }
 
-// ----- Industrial Persona Architect & Studio (v2.19 Pro) -----
-let selectedAIStyle = 'unhinged_degen';
-let aiPersonaBusy = false;
-let currentCompiledPrompt = '';
+if ($('p-btn-gen')) $('p-btn-gen').onclick = () => openGenModal(null);
+if ($('p-gen-close')) $('p-gen-close').onclick = () => $('p-gen-modal').classList.add('hidden');
+if ($('pg-cancel')) $('pg-cancel').onclick = () => $('p-gen-modal').classList.add('hidden');
 
-const PAI_PRESETS = {
-  unhinged_degen: {
-    culture: 'american', gender: 'man', age: 24, name: 'Liam Carter', loc: 'Austin, TX', tz: 'America/Chicago (UTC-6)',
-    occ: 'Full-time On-chain Trader & Shitpost Specialist', seniority: 'drop_out', education: 'street_smart',
-    unhinged: 92, volatility: 85, cynicism: 90, combative: 80, impulse: 90,
-    casing: 'all_lowercase', punctuation: 'none', typo: 7.5, slang: 'crypto_degen', burst: 70,
-    emoji_habit: 'frequent', emojis: '💀, 🤡, 🫠, 🚩',
-    expertise: 'On-chain token flows, memecoin liquidity pools, contract exploits',
-    offtopic: 'yerba mate, conspiracy rabbit holes, adderall shortages, obscure memecoins',
-    hottakes: '99% of web3 founders are grifters who never wrote code; centralized exchanges are rigged casinos',
-    triggers: 'VC token unlock schedules, sponsored influencer shills, overly polite corporate bots',
-    bio: 'on-chain analytics by day, insomnia by night. skeptical of everything.'
-  },
-  cynical_tech_vet: {
-    culture: 'germanic', gender: 'man', age: 41, name: 'Torsten Weber', loc: 'Berlin, Germany', tz: 'Europe/Berlin (UTC+1)',
-    occ: 'Principal Infrastructure Architect', seniority: 'veteran', education: 'state_school',
-    unhinged: 48, volatility: 35, cynicism: 88, combative: 70, impulse: 45,
-    casing: 'technical_clean', punctuation: 'minimal', typo: 2.0, slang: 'tech_founder', burst: 35,
-    emoji_habit: 'never', emojis: '',
-    expertise: 'Linux kernel networking, fault-tolerant consensus, distributed storage',
-    offtopic: 'bouldering, espresso roasts, vintage mechanical keyboards',
-    hottakes: 'Kubernetes is over-engineered resume padding; 90% of microservices should be a monolith',
-    triggers: 'corporate agile consultants, Jira story points, unvetted AI dependencies',
-    bio: 'systems architect. if it compiles, that just means syntax is valid.'
-  },
-  deadpan_lurker: {
-    culture: 'british', gender: 'woman', age: 28, name: 'Chloe Jenkins', loc: 'London, UK', tz: 'Europe/London (UTC+0)',
-    occ: 'Market Research Lead & Chronic Lurker', seniority: 'mid', education: 'elite_university',
-    unhinged: 62, volatility: 50, cynicism: 75, combative: 65, impulse: 60,
-    casing: 'all_lowercase', punctuation: 'none', typo: 4.0, slang: 'british_road', burst: 50,
-    emoji_habit: 'rare', emojis: '👀, ☕',
-    expertise: 'Consumer psychology, narrative momentum, social sentiment',
-    offtopic: 'thrift stores, cold brew, obscure British sitcoms',
-    hottakes: 'most market rallies are pure collective delusion; people only buy what their timeline normalizes',
-    triggers: 'toxic positivity, unsolicited pitch decks, empty corporate enthusiasm',
-    bio: 'mostly watching the circus unfold. rarely impressed.'
-  },
-  erratic_conspiracy: {
-    culture: 'american', gender: 'person', age: 33, name: 'Morgan Vance', loc: 'Albuquerque, NM', tz: 'America/Denver (UTC-7)',
-    occ: 'Autonomous Security Researcher', seniority: 'self_taught', education: 'street_smart',
-    unhinged: 96, volatility: 92, cynicism: 98, combative: 88, impulse: 95,
-    casing: 'sloppy_mixed', punctuation: 'ellipses_spam', typo: 10.0, slang: 'gen_z_internet', burst: 85,
-    emoji_habit: 'moderate', emojis: '👁️, 🛸, 🕳️, 📡',
-    expertise: 'Side-channel cryptanalysis, private keys, firmware reverse engineering',
-    offtopic: 'Faraday cages, underground mineral water, off-grid solar, ham radio',
-    hottakes: 'cloud infrastructure is an intentional honeypot; biometric logins are unrecoverable compromises',
-    triggers: 'cloud telemetry, closed source drivers, mandatory KYC, bank freeze notifications',
-    bio: 'everything is logged. question the consensus reality.'
-  },
-  measured_diplomat: {
-    culture: 'nordic', gender: 'woman', age: 36, name: 'Freja Lindqvist', loc: 'Stockholm, Sweden', tz: 'Europe/Stockholm (UTC+1)',
-    occ: 'Protocol Governance Coordinator', seniority: 'senior', education: 'state_school',
-    unhinged: 18, volatility: 15, cynicism: 35, combative: 20, impulse: 20,
-    casing: 'sentence_case', punctuation: 'standard', typo: 0.5, slang: 'academic_elevated', burst: 20,
-    emoji_habit: 'rare', emojis: '🤝, 💡',
-    expertise: 'Decentralized governance, voting mechanisms, dispute arbitration',
-    offtopic: 'sourdough baking, cross-country skiing, design philosophy',
-    hottakes: 'governance without constitutional limits always collapses into plutocracy',
-    triggers: 'tribal flamewars, ad hominem attacks, rash governance proposals',
-    bio: 'pragmatic consensus builder. measuring twice, cutting once.'
-  }
-};
-
-function applyPAIPreset(presetKey) {
-  const p = PAI_PRESETS[presetKey] || PAI_PRESETS.unhinged_degen;
-  if ($('pai-culture')) $('pai-culture').value = p.culture;
-  if ($('pai-gender')) $('pai-gender').value = p.gender;
-  if ($('pai-name')) $('pai-name').value = p.name;
-  if ($('pai-age')) { $('pai-age').value = p.age; $('pai-age-val').textContent = p.age; }
-  if ($('pai-loc')) $('pai-loc').value = p.loc;
-  if ($('pai-tz')) $('pai-tz').value = p.tz;
-  if ($('pai-occ')) $('pai-occ').value = p.occ;
-  if ($('pai-seniority')) $('pai-seniority').value = p.seniority;
-  if ($('pai-education')) $('pai-education').value = p.education;
-  if ($('pai-bio')) $('pai-bio').value = p.bio;
-
-  if ($('pai-unhinged')) {
-    $('pai-unhinged').value = p.unhinged;
-    updateUnhingedMeter(p.unhinged);
-  }
-  if ($('pai-volatility')) { $('pai-volatility').value = p.volatility; $('pai-volatility-val').textContent = p.volatility + '%'; }
-  if ($('pai-cynicism')) { $('pai-cynicism').value = p.cynicism; $('pai-cynicism-val').textContent = p.cynicism + '%'; }
-  if ($('pai-combative')) { $('pai-combative').value = p.combative; $('pai-combative-val').textContent = p.combative + '%'; }
-  if ($('pai-impulse')) { $('pai-impulse').value = p.impulse; $('pai-impulse-val').textContent = p.impulse + '%'; }
-
-  if ($('pai-casing')) $('pai-casing').value = p.casing;
-  if ($('pai-punctuation')) $('pai-punctuation').value = p.punctuation;
-  if ($('pai-typo')) { $('pai-typo').value = p.typo; $('pai-typo-val').textContent = p.typo + '%'; }
-  if ($('pai-slang')) $('pai-slang').value = p.slang;
-  if ($('pai-burst')) { $('pai-burst').value = p.burst; $('pai-burst-val').textContent = p.burst + '%'; }
-  if ($('pai-emoji-habit')) $('pai-emoji-habit').value = p.emoji_habit;
-  if ($('pai-emojis')) $('pai-emojis').value = p.emojis;
-
-  if ($('pai-expertise')) $('pai-expertise').value = p.expertise;
-  if ($('pai-offtopic')) $('pai-offtopic').value = p.offtopic;
-  if ($('pai-hottakes')) $('pai-hottakes').value = p.hottakes;
-  if ($('pai-triggers')) $('pai-triggers').value = p.triggers;
-
-  // trigger live compile in background
-  compileCurrentPAIPrompt();
-}
-
-function updateUnhingedMeter(val) {
-  const badge = $('pai-unhinged-badge');
-  const desc = $('pai-unhinged-desc');
-  const icon = $('pai-unhinged-icon');
-  if (!badge) return;
-
-  if (val >= 85) {
-    icon.textContent = '🚨';
-    badge.textContent = `${val}% • Extreme Chaotic Wildcard`;
-    badge.style.background = 'rgba(255,45,85,.15)';
-    badge.style.color = '#ff2d55';
-    badge.style.borderColor = 'rgba(255,45,85,.3)';
-    desc.innerHTML = `🚨 <b>Extreme Chaos & Volatility:</b> Zero corporate filter. Unpredictable mood swings, fierce skepticism, sudden tangents, blunt dismissal of stupid takes, and spontaneous non-sequiturs.`;
-  } else if (val >= 60) {
-    icon.textContent = '🔥';
-    badge.textContent = `${val}% • Edgy & Unfiltered`;
-    badge.style.background = 'rgba(255,149,0,.15)';
-    badge.style.color = 'var(--warn)';
-    badge.style.borderColor = 'rgba(255,149,0,.3)';
-    desc.innerHTML = `🔥 <b>Edgy & High Energy:</b> Sharp, candid, and prone to passionate arguments. Challenges weak claims with biting humor and zero patience for fluff.`;
-  } else if (val >= 35) {
-    icon.textContent = '⚡';
-    badge.textContent = `${val}% • Grounded Realist`;
-    badge.style.background = 'rgba(88,86,214,.15)';
-    badge.style.color = '#9997ff';
-    badge.style.borderColor = 'rgba(88,86,214,.3)';
-    desc.innerHTML = `⚡ <b>Grounded & Authentic:</b> Balanced human persona with natural conversational quirks, mild skepticism, and relatable day-to-day opinions.`;
-  } else {
-    icon.textContent = '🧘';
-    badge.textContent = `${val}% • Calm Pragmatist`;
-    badge.style.background = 'rgba(56,212,139,.15)';
-    badge.style.color = 'var(--ok)';
-    badge.style.borderColor = 'rgba(56,212,139,.3)';
-    desc.innerHTML = `🧘 <b>Measured & Composed:</b> Thoughtful, low-reactivity tone with constructive takes and structured sentence flow.`;
-  }
-}
-
-function getStructuredPAIPayload() {
-  return {
-    name: ($('pai-name') ? $('pai-name').value.trim() : '') || 'Liam Carter',
-    culture: $('pai-culture') ? $('pai-culture').value : 'american',
-    gender: $('pai-gender') ? $('pai-gender').value : 'man',
-    age: parseInt($('pai-age') ? $('pai-age').value : '25', 10),
-    location: ($('pai-loc') ? $('pai-loc').value.trim() : '') || 'Austin, TX',
-    timezone: ($('pai-tz') ? $('pai-tz').value.trim() : '') || 'America/Chicago (UTC-6)',
-    occupation: ($('pai-occ') ? $('pai-occ').value.trim() : '') || 'On-chain Trader',
-    seniority: $('pai-seniority') ? $('pai-seniority').value : 'drop_out',
-    education: $('pai-education') ? $('pai-education').value : 'street_smart',
-    telegram_bio: ($('pai-bio') ? $('pai-bio').value.trim() : ''),
-    unhinged_level: parseInt($('pai-unhinged') ? $('pai-unhinged').value : '92', 10),
-    emotional_volatility: parseInt($('pai-volatility') ? $('pai-volatility').value : '85', 10),
-    cynicism: parseInt($('pai-cynicism') ? $('pai-cynicism').value : '90', 10),
-    combative: parseInt($('pai-combative') ? $('pai-combative').value : '80', 10),
-    impulsive: parseInt($('pai-impulse') ? $('pai-impulse').value : '90', 10),
-    casing_style: $('pai-casing') ? $('pai-casing').value : 'all_lowercase',
-    punctuation_style: $('pai-punctuation') ? $('pai-punctuation').value : 'none',
-    typo_rate: parseFloat($('pai-typo') ? $('pai-typo').value : '7.5'),
-    slang_tier: $('pai-slang') ? $('pai-slang').value : 'crypto_degen',
-    burstiness: parseInt($('pai-burst') ? $('pai-burst').value : '70', 10),
-    emoji_habit: $('pai-emoji-habit') ? $('pai-emoji-habit').value : 'frequent',
-    signature_emojis: ($('pai-emojis') ? $('pai-emojis').value : '💀, 🤡, 🫠').split(',').map(s => s.trim()).filter(Boolean),
-    expertise: ($('pai-expertise') ? $('pai-expertise').value.trim() : ''),
-    off_topic_obsessions: ($('pai-offtopic') ? $('pai-offtopic').value.trim() : ''),
-    polarizing_takes: ($('pai-hottakes') ? $('pai-hottakes').value.trim() : ''),
-    trigger_topics: ($('pai-triggers') ? $('pai-triggers').value.trim() : ''),
-    group_context: $('pai-group') ? $('pai-group').value : '',
-    group_id: $('pai-group') ? $('pai-group').value : null,
-    style: selectedAIStyle
-  };
-}
-
-async function compileCurrentPAIPrompt() {
-  const payload = getStructuredPAIPayload();
-  try {
-    const res = await api('POST', '/personas/compile-prompt', payload);
-    if (res && res.prompt) {
-      currentCompiledPrompt = res.prompt;
-      if ($('pai-compiled-prompt')) $('pai-compiled-prompt').value = res.prompt;
-      if ($('pai-prompt-chars')) $('pai-prompt-chars').textContent = `${res.prompt.length} characters`;
-    }
-  } catch (e) {
-    console.warn('Compile prompt preview error:', e);
-  }
-}
-
-function switchPAITab(tabKey) {
-  const tabs = ['demographics', 'psychometrics', 'linguistics', 'topics', 'prompt'];
-  tabs.forEach(t => {
-    const el = $(`pai-tab-${t}`);
-    if (el) el.classList.toggle('hidden', t !== tabKey);
-  });
-  if ($('p-ai-tabs')) {
-    $('p-ai-tabs').querySelectorAll('.p-ed-tab').forEach(b => {
-      b.classList.toggle('active', b.dataset.aitab === tabKey);
-    });
-  }
-  if (tabKey === 'prompt') {
-    compileCurrentPAIPrompt();
-  }
-}
-
-function openAIPersonaModal() {
-  const groupSel = $('pai-group');
-  if (groupSel) {
-    const groups = (personaData.matrix || []);
-    groupSel.innerHTML = '<option value="">General / Any Telegram Group</option>' + groups.map((g) => `<option value="${g.chat_id}">${esc(g.title || g.chat_id)}</option>`).join('');
-  }
-  $('p-ai-loading').classList.add('hidden');
-  switchPAITab('demographics');
-  applyPAIPreset(selectedAIStyle || 'unhinged_degen');
-  $('p-ai-modal').classList.remove('hidden');
-}
-
-async function runPAISynthesis() {
-  if (aiPersonaBusy) return;
-  aiPersonaBusy = true;
-  const synthBtn = $('p-ai-btn-synth');
-  const saveBtn = $('p-ai-btn-save');
-  const openBtn = $('p-ai-btn-open');
-  $('p-ai-loading').classList.remove('hidden');
-  synthBtn.disabled = true;
-  saveBtn.disabled = true;
-  openBtn.disabled = true;
-  synthBtn.textContent = 'Synthesizing with fal.ai...';
-
-  try {
-    const payload = getStructuredPAIPayload();
-    payload.save = false;
-    const result = await api('POST', '/personas/ai-generate', payload);
-    const p = result.persona || result;
-    if (!p || !p.name || !p.prompt) throw new Error('AI returned an incomplete persona.');
-
-    if ($('pai-name')) $('pai-name').value = p.name;
-    if ($('pai-bio')) $('pai-bio').value = p.bio || '';
-    if (p.prompt) {
-      currentCompiledPrompt = p.prompt;
-      if ($('pai-compiled-prompt')) $('pai-compiled-prompt').value = p.prompt;
-      if ($('pai-prompt-chars')) $('pai-prompt-chars').textContent = `${p.prompt.length} characters`;
-    }
-
-    const d = p.details || {};
-    if (d.psychometrics && $('pai-unhinged')) {
-      const u = d.psychometrics.unhinged_level || 90;
-      $('pai-unhinged').value = u;
-      updateUnhingedMeter(u);
-    }
-    switchPAITab('prompt');
-    toast(`Persona “${p.name}” synthesized! Review the compiled prompt.`);
-  } catch (err) {
-    alert('Persona synthesis error: ' + err.message);
-  } finally {
-    aiPersonaBusy = false;
-    synthBtn.disabled = false;
-    saveBtn.disabled = false;
-    openBtn.disabled = false;
-    synthBtn.textContent = '✨ Synthesize with fal.ai';
-    $('p-ai-loading').classList.add('hidden');
-  }
-}
-
-async function savePAIPersona() {
-  if (aiPersonaBusy) return;
-  const payload = getStructuredPAIPayload();
-  const name = payload.name || 'Anonymous Persona';
-  let prompt = $('pai-compiled-prompt') ? $('pai-compiled-prompt').value.trim() : currentCompiledPrompt;
-  if (!prompt) {
-    await compileCurrentPAIPrompt();
-    prompt = currentCompiledPrompt;
-  }
-  const bio = payload.telegram_bio || `Authentic ${payload.culture} ${payload.occupation}`;
-  const color = '#2fc4b2';
-
-  const details = {
-    culture: payload.culture,
-    gender: payload.gender,
-    age: payload.age,
-    location: payload.location,
-    timezone: payload.timezone,
-    occupation: payload.occupation,
-    seniority: payload.seniority,
-    education: payload.education,
-    unhinged_level: payload.unhinged_level,
-    psychometrics: {
-      unhinged_level: payload.unhinged_level,
-      emotional_volatility: payload.emotional_volatility,
-      cynicism: payload.cynicism,
-      combative: payload.combative,
-      impulsive: payload.impulsive
-    },
-    linguistic: {
-      casing: payload.casing_style,
-      punctuation: payload.punctuation_style,
-      typo_rate: payload.typo_rate,
-      slang_tier: payload.slang_tier,
-      burstiness: payload.burstiness,
-      emoji_habit: payload.emoji_habit,
-      signature_emojis: payload.signature_emojis
-    },
-    topics: {
-      expertise: payload.expertise,
-      off_topic: payload.off_topic_obsessions,
-      hot_takes: payload.polarizing_takes,
-      triggers: payload.trigger_topics
-    },
-    role_in_group: payload.occupation
-  };
-
-  try {
-    await api('POST', '/personas', { name, prompt, color, bio, details });
-    $('p-ai-modal').classList.add('hidden');
-    await loadPersonas();
-    toast(`Created industrial persona “${name}”!`);
-  } catch (err) {
-    alert('Failed to save persona: ' + err.message);
-  }
-}
-
-function openPAIInStudio() {
-  const payload = getStructuredPAIPayload();
-  let prompt = $('pai-compiled-prompt') ? $('pai-compiled-prompt').value.trim() : currentCompiledPrompt;
-
-  $('p-ai-modal').classList.add('hidden');
-  openPersonaModal(null, 'profile');
-  $('pm-name').value = payload.name;
-  $('pm-color').value = '#2fc4b2';
-  $('pm-color-text').value = '#2fc4b2';
-  $('pm-bio').value = payload.telegram_bio;
-  $('pm-role').value = payload.occupation;
-  $('pm-prompt').value = prompt;
-  $('pm-tz').value = payload.timezone;
-  $('pm-demo').value = `${payload.age}yo ${payload.gender}, ${payload.location}. ${payload.seniority} ${payload.occupation}.`;
-  if ($('pm-casing')) $('pm-casing').value = payload.casing_style;
-  if ($('pm-emoji-habit')) $('pm-emoji-habit').value = payload.emoji_habit;
-  $('pm-emoji').value = (payload.signature_emojis || []).join(' ');
-  $('pm-tone').value = `${payload.unhinged_level}% unhinged / chaotic, cynicism: ${payload.cynicism}%, combative: ${payload.combative}%`;
-  $('pm-offtopic').value = payload.off_topic_obsessions;
-  $('pm-taboo').value = payload.trigger_topics;
-  $('pm-prompt-charcount').textContent = `${$('pm-prompt').value.length} chars`;
-  updateModalAvatarPreview();
-}
-
-async function matchCultureName() {
-  const culture = $('pai-culture') ? $('pai-culture').value : 'american';
-  const gender = $('pai-gender') ? $('pai-gender').value : 'man';
-  try {
-    const res = await api('GET', `/personas/match-name?culture=${encodeURIComponent(culture)}&gender=${encodeURIComponent(gender)}`);
-    if (res && res.name && $('pai-name')) {
-      $('pai-name').value = res.name;
-      compileCurrentPAIPrompt();
-    }
-  } catch (e) {
-    console.warn('Name match error:', e);
-  }
-}
-
-function randomizePAIProfile() {
-  const cultures = ['american', 'british', 'germanic', 'slavic', 'french', 'hispanic', 'middle_eastern', 'east_asian', 'south_asian', 'nordic'];
-  const genders = ['man', 'woman', 'person'];
-  const randCult = cultures[Math.floor(Math.random() * cultures.length)];
-  const randGen = genders[Math.floor(Math.random() * genders.length)];
-  const randAge = Math.floor(Math.random() * 32) + 20;
-  const randUnhinged = Math.floor(Math.random() * 65) + 35;
-
-  if ($('pai-culture')) $('pai-culture').value = randCult;
-  if ($('pai-gender')) $('pai-gender').value = randGen;
-  if ($('pai-age')) { $('pai-age').value = randAge; $('pai-age-val').textContent = randAge; }
-  if ($('pai-unhinged')) { $('pai-unhinged').value = randUnhinged; updateUnhingedMeter(randUnhinged); }
-  if ($('pai-volatility')) { const v = Math.floor(Math.random() * 60) + 40; $('pai-volatility').value = v; $('pai-volatility-val').textContent = v + '%'; }
-  if ($('pai-cynicism')) { const c = Math.floor(Math.random() * 60) + 40; $('pai-cynicism').value = c; $('pai-cynicism-val').textContent = c + '%'; }
-  if ($('pai-combative')) { const k = Math.floor(Math.random() * 60) + 40; $('pai-combative').value = k; $('pai-combative-val').textContent = k + '%'; }
-
-  matchCultureName();
-}
-
-// Bind Studio Slider listeners
-if ($('pai-unhinged')) $('pai-unhinged').oninput = (e) => updateUnhingedMeter(parseInt(e.target.value, 10));
-if ($('pai-age')) $('pai-age').oninput = (e) => { $('pai-age-val').textContent = e.target.value; };
-if ($('pai-volatility')) $('pai-volatility').oninput = (e) => { $('pai-volatility-val').textContent = e.target.value + '%'; };
-if ($('pai-cynicism')) $('pai-cynicism').oninput = (e) => { $('pai-cynicism-val').textContent = e.target.value + '%'; };
-if ($('pai-combative')) $('pai-combative').oninput = (e) => { $('pai-combative-val').textContent = e.target.value + '%'; };
-if ($('pai-impulse')) $('pai-impulse').oninput = (e) => { $('pai-impulse-val').textContent = e.target.value + '%'; };
-if ($('pai-typo')) $('pai-typo').oninput = (e) => { $('pai-typo-val').textContent = e.target.value + '%'; };
-if ($('pai-burst')) $('pai-burst').oninput = (e) => { $('pai-burst-val').textContent = e.target.value + '%'; };
-
-// Bind Tab listeners
-if ($('p-ai-tabs')) {
-  $('p-ai-tabs').querySelectorAll('.p-ed-tab').forEach(b => {
-    b.onclick = () => switchPAITab(b.dataset.aitab);
-  });
-}
-
-// Bind Preset Chips
-if ($('p-ai-chips')) {
-  $('p-ai-chips').querySelectorAll('.p-chip').forEach(chip => {
-    chip.onclick = () => {
-      selectedAIStyle = chip.dataset.style;
-      $('p-ai-chips').querySelectorAll('.p-chip').forEach(c => c.classList.toggle('active', c === chip));
-      applyPAIPreset(selectedAIStyle);
-    };
-  });
-}
-
-// Bind Action Buttons
-if ($('p-btn-ai-gen')) $('p-btn-ai-gen').onclick = openAIPersonaModal;
-if ($('p-ai-close')) $('p-ai-close').onclick = () => $('p-ai-modal').classList.add('hidden');
-if ($('p-ai-cancel')) $('p-ai-cancel').onclick = () => $('p-ai-modal').classList.add('hidden');
-if ($('p-modal-autofill')) $('p-modal-autofill').onclick = openAIPersonaModal;
-if ($('pai-btn-match-name')) $('pai-btn-match-name').onclick = matchCultureName;
-if ($('pai-culture')) $('pai-culture').onchange = matchCultureName;
-if ($('pai-gender')) $('pai-gender').onchange = matchCultureName;
-if ($('pai-btn-randomize')) $('pai-btn-randomize').onclick = randomizePAIProfile;
-if ($('pai-btn-recompile')) $('pai-btn-recompile').onclick = compileCurrentPAIPrompt;
-if ($('p-ai-btn-synth')) $('p-ai-btn-synth').onclick = runPAISynthesis;
-if ($('p-ai-btn-save')) $('p-ai-btn-save').onclick = savePAIPersona;
-if ($('p-ai-btn-open')) $('p-ai-btn-open').onclick = openPAIInStudio;
-
-
-$('p-btn-gen').onclick = () => openGenModal(null);
-$('p-gen-close').onclick = () => $('p-gen-modal').classList.add('hidden');
-$('pg-cancel').onclick = () => $('p-gen-modal').classList.add('hidden');
-
-$('pg-run').onclick = async () => {
-  const cid = $('pg-group').value;
-  if (!cid) return;
-  const count = Number($('pg-count').value) || 3;
-  const dir = $('pg-dir').value.trim();
-  $('pg-status').textContent = 'Reading real group chat messages and generating personas... This takes 10-25 seconds.';
-  $('pg-run').disabled = true;
-  try {
-    const r = await api('POST', `/group-personas/${cid}/generate`, { count, direction: dir });
-    $('pg-status').textContent = `Success! Designed ${r.ids.length} personas based on ${r.studied} messages.`;
-    setTimeout(() => {
-      $('p-gen-modal').classList.add('hidden');
+if ($('pg-run')) {
+  $('pg-run').onclick = async () => {
+    const cid = $('pg-group').value;
+    if (!cid) return;
+    const count = Number($('pg-count').value) || 3;
+    const dir = $('pg-dir').value.trim();
+    $('pg-status').textContent = 'Reading group history and generating personas...';
+    $('pg-run').disabled = true;
+    try {
+      const r = await api('POST', `/group-personas/${cid}/generate`, { count, direction: dir });
+      $('pg-status').textContent = `Success! Created ${r.ids.length} personas.`;
+      setTimeout(() => {
+        $('p-gen-modal').classList.add('hidden');
+        $('pg-run').disabled = false;
+        loadPersonas();
+      }, 1200);
+    } catch (err) {
+      $('pg-status').textContent = 'Failed: ' + err.message;
       $('pg-run').disabled = false;
-      loadPersonas();
-    }, 1500);
-  } catch (err) {
-    $('pg-status').textContent = 'Failed: ' + err.message;
-    $('pg-run').disabled = false;
-  }
-};
-
+    }
+  };
+}
 
 // ----- Direct Messages & Inbound Chats Management -----
 let dmChatsList = [];
