@@ -468,10 +468,11 @@ async function loadOverview() {
   updateMasterSystemUI(sys.enabled);
   const q = s.queue || {};
   const stat = (k, v, sub) => `<div class="stat"><div class="k">${k}</div><div class="v">${v}</div><div class="s">${sub}</div></div>`;
-  $('ov-stats').innerHTML = stat('Accounts connected', `${s.connected || 0}<span class="hint"> / ${accs.length}</span>`, s.suspended ? 'Paused while Mac sleeps' : 'Live on Telegram')
+  const dormantCount = Math.max(0, accs.length - (s.connected || 0));
+  $('ov-stats').innerHTML = stat('Scout listener', `${s.connected || 0}<span class="hint"> / ${accs.length}</span>`, `${dormantCount} dormant in RAM (0 sockets)`)
+    + stat('Live AI routing', 'Humans Only', 'Bots pre-scheduled daily')
     + stat('Queued jobs', q.pending || 0, `${q.failed || 0} failed`)
-    + stat('Proxies working', `${pxs.filter((p) => p.ok).length}<span class="hint"> / ${pxs.length}</span>`, 'Tested through Telegram & Camoufox')
-    + stat('Camoufox', st.ready ? 'Ready' : st.running ? 'Setting up' : 'Preparing', 'Built-in stealth browser');
+    + stat('Proxies working', `${pxs.filter((p) => p.ok).length}<span class="hint"> / ${pxs.length}</span>`, 'Tested through Telegram & Camoufox');
   $('ov-accounts').innerHTML = accs.map((a) => `<div class="mini"><div class="avatar">${esc((a.name || '?')[0].toUpperCase())}</div><div class="grow"><b>${esc(a.name || 'Account')}</b><div class="hint">${esc(a.phone || '')}</div></div><span class="badge ${!a.active ? 'off' : a.connected ? 'ok' : 'bad'}">${!a.active ? 'Paused' : a.connected ? 'Connected' : 'Signed out'}</span></div>`).join('') || '<div class="hint">No accounts yet.</div>';
   $('ov-proxies').innerHTML = pxs.map((p) => `<div class="mini"><div class="grow"><b>${esc(p.label)}</b><div class="hint">${esc(p.accounts.join(', ') || 'Not assigned')}</div></div><span class="badge ${p.ok ? 'ok' : p.last_check ? 'bad' : 'off'}">${p.ok ? 'Working' : p.last_check ? 'Failed' : 'Not tested'}</span></div>`).join('') || '<div class="hint">No proxies yet.</div>';
 }
@@ -682,7 +683,7 @@ let currentStudioPersonaId = null;
 
 function switchPersonaTab(tabKey) {
   activePersonaTab = tabKey;
-  const tabs = ['roster', 'studio', 'matrix', 'cadence'];
+  const tabs = ['roster', 'studio', 'matrix', 'cadence', 'batch'];
   tabs.forEach((t) => {
     const el = $('p-tab-' + t);
     if (el) el.classList.toggle('hidden', t !== tabKey);
@@ -698,6 +699,8 @@ function switchPersonaTab(tabKey) {
     renderPersonaMatrix();
   } else if (tabKey === 'roster') {
     renderPersonaRoster();
+  } else if (tabKey === 'batch') {
+    loadDailyBatchView();
   }
 }
 
@@ -1812,3 +1815,188 @@ if ($('p-btn-test-chat')) $('p-btn-test-chat').onclick = () => window.openGroupT
 if ($('ptc-close')) $('ptc-close').onclick = () => $('p-testchat-modal').classList.add('hidden');
 if ($('ptc-cancel')) $('ptc-cancel').onclick = () => $('p-testchat-modal').classList.add('hidden');
 if ($('ptc-submit')) $('ptc-submit').onclick = runGroupTestChat;
+
+
+// ----- Daily Batch Scheduler & Scout Architecture -----
+let dailyBatchData = null;
+
+async function loadDailyBatchView() {
+  const statusEl = $('batch-gen-status');
+  try {
+    const [batchRes, matrixRes, accsRes] = await Promise.all([
+      api('GET', '/daily-batch/status').catch(() => ({ stats: {}, items: [] })),
+      api('GET', '/personas/matrix').catch(() => ({ matrix: [] })),
+      api('GET', '/accounts').catch(() => [])
+    ]);
+    dailyBatchData = batchRes;
+
+    // Current Date
+    if ($('batch-today-date')) $('batch-today-date').textContent = batchRes.date_str || new Date().toISOString().slice(0, 10);
+
+    // Scout selector
+    const scoutSel = $('batch-scout-select');
+    if (scoutSel) {
+      scoutSel.innerHTML = (accsRes || []).filter((a) => a.active).map((a) => `
+        <option value="${a.id}" ${batchRes.scout_account_id === a.id ? 'selected' : ''}>
+          ${esc(a.name || 'Account ' + a.id)} (${esc(a.phone || '')})
+        </option>
+      `).join('') || '<option value="">No active accounts</option>';
+    }
+    if ($('batch-scout-badge')) {
+      const activeScout = (accsRes || []).find((a) => a.id === batchRes.scout_account_id);
+      $('batch-scout-badge').textContent = activeScout ? `Scout: ${activeScout.name || activeScout.phone} (1 Socket)` : 'Scout: Auto-Selected';
+    }
+
+    // Watched groups dropdown
+    const groupSel = $('batch-gen-group');
+    if (groupSel) {
+      const watched = (matrixRes.matrix || []).filter((g) => g.watched);
+      groupSel.innerHTML = watched.map((g) => `
+        <option value="${g.chat_id}">${esc(g.title || 'Group ' + g.chat_id)} (${g.user_assignments ? g.user_assignments.length : 0} personas)</option>
+      `).join('') || '<option value="">No watched groups</option>';
+    }
+
+    // Metrics
+    const st = batchRes.stats || {};
+    if ($('batch-metric-total')) $('batch-metric-total').textContent = st.total || 0;
+    if ($('batch-metric-pending')) $('batch-metric-pending').textContent = st.pending || 0;
+    if ($('batch-metric-sent')) $('batch-metric-sent').textContent = st.sent || 0;
+    if ($('batch-metric-postponed')) $('batch-metric-postponed').textContent = st.postponed || 0;
+
+    // Render schedule table
+    renderBatchScheduleTable(batchRes.items || []);
+  } catch (err) {
+    console.error('Failed to load daily batch view:', err);
+    if (statusEl) statusEl.textContent = 'Error loading batch status: ' + err.message;
+  }
+}
+
+function renderBatchScheduleTable(items) {
+  const tbody = $('batch-schedule-tbody');
+  if (!tbody) return;
+  if (!items || items.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="5" class="empty" style="padding:16px; text-align:center;">No batch generated for today. Click \'Generate Batch\' above to pre-bake today\'s conversation.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = items.map((it) => {
+    const timeStr = it.scheduled_ts ? new Date(it.scheduled_ts * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '-';
+    let statusClass = 'off';
+    let statusLabel = 'Pending';
+    if (it.status === 'sent') {
+      statusClass = 'ok';
+      statusLabel = 'Sent ' + (it.sent_ts ? new Date(it.sent_ts * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '');
+    } else if (it.status === 'postponed') {
+      statusClass = 'bad';
+      statusLabel = 'Postponed (Human)';
+    } else if (it.status === 'cancelled') {
+      statusClass = 'off';
+      statusLabel = 'Cancelled';
+    }
+
+    return `
+      <tr style="border-bottom:1px solid var(--border);">
+        <td style="padding:8px; font-family:var(--font-mono, monospace); font-size:11.5px; font-weight:600;">${timeStr}</td>
+        <td style="padding:8px; font-weight:500;">${esc(it.group_title || ('Group ' + it.chat_id))}</td>
+        <td style="padding:8px;">
+          <div style="font-weight:600; color:var(--text);">${esc(it.persona_name || it.sender_name || 'Persona')}</div>
+          <div class="hint" style="font-size:10.5px;">Acc #${it.account_id} · ${esc(it.account_name || '')}</div>
+        </td>
+        <td style="padding:8px; max-width:320px; line-height:1.35; color:var(--text-bright);">
+          ${esc(it.text || '')}
+        </td>
+        <td style="padding:8px;">
+          <span class="badge ${statusClass}" style="font-size:10.5px; padding:2px 6px;">${statusLabel}</span>
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+// Daily Batch Controls Event Listeners
+if ($('batch-btn-refresh')) $('batch-btn-refresh').onclick = () => loadDailyBatchView();
+
+if ($('batch-scout-set-btn')) {
+  $('batch-scout-set-btn').onclick = async () => {
+    const sel = $('batch-scout-select');
+    if (!sel || !sel.value) return;
+    try {
+      await api('POST', '/daily-batch/scout', { account_id: parseInt(sel.value, 10) });
+      await loadDailyBatchView();
+    } catch (e) {
+      alert('Failed to set scout: ' + e.message);
+    }
+  };
+}
+
+if ($('batch-hold-minutes')) {
+  $('batch-hold-minutes').onchange = async (e) => {
+    try {
+      await api('POST', '/daily-batch/settings', { human_pause_minutes: parseInt(e.target.value, 10) });
+    } catch (err) {
+      console.warn('Failed to update pause setting:', err);
+    }
+  };
+}
+
+if ($('batch-btn-generate')) {
+  $('batch-btn-generate').onclick = async () => {
+    const statusEl = $('batch-gen-status');
+    const groupSel = $('batch-gen-group');
+    const countSel = $('batch-gen-count');
+    const topicInp = $('batch-gen-topic');
+
+    if (!groupSel || !groupSel.value) {
+      if (statusEl) statusEl.textContent = 'Please select a watched group first.';
+      return;
+    }
+
+    const btn = $('batch-btn-generate');
+    const oldText = btn.textContent;
+    btn.textContent = 'Generating...';
+    btn.disabled = true;
+    if (statusEl) statusEl.textContent = 'Synthesizing daily multi-persona dialogue with fal.ai...';
+
+    try {
+      const res = await api('POST', '/daily-batch/generate', {
+        chat_id: parseInt(groupSel.value, 10),
+        count: parseInt(countSel ? countSel.value : 6, 10),
+        topic: topicInp ? topicInp.value.trim() : ''
+      });
+      if (statusEl) statusEl.textContent = `Success: Generated ${res.batch ? res.batch.length : 0} scheduled messages across the day.`;
+      await loadDailyBatchView();
+    } catch (err) {
+      if (statusEl) statusEl.textContent = 'Generation failed: ' + err.message;
+    } finally {
+      btn.textContent = oldText;
+      btn.disabled = false;
+    }
+  };
+}
+
+if ($('batch-btn-send-next')) {
+  $('batch-btn-send-next').onclick = async () => {
+    const statusEl = $('batch-gen-status');
+    try {
+      const res = await api('POST', '/daily-batch/send-next');
+      if (statusEl) statusEl.textContent = 'Triggered next scheduled message (ID ' + res.item_id + '). Account will awaken ephemerally.';
+      await loadDailyBatchView();
+    } catch (e) {
+      if (statusEl) statusEl.textContent = 'Send next failed: ' + e.message;
+    }
+  };
+}
+
+if ($('batch-btn-clear')) {
+  $('batch-btn-clear').onclick = async () => {
+    if (!confirm('Clear all pending scheduled batch messages for today?')) return;
+    const groupSel = $('batch-gen-group');
+    const cid = groupSel && groupSel.value ? parseInt(groupSel.value, 10) : null;
+    try {
+      await api('POST', '/daily-batch/clear', { chat_id: cid });
+      await loadDailyBatchView();
+    } catch (e) {
+      alert('Failed to clear batch: ' + e.message);
+    }
+  };
+}

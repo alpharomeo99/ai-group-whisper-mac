@@ -54,6 +54,17 @@ CREATE TABLE IF NOT EXISTS personas (
 CREATE TABLE IF NOT EXISTS group_personas (
   chat_id INTEGER, persona_id INTEGER, account_id INTEGER, created INTEGER, PRIMARY KEY(chat_id, persona_id)
 );
+CREATE TABLE IF NOT EXISTS daily_batches (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, date_str TEXT, chat_id INTEGER,
+  topic TEXT, created_at INTEGER
+);
+CREATE TABLE IF NOT EXISTS daily_batch_items (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, batch_id INTEGER, chat_id INTEGER,
+  account_id INTEGER, persona_id INTEGER, sender_name TEXT, text TEXT,
+  scheduled_ts INTEGER, status TEXT DEFAULT 'pending', sent_ts INTEGER,
+  error TEXT, created_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_batch_items_sched ON daily_batch_items(status, scheduled_ts);
 CREATE INDEX IF NOT EXISTS idx_queue_status ON queue(status, not_before);
 CREATE INDEX IF NOT EXISTS idx_dm_chat ON direct_messages(account_id, peer_id, ts);
 """
@@ -81,7 +92,11 @@ class Store:
             "ALTER TABLE groups ADD COLUMN about TEXT DEFAULT ''",
             "ALTER TABLE groups ADD COLUMN domain_knowledge TEXT DEFAULT ''",
             "ALTER TABLE groups ADD COLUMN tags TEXT DEFAULT ''",
-            "ALTER TABLE groups ADD COLUMN rules TEXT DEFAULT ''"
+            "ALTER TABLE groups ADD COLUMN rules TEXT DEFAULT ''",
+            "CREATE TABLE IF NOT EXISTS daily_batches (id INTEGER PRIMARY KEY AUTOINCREMENT, date_str TEXT, chat_id INTEGER, topic TEXT, created_at INTEGER)",
+            "CREATE TABLE IF NOT EXISTS daily_batch_items (id INTEGER PRIMARY KEY AUTOINCREMENT, batch_id INTEGER, chat_id INTEGER, account_id INTEGER, persona_id INTEGER, sender_name TEXT, text TEXT, scheduled_ts INTEGER, status TEXT DEFAULT 'pending', sent_ts INTEGER, error TEXT, created_at INTEGER)",
+            "ALTER TABLE messages ADD COLUMN is_bot INTEGER DEFAULT 0",
+            "ALTER TABLE messages ADD COLUMN sender_id INTEGER"
 ):
             try:
                 self.db.execute(ddl)
@@ -172,8 +187,21 @@ class Store:
                (key, json.dumps(value)))
 
     # messages
-    def add_message(self, chat_id, msg_id, sender, text, ts):
-        self.q("INSERT OR IGNORE INTO messages VALUES(?,?,?,?,?)", (chat_id, msg_id, sender, text, ts))
+    def add_message(self, chat_id, msg_id, sender, text, ts, is_bot=0, sender_id=None):
+        self.q(
+            "INSERT INTO messages(chat_id, msg_id, sender, text, ts, is_bot, sender_id) "
+            "VALUES(?,?,?,?,?,?,?) "
+            "ON CONFLICT(chat_id, msg_id) DO UPDATE SET "
+            "text=excluded.text, sender=excluded.sender, is_bot=excluded.is_bot, sender_id=excluded.sender_id",
+            (chat_id, msg_id, sender, text, ts, 1 if is_bot else 0, sender_id)
+        )
+
+    def get_last_human_message_ts(self, chat_id):
+        r = self.q("SELECT ts FROM messages WHERE chat_id=? AND is_bot=0 ORDER BY ts DESC LIMIT 1", (chat_id,)).fetchone()
+        return r[0] if r else None
+
+    def mark_batch_item_sent(self, item_id, sent_ts):
+        self.q("UPDATE daily_batch_items SET status='sent', sent_ts=? WHERE id=?", (sent_ts, item_id))
 
     def recent(self, chat_id, limit=80):
         return list(reversed(self.rows(

@@ -11,6 +11,8 @@ import json
 import time
 
 from aiohttp import web
+from contextlib import asynccontextmanager
+import daily_batch
 from telethon import TelegramClient, events, errors
 
 import ai
@@ -42,6 +44,7 @@ class Daemon:
         self.wake_event = asyncio.Event()
         self.prov = Provisioner(self)
         self.orchestrator = PersonaCadenceOrchestrator(self.store)
+        self.daily_batch = daily_batch.DailyBatchEngine(self.store, ai)
         self.autoapi = {}        # token -> {"future": code future, "task": camoufox task}
         self.cfx_install = {"running": False, "log": ""}
 
@@ -179,30 +182,104 @@ class Daemon:
         me = await c.get_me()
         self._save_profile(aid, me, me.phone and "+" + me.phone.lstrip("+"))
 
+    def get_scout_account_id(self):
+        """Returns designated scout account id or the first active account."""
+        scout_aid = self.store.get("scout_account_id")
+        if scout_aid:
+            acc = self.store.rows("SELECT id FROM accounts WHERE id=? AND active=1", (int(scout_aid),))
+            if acc:
+                return acc[0]["id"]
+        first_active = self.store.rows("SELECT id FROM accounts WHERE active=1 ORDER BY id ASC LIMIT 1")
+        return first_active[0]["id"] if first_active else None
+
     async def ensure_clients(self):
-        """Connect every active account. Returns {account_id: authorized client}."""
-        ready = {}
-        for a in self.store.rows("SELECT * FROM accounts WHERE active=1"):
-            c = self.clients.get(a["id"])
-            if c is None:
-                api = self._api(a)
-                if not api:
-                    continue
-                c = self._new_client(a["session"], api, a.get("proxy_id"))
-                c.add_event_handler(self._handler_for(a["id"]), events.NewMessage())
-                c.add_event_handler(self._chat_action_handler_for(a["id"]), events.ChatAction())
-                self.clients[a["id"]] = c
+        """Maintains exactly ONE persistent scout listener to catch incoming events in watched groups.
+        All other accounts remain completely dormant (0 sockets, 0 idle RAM) and connect ephemerally on demand.
+        Returns {scout_account_id: scout_client}.
+        """
+        scout_aid = self.get_scout_account_id()
+        if not scout_aid:
+            await self.drop_clients()
+            return {}
+
+        # Disconnect any non-scout accounts still open
+        for aid in list(self.clients.keys()):
+            if aid != scout_aid:
+                c = self.clients.pop(aid)
+                try:
+                    await c.disconnect()
+                except Exception:
+                    pass
+
+        c = self.clients.get(scout_aid)
+        if c is None:
+            acc = self.store.rows("SELECT * FROM accounts WHERE id=?", (scout_aid,))
+            if not acc:
+                return {}
+            a = acc[0]
+            api = self._api(a)
+            if not api:
+                return {}
+            c = self._new_client(a["session"], api, a.get("proxy_id"))
+            c.add_event_handler(self._handler_for(scout_aid), events.NewMessage())
+            c.add_event_handler(self._chat_action_handler_for(scout_aid), events.ChatAction())
+            self.clients[scout_aid] = c
+
+        try:
+            if not c.is_connected():
+                await asyncio.wait_for(c.connect(), timeout=12)
+            if await c.is_user_authorized():
+                acc = self.store.rows("SELECT * FROM accounts WHERE id=?", (scout_aid,))
+                if acc and not acc[0]["user_id"]:
+                    me = await c.get_me()
+                    self._save_profile(scout_aid, me, me.phone and "+" + me.phone.lstrip("+"))
+                return {scout_aid: c}
+        except Exception as e:
+            log.warning("scout account %s connect failed: %s", scout_aid, e)
+        return {}
+
+    @asynccontextmanager
+    async def account_session(self, account_id):
+        """Context manager that provides an active Telegram client for any account.
+        Reuses the persistent connection if it is the active scout; otherwise connects on demand
+        and disconnects cleanly immediately after the action completes.
+        """
+        if not account_id:
+            ready = await self.ensure_clients()
+            if not ready:
+                raise ConnectionError("No active accounts available")
+            yield next(iter(ready.values()))
+            return
+
+        account_id = int(account_id)
+        if account_id in self.clients and self.clients[account_id].is_connected():
+            yield self.clients[account_id]
+            return
+
+        acc_rows = self.store.rows("SELECT * FROM accounts WHERE id=?", (account_id,))
+        if not acc_rows:
+            raise ConnectionError(f"Account {account_id} not found in database")
+        a = acc_rows[0]
+        api = self._api(a)
+        if not api:
+            raise ConnectionError(f"Account {account_id} has missing API credentials")
+
+        client = self._new_client(a["session"], api, a.get("proxy_id"))
+        await asyncio.wait_for(client.connect(), timeout=15)
+        if not await client.is_user_authorized():
             try:
-                if not c.is_connected():
-                    await asyncio.wait_for(c.connect(), timeout=10)
-                if await c.is_user_authorized():
-                    ready[a["id"]] = c
-                    if not a["user_id"]:
-                        me = await c.get_me()
-                        self._save_profile(a["id"], me, me.phone and "+" + me.phone.lstrip("+"))
-            except Exception as e:  # noqa
-                log.warning("account %s connect failed: %s", a["id"], e)
-        return ready
+                await client.disconnect()
+            except Exception:
+                pass
+            raise ConnectionError(f"Account {account_id} ({a.get('name')}) is not authorized")
+
+        try:
+            yield client
+        finally:
+            try:
+                await client.disconnect()
+            except Exception:
+                pass
 
     def _save_profile(self, aid, me, phone):
         name = " ".join(x for x in (me.first_name, me.last_name) if x) or "Account"
@@ -333,9 +410,28 @@ class Daemon:
             return
         sender = await event.get_sender()
         name = getattr(sender, "first_name", None) or getattr(sender, "title", None) or "unknown"
-        self.store.add_message(chat_id, event.id, name, event.raw_text, int(event.date.timestamp()))
+        sender_id = getattr(sender, "id", None) or getattr(event, "sender_id", None)
+
+        # 3. IDENTIFY SENDER: Internal Bot vs External Human
+        all_accounts = self.store.rows("SELECT user_id FROM accounts")
+        our_user_ids = {a["user_id"] for a in all_accounts if a.get("user_id")}
+        is_internal_bot = bool(event.out or (sender_id and sender_id in our_user_ids))
+
+        # Record message with is_bot flag
+        self.store.add_message(
+            chat_id, event.id, name, event.raw_text, int(event.date.timestamp()),
+            is_bot=1 if is_internal_bot else 0, sender_id=sender_id
+        )
+
+        # STRICT RULE: Bot-to-bot dialogue is governed strictly by the Daily Batch Schedule.
+        # Messages sent by any bot account in our system DO NOT trigger live AI replies!
+        if is_internal_bot:
+            self.wake_event.set()
+            return
+
+        # 4. LIVE AI ORCHESTRATION: Only triggered when an external HUMAN sends a message!
         system_enabled = bool(self.store.get("system_enabled", True))
-        if g[0]["auto_reply"] and not event.out and system_enabled:
+        if g[0]["auto_reply"] and system_enabled:
             me = await event.client.get_me()
             is_direct = event.mentioned
             if not is_direct and event.is_reply:
@@ -587,28 +683,54 @@ class Daemon:
                     self.store.q("INSERT INTO summaries(chat_id,body,created) VALUES(?,?,?)",
                                  (job["chat_id"], "Draft reply:\n" + text, int(time.time())))
             elif job["kind"] == "send":
-                cl = await self.client_for(job["chat_id"], account_id=p.get("account_id"))
-                secs = self.typing_secs(g, p["text"])
-                try:
-                    async with cl.action(job["chat_id"], "typing"):
-                        await asyncio.sleep(secs)
-                except Exception:  # noqa
-                    pass
-                await cl.send_message(job["chat_id"], p["text"], reply_to=p.get("reply_to"))
+                aid = p.get("account_id") or g.get("account_id")
+                async with self.account_session(aid) as cl:
+                    secs = self.typing_secs(g, p["text"])
+                    try:
+                        async with cl.action(job["chat_id"], "typing"):
+                            await asyncio.sleep(secs)
+                    except Exception:  # noqa
+                        pass
+                    await cl.send_message(job["chat_id"], p["text"], reply_to=p.get("reply_to"))
+
+            elif job["kind"] == "batch_scheduled_send":
+                # Check if a human recently spoke in this group:
+                last_human_ts = self.store.get_last_human_message_ts(job["chat_id"])
+                now_ts = int(time.time())
+                pause_secs = int(self.store.get("batch_human_pause_seconds", 900))
+                if last_human_ts and (now_ts - last_human_ts) < pause_secs:
+                    # Defer batch message by remaining pause time + jitter so bots do not talk over human!
+                    defer_secs = (pause_secs - (now_ts - last_human_ts)) + random.randint(60, 240)
+                    if p.get("batch_item_id"):
+                        self.store.q("UPDATE daily_batch_items SET status='postponed' WHERE id=?", (p["batch_item_id"],))
+                    self.store.finish(job["id"], False, "Postponed: human spoke recently in chat", retry_in=defer_secs)
+                    return
+
+                aid = p.get("account_id") or g.get("account_id")
+                async with self.account_session(aid) as cl:
+                    secs = self.typing_secs(g, p["text"])
+                    try:
+                        async with cl.action(job["chat_id"], "typing"):
+                            await asyncio.sleep(secs)
+                    except Exception:  # noqa
+                        pass
+                    await cl.send_message(job["chat_id"], p["text"], reply_to=p.get("reply_to"))
+
+                if p.get("batch_item_id"):
+                    self.store.mark_batch_item_sent(p["batch_item_id"], int(time.time()))
+
             elif job["kind"] == "direct_send":
                 aid = p.get("account_id")
-                cl = self.clients.get(aid)
-                if not cl:
-                    cl = await self.client_for(job["chat_id"], account_id=aid)
                 peer_id = job["chat_id"]
-                try:
-                    async with cl.action(peer_id, "typing"):
-                        secs = self.typing_secs({"chat_id": peer_id, "account_id": aid}, p.get("text", ""))
-                        await asyncio.sleep(secs)
-                except Exception:
-                    pass
-                sent = await cl.send_message(peer_id, p["text"], reply_to=p.get("reply_to"))
-                self.store.add_direct_message(aid, peer_id, sent.id, "Me", 0, p["text"], int(time.time()))
+                async with self.account_session(aid) as cl:
+                    try:
+                        async with cl.action(peer_id, "typing"):
+                            secs = self.typing_secs({"chat_id": peer_id, "account_id": aid}, p.get("text", ""))
+                            await asyncio.sleep(secs)
+                    except Exception:
+                        pass
+                    sent = await cl.send_message(peer_id, p["text"], reply_to=p.get("reply_to"))
+                    self.store.add_direct_message(aid, peer_id, sent.id, "Me", 0, p["text"], int(time.time()))
             elif job["kind"] == "direct_reply":
                 aid = p.get("account_id")
                 peer_id = job["chat_id"]
@@ -739,6 +861,26 @@ class Daemon:
             except Exception as e:
                 log.warning("auto_sync_loop error: %s", e)
             await asyncio.sleep(45)
+
+    async def daily_batch_loop(self):
+        """Automatically checks and generates today's daily batch for watched groups with personas."""
+        await asyncio.sleep(10)
+        while True:
+            try:
+                today = self.daily_batch.today_str()
+                watched_groups = self.store.rows("SELECT chat_id FROM groups WHERE watched=1")
+                for w in watched_groups:
+                    cid = w["chat_id"]
+                    existing = self.store.rows("SELECT id FROM daily_batches WHERE chat_id=? AND date_str=?", (cid, today))
+                    if not existing:
+                        cand_count = self.store.rows("SELECT COUNT(*) as c FROM group_personas WHERE chat_id=? AND account_id IS NOT NULL", (cid,))
+                        if cand_count and cand_count[0]["c"] >= 2:
+                            log.info("Auto-generating daily batch for group %s (%s)", cid, today)
+                            await self.daily_batch.generate_batch_for_group(cid, count=int(self.store.get("batch_messages_count", 6)))
+                            self.wake_event.set()
+            except Exception as e:
+                log.warning("daily_batch_loop error: %s", e)
+            await asyncio.sleep(1800)
 
     async def catch_up(self):
         """Fetch messages missed while the Mac slept."""
@@ -1400,18 +1542,87 @@ class Daemon:
             kind, _, val = str(ref).partition(":")
             return kind, val
 
-                # ----- System Master Control -----
+        # ----- Daily Batch Dialogue & Scout Control -----
+        @r.get("/daily-batch/status")
+        async def daily_batch_status(_):
+            return J(self.daily_batch.get_status())
+
+        @r.post("/daily-batch/generate")
+        async def daily_batch_generate(req):
+            b = await req.json()
+            chat_id = b.get("chat_id")
+            if not chat_id:
+                watched = self.store.rows("SELECT chat_id FROM groups WHERE watched=1 LIMIT 1")
+                if not watched:
+                    return J({"error": "No watched group available to generate batch for"}, status=400)
+                chat_id = watched[0]["chat_id"]
+            count = int(b.get("count", 6))
+            topic = b.get("topic")
+            try:
+                res = await self.daily_batch.generate_batch_for_group(chat_id, count=count, topic_override=topic)
+                self.wake_event.set()
+                return J({"ok": True, "batch": res})
+            except Exception as e:
+                return J({"error": str(e)}, status=400)
+
+        @r.post("/daily-batch/clear")
+        async def daily_batch_clear(req):
+            b = {}
+            try:
+                b = await req.json()
+            except Exception:
+                pass
+            cleared = self.daily_batch.clear_today(b.get("chat_id"))
+            return J({"ok": True, "cleared": cleared})
+
+        @r.post("/daily-batch/send-next")
+        async def daily_batch_send_next(_):
+            it_id = self.daily_batch.trigger_next_now()
+            if not it_id:
+                return J({"error": "No pending scheduled batch items found"}, status=400)
+            self.wake_event.set()
+            return J({"ok": True, "item_id": it_id})
+
+        @r.post("/daily-batch/scout")
+        async def daily_batch_set_scout(req):
+            b = await req.json()
+            aid = b.get("account_id")
+            if aid:
+                self.store.set("scout_account_id", int(aid))
+            else:
+                self.store.set("scout_account_id", None)
+            await self.ensure_clients()
+            return J({"ok": True, "scout_account_id": self.get_scout_account_id()})
+
+        @r.post("/daily-batch/settings")
+        async def daily_batch_save_settings(req):
+            b = await req.json()
+            if "human_pause_minutes" in b:
+                self.store.set("batch_human_pause_seconds", int(b["human_pause_minutes"]) * 60)
+            if "batch_messages_count" in b:
+                self.store.set("batch_messages_count", int(b["batch_messages_count"]))
+            return J({"ok": True})
+
+        # ----- System Master Control -----
         @r.get("/system/status")
         async def system_status(_):
             enabled = bool(self.store.get("system_enabled", True))
-            active_accs = len(self.clients)
+            scout_aid = self.get_scout_account_id()
+            scout_acc = self.store.rows("SELECT id, name, phone, username FROM accounts WHERE id=?", (scout_aid,)) if scout_aid else []
+            total_active_accs = self.store.q("SELECT COUNT(*) FROM accounts WHERE active=1").fetchone()[0]
             watched_groups = self.store.q("SELECT COUNT(*) FROM groups WHERE watched=1").fetchone()[0]
-            queued_jobs = self.store.q("SELECT COUNT(*) FROM queue WHERE status='queued'").fetchone()[0]
+            queued_jobs = self.store.q("SELECT COUNT(*) FROM queue WHERE status='pending'").fetchone()[0]
+            batch_status = self.daily_batch.get_status()
             return J({
                 "enabled": enabled,
-                "active_accounts": active_accs,
+                "scout_account": scout_acc[0] if scout_acc else None,
+                "active_listeners": len(self.clients),
+                "dormant_senders": max(0, total_active_accs - len(self.clients)),
+                "total_accounts": total_active_accs,
                 "watched_groups": watched_groups,
-                "queued_jobs": queued_jobs
+                "queued_jobs": queued_jobs,
+                "live_ai_mode": "Humans Only",
+                "batch_stats": batch_status["stats"]
             })
 
         @r.post("/system/toggle")
@@ -1560,13 +1771,11 @@ class Daemon:
             text = (b.get("text") or "").strip()
             if not text:
                 return J({"error": "Message text required"}, status=400)
-            c = self.clients.get(aid)
-            if not c:
-                return J({"error": "Account not connected"}, status=400)
             try:
-                sent = await c.send_message(peer_id, text, reply_to=b.get("reply_to"))
-                self.store.add_direct_message(aid, peer_id, sent.id, "Me", 0, text, int(time.time()))
-                return J({"ok": True, "msg_id": sent.id})
+                async with self.account_session(aid) as c:
+                    sent = await c.send_message(peer_id, text, reply_to=b.get("reply_to"))
+                    self.store.add_direct_message(aid, peer_id, sent.id, "Me", 0, text, int(time.time()))
+                    return J({"ok": True, "msg_id": sent.id})
             except Exception as e:
                 return J({"error": str(e)}, status=500)
 
@@ -1894,6 +2103,7 @@ async def main():
     log.info("listening on 127.0.0.1:%d", a.port)
     asyncio.create_task(d.ensure_camoufox())
     asyncio.create_task(d.auto_sync_loop())
+    asyncio.create_task(d.daily_batch_loop())
     try:
         await d.ensure_clients()
     except Exception as e:  # noqa

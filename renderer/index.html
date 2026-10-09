@@ -74,6 +74,7 @@
           <button type="button" class="p-tab" data-ptab="studio">Persona Studio</button>
           <button type="button" class="p-tab" data-ptab="matrix">Group Assignments</button>
           <button type="button" class="p-tab" data-ptab="cadence">Cadence Engine</button>
+          <button type="button" class="p-tab" data-ptab="batch">Daily Batch Scheduler</button>
         </div>
 
         <!-- Tab 1: Overview & Dashboard -->
@@ -547,6 +548,113 @@
             <div class="p-modal-footer">
               <button class="ghost" id="pg-cancel">Cancel</button>
               <button class="primary" id="pg-run">Analyze &amp; Generate</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tab 5: Daily Batch Scheduler & Scout Architecture -->
+        <div id="p-tab-batch" class="hidden">
+          <!-- Architecture Banner -->
+          <div class="p-card" style="margin-bottom:12px; border-left:3px solid var(--accent); background:rgba(47,196,178,0.04);">
+            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+              <div>
+                <h3 style="margin:0 0 4px 0; font-size:13.5px; font-weight:600; color:var(--text);">Zero-RAM Scout Architecture &amp; Scheduled Dialogue</h3>
+                <p class="hint" style="margin:0; font-size:11.5px; max-width:680px;">
+                  Only 1 account stays connected as a persistent Scout listener. All other persona accounts remain completely disconnected (0 MB idle RAM) and connect ephemerally only when their scheduled message is due. Live AI triggers <b>strictly on human messages</b>; multi-persona banter is generated once daily in advance.
+                </p>
+              </div>
+              <div style="display:flex; align-items:center; gap:8px;">
+                <span class="ps-chip" style="font-size:11px; font-weight:600; background:rgba(47,196,178,0.15); color:var(--accent);" id="batch-scout-badge">Scout: Auto-Selected</span>
+                <select id="batch-scout-select" style="font-size:11px; padding:3px 6px; width:auto; height:26px;"></select>
+                <button class="ghost" id="batch-scout-set-btn" style="padding:3px 8px; font-size:11px; height:26px;">Set Scout</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Batch Metrics Bar -->
+          <div class="p-metrics-grid" style="margin-bottom:12px;">
+            <div class="p-metric-card" style="border-left: 2px solid var(--accent);">
+              <div class="k">Today's Batch Items</div>
+              <div class="v" id="batch-metric-total">0</div>
+              <div class="s">Total generated for today</div>
+            </div>
+            <div class="p-metric-card" style="border-left: 2px solid #eab308;">
+              <div class="k">Pending / Upcoming</div>
+              <div class="v" id="batch-metric-pending">0</div>
+              <div class="s">Awakens account at timestamp</div>
+            </div>
+            <div class="p-metric-card" style="border-left: 2px solid #22c55e;">
+              <div class="k">Sent Messages</div>
+              <div class="v" id="batch-metric-sent">0</div>
+              <div class="s">Delivered to Telegram</div>
+            </div>
+            <div class="p-metric-card" style="border-left: 2px solid #ef4444;">
+              <div class="k">Human Silence Postponed</div>
+              <div class="v" id="batch-metric-postponed">0</div>
+              <div class="s">Paused due to human conversation</div>
+            </div>
+          </div>
+
+          <!-- Control Bar & Generation Form -->
+          <div class="p-card" style="margin-bottom:12px;">
+            <div style="font-size:12px; font-weight:600; margin-bottom:8px;">Generate Today's Dialogue Schedule</div>
+            <div style="display:grid; grid-template-columns: 1.5fr 1fr 2fr 1fr auto; gap:8px; align-items:end;">
+              <div>
+                <label class="ps-label">Target Watched Group</label>
+                <select id="batch-gen-group"></select>
+              </div>
+              <div>
+                <label class="ps-label">Messages Today</label>
+                <select id="batch-gen-count">
+                  <option value="4">4 messages (Light)</option>
+                  <option value="6" selected>6 messages (Natural)</option>
+                  <option value="8">8 messages (Active)</option>
+                  <option value="12">12 messages (Heavy)</option>
+                </select>
+              </div>
+              <div>
+                <label class="ps-label">Topic Focus (Optional)</label>
+                <input type="text" id="batch-gen-topic" placeholder="e.g. Discussing peptide purity, testing, and dosing routines" />
+              </div>
+              <div>
+                <label class="ps-label">Human Interruption Hold</label>
+                <select id="batch-hold-minutes">
+                  <option value="10">10 minutes</option>
+                  <option value="15" selected>15 minutes</option>
+                  <option value="30">30 minutes</option>
+                  <option value="60">60 minutes</option>
+                </select>
+              </div>
+              <div style="display:flex; gap:6px;">
+                <button class="primary" id="batch-btn-generate" style="white-space:nowrap;">Generate Batch</button>
+                <button class="ghost" id="batch-btn-send-next" title="Force send immediate next scheduled message">Send Next Now</button>
+                <button class="danger" id="batch-btn-clear" title="Clear all unsent batch messages">Clear Pending</button>
+              </div>
+            </div>
+            <div id="batch-gen-status" class="hint" style="margin-top:6px; min-height:16px; font-size:11.5px;"></div>
+          </div>
+
+          <!-- Schedule Timeline Table -->
+          <div class="p-card">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+              <div style="font-weight:600; font-size:12.5px;">Today's Scheduled Dialogue Queue (<span id="batch-today-date">-</span>)</div>
+              <button class="ghost" id="batch-btn-refresh" style="font-size:11px; padding:3px 8px;">Refresh Schedule</button>
+            </div>
+            <div style="overflow-x:auto;">
+              <table style="width:100%; border-collapse:collapse; font-size:12px; text-align:left;">
+                <thead>
+                  <tr style="border-bottom:1px solid var(--border); color:var(--text-dim); font-size:11px; text-transform:uppercase;">
+                    <th style="padding:6px 8px; width:120px;">Scheduled Time</th>
+                    <th style="padding:6px 8px; width:140px;">Group</th>
+                    <th style="padding:6px 8px; width:160px;">Speaking Persona &amp; Account</th>
+                    <th style="padding:6px 8px;">Message Content</th>
+                    <th style="padding:6px 8px; width:100px;">Status</th>
+                  </tr>
+                </thead>
+                <tbody id="batch-schedule-tbody">
+                  <tr><td colspan="5" class="empty" style="padding:16px; text-align:center;">No batch generated for today. Click 'Generate Batch' above.</td></tr>
+                </tbody>
+              </table>
             </div>
           </div>
         </div>
