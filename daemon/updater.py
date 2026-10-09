@@ -6,6 +6,8 @@ import plistlib
 import shutil
 import subprocess
 import tempfile
+import time
+import urllib.request
 import zipfile
 
 import aiohttp
@@ -51,6 +53,48 @@ async def check():
             "available": vtuple(tag) > vtuple(cur), "canInstall": True}
 
 
+def download_archive_sync(tag, progress_cb=None):
+    """Resilient download with retries across codeload and git archive endpoints."""
+    urls = [
+        f"https://codeload.github.com/{REPO}/zip/refs/tags/{tag}",
+        f"https://api.github.com/repos/{REPO}/zipball/{tag}",
+        f"https://github.com/{REPO}/archive/refs/tags/{tag}.zip",
+    ]
+    headers = {
+        "User-Agent": "AIGroupWhisper-Mac/2.x (macOS; in-app-updater)",
+        "Accept": "*/*",
+    }
+    last_err = None
+    for url in urls:
+        for attempt in range(3):
+            try:
+                req = urllib.request.Request(url, headers=headers)
+                with urllib.request.urlopen(req, timeout=30) as resp:
+                    if resp.status != 200:
+                        raise RuntimeError(f"HTTP {resp.status}")
+                    total = int(resp.headers.get("Content-Length") or 0)
+                    buf = io.BytesIO()
+                    read_bytes = 0
+                    while True:
+                        chunk = resp.read(65536)
+                        if not chunk:
+                            break
+                        buf.write(chunk)
+                        read_bytes += len(chunk)
+                        if total and progress_cb:
+                            progress_cb(int(read_bytes * 100 / total))
+                    buf.seek(0)
+                    with zipfile.ZipFile(buf) as z:
+                        if not z.namelist():
+                            raise RuntimeError("Downloaded archive was empty")
+                    buf.seek(0)
+                    return buf
+            except Exception as e:
+                last_err = e
+                time.sleep(1.0)
+    raise RuntimeError(f"Download failed after retries: {last_err}")
+
+
 async def install():
     STATE.update(stage="Checking", pct=None, error=None)
     info = await check()
@@ -58,17 +102,12 @@ async def install():
         STATE.update(stage="Already up to date")
         return info
     STATE.update(stage="Downloading", pct=0)
-    url = f"https://codeload.github.com/{REPO}/zip/refs/tags/{info['tag']}"
-    buf = io.BytesIO()
-    async with aiohttp.ClientSession() as s:
-        async with s.get(url) as r:
-            if r.status != 200:
-                raise RuntimeError(f"Download failed ({r.status})")
-            total = int(r.headers.get("Content-Length") or 0)
-            async for chunk in r.content.iter_chunked(65536):
-                buf.write(chunk)
-                if total:
-                    STATE["pct"] = int(buf.tell() * 100 / total)
+
+    def on_progress(pct):
+        STATE["pct"] = pct
+
+    loop = asyncio.get_running_loop()
+    buf = await loop.run_in_executor(None, download_archive_sync, info["tag"], on_progress)
     STATE.update(stage="Installing", pct=None)
     with tempfile.TemporaryDirectory() as tmp:
         zipfile.ZipFile(buf).extractall(tmp)
