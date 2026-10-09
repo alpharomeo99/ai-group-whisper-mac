@@ -113,6 +113,10 @@ class Store:
         self.seed_xbiolabs_and_personas()
 
     def seed_xbiolabs_and_personas(self):
+        return self.reconcile_personas_and_accounts()
+
+    def reconcile_personas_and_accounts(self):
+        """Seeds or updates xbiolabs group domain context, verifies all personas, and auto-links unassigned accounts."""
         """Seeds or updates xbiolabs group domain context and updates personas with peptide mastery."""
         try:
             xbiolabs_about = "Official vendor and community group for xbiolabs. While it is a vendor group, the community actively discusses everything related to peptides, underground biohacking, and health optimization."
@@ -180,6 +184,121 @@ class Store:
 
             # Prune old fabricated vendor seed memories to avoid unprompted order claims
             cur.execute("DELETE FROM persona_memories WHERE content LIKE '%Frequent buyer at xbiolabs%' OR content LIKE '%Received fresh peptide kit%'")
+
+            # Find target xbiolabs group id
+            cur.execute("SELECT chat_id FROM groups WHERE LOWER(title) LIKE '%xbiolabs%' OR LOWER(title) LIKE '%xbio%'")
+            g_rows = cur.fetchall()
+            xbiolabs_cid = g_rows[0][0] if g_rows else -1001988234120
+
+            # Find all accounts and reconcile personas
+            cur.execute("SELECT id, name, phone, username, persona_id FROM accounts ORDER BY id")
+            accounts = cur.fetchall()
+
+            created_count = 0
+            linked_count = 0
+            palette = ["#2fc4b2", "#7c6cff", "#ff8a4c", "#e45fa6", "#4ca8ff", "#9bd14c", "#f2c94c", "#56ccf2", "#00d2d3", "#a55eea"]
+
+            for aid, aname, aphone, ausername, apid in accounts:
+                target_pid = apid
+                if target_pid:
+                    cur.execute("SELECT id FROM personas WHERE id=?", (target_pid,))
+                    if not cur.fetchone():
+                        target_pid = None
+
+                raw_name = (aname or "").strip()
+                if not raw_name:
+                    if ausername:
+                        raw_name = ausername.replace("_", " ").title()
+                    elif aphone:
+                        raw_name = f"User {aphone[-4:]}"
+                    else:
+                        raw_name = f"Account {aid}"
+
+                if not target_pid:
+                    # Check if a persona already exists with this exact name
+                    cur.execute("SELECT id FROM personas WHERE LOWER(name)=LOWER(?) LIMIT 1", (raw_name,))
+                    existing_p = cur.fetchone()
+                    if existing_p:
+                        target_pid = existing_p[0]
+                    else:
+                        first_name = raw_name.split()[0] if raw_name else "Member"
+                        last_name = " ".join(raw_name.split()[1:]) if len(raw_name.split()) > 1 else ""
+                        lower_first = first_name.lower()
+                        female_names = {"leila", "layla", "leyla", "sarah", "sara", "emma", "chloe", "mia", "hannah", "maya", "leah", "grace", "sofia", "sophia", "elena", "clara", "zoe", "eva", "nina", "lily", "anna", "olivia", "amelia", "lucy", "ruby", "nora", "eliza"}
+                        is_female = lower_first in female_names or lower_first.endswith(("a", "ah", "ie", "ine", "elle", "ette", "ia", "lyn"))
+
+                        if is_female:
+                            gender = "woman"
+                            age = random.randint(27, 33)
+                            bio = "Peptide protocols, recovery & metabolic health researcher."
+                            occupation = "Biomedical researcher & functional health coach"
+                            background = (
+                                f"{first_name} has spent the last 4 years in functional medicine and peptide research communities. "
+                                "Specializes in tissue healing (BPC-157, TB-500), skin and collagen optimization (GHK-Cu), and metabolic flexibility. "
+                                "Believes in rigorous sterile reconstitution (BAC water), lab COA verification (Janoshik HPLC purity), and honest peer feedback."
+                            )
+                            typing_style = "lowercase casual, thoughtful, articulate, uses BAC and mcg units accurately, very rare emojis (🤍, ✨)"
+                        else:
+                            gender = "man"
+                            age = random.randint(28, 36)
+                            bio = "Strength athlete & physiology nerd. Dialing in recovery & metabolic health."
+                            occupation = "Strength & conditioning specialist / physiology researcher"
+                            background = (
+                                f"{first_name} is a dedicated strength coach and long-time health optimizer. "
+                                "Deeply versed in TRT optimization, joint repair protocols (BPC-157, TB-500), GLP-1 agonists (Tirzepatide, Retatrutide) for body composition, and testing batch purity through Janoshik reports. "
+                                "No-nonsense peer who shares real bloodwork markers (sensitive estradiol, lipids, ALT/AST) and practical dosing advice."
+                            )
+                            typing_style = "natural conversational, concise, lowercase sentences, authentic lifter slang, no corporate buzzwords"
+
+                        color = random.choice(palette)
+
+                        p_prompt = (
+                            f"You are {raw_name}, a {age}-year-old {occupation}.\n"
+                            f"Bio: {bio}\n"
+                            f"Backstory: {background}\n\n"
+                            f"How you write: {typing_style}\n"
+                            "- Message length: varies naturally from 2-4 words ('same here', 'what dose?') to 1-2 punchy sentences. Never write long essay paragraphs.\n"
+                            "- Anti-AI constraints: NEVER say delve, crucial, testament, landscape, dynamic, furthermore, in conclusion, or echo the user with 'great point'. Never sound like customer support.\n"
+                            "- Community: You are an authentic peer and active member of the xbiolabs Telegram group.\n"
+                            "- Domain mastery: You are deeply knowledgeable in peptides (BPC-157, TB-500, Tirzepatide, Retatrutide, Semaglutide, GHK-Cu, CJC-1295/Ipamorelin), reconstitution math with BAC water, sterile pin hygiene, gear/TRT protocols, sexual health (PT-141, Cialis), bloodwork tracking, and vendor ordering/shipping.\n"
+                            f"{xbiolabs_rapport}"
+                        )
+
+                        details = {
+                            "first_name": first_name,
+                            "last_name": last_name,
+                            "gender": gender,
+                            "age": age,
+                            "occupation": occupation,
+                            "bio": bio,
+                            "group": "xbiolabs",
+                            "vendor_sentiment": "admit_good_only_on_negative_query",
+                            "interests": ["peptides", "BPC-157", "TB-500", "reconstitution", "Janoshik COAs", "recovery", "health optimization"]
+                        }
+
+                        cur.execute(
+                            "INSERT INTO personas(name, prompt, color, bio, details, created) VALUES(?,?,?,?,?,?)",
+                            (raw_name, p_prompt, color, bio, json.dumps(details), now_ts)
+                        )
+                        target_pid = cur.lastrowid
+                        created_count += 1
+
+                if target_pid:
+                    cur.execute("UPDATE accounts SET persona_id=? WHERE id=?", (target_pid, aid))
+                    if xbiolabs_cid:
+                        cur.execute(
+                            "INSERT OR REPLACE INTO group_personas(chat_id, persona_id, account_id, created) VALUES(?,?,?,?)",
+                            (xbiolabs_cid, target_pid, aid, now_ts)
+                        )
+                        cur.execute(
+                            "INSERT OR IGNORE INTO group_accounts(chat_id, account_id) VALUES(?,?)",
+                            (xbiolabs_cid, aid)
+                        )
+                        cur.execute(
+                            "UPDATE groups SET account_id=COALESCE(account_id, ?) WHERE chat_id=?",
+                            (aid, xbiolabs_cid)
+                        )
+                    linked_count += 1
 
             self.db.commit()
         except Exception:

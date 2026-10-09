@@ -65,6 +65,7 @@
           </div>
           <div class="row">
             <button type="button" class="primary" id="p-btn-new">+ New Persona</button>
+            <button type="button" class="ghost" id="p-btn-reconcile" title="Verify all personas match xbiolabs requirements and auto-link unassigned accounts">⚡ Auto-link &amp; Verify</button>
             <button type="button" class="ghost" id="p-btn-gen">Study Group</button>
             <button type="button" class="ghost" id="p-btn-test-chat">Test Chat</button>
           </div>
@@ -1165,7 +1166,12 @@
       </section>
       
       <section id="view-accounts" class="hidden">
-        <div class="acc-head page-head"><div><h1>Telegram accounts</h1><p class="sub">Connect and manage accounts manually. Each account keeps its own API keys, session and proxy.</p></div><button id="acc-add" class="primary">+ Add account manually</button></div>
+        <div class="acc-head page-head"><div><h1>Telegram accounts</h1><p class="sub">Connect and manage accounts manually. Each account keeps its own API keys, session and proxy.</p></div>
+          <div class="row">
+            <button id="acc-sync-all-avatars" class="ghost" title="Download and refresh profile pictures for all accounts">&#8635; Sync profile pictures</button>
+            <button id="acc-add" class="primary">+ Add account manually</button>
+          </div>
+        </div>
         <div id="acc-list"></div>
         <div id="acc-wizard" class="card wizard hidden">
           <h3 id="w-title">Add a Telegram account</h3>

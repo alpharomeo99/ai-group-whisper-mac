@@ -538,7 +538,13 @@ async function loadOverview() {
     + stat('Live AI routing', 'Humans Only', 'Bots pre-scheduled daily')
     + stat('Queued jobs', q.pending || 0, `${q.failed || 0} failed`)
     + stat('Proxies working', `${proxiesList.filter((p) => p.ok).length}<span class="hint"> / ${proxiesList.length}</span>`, 'Tested through Telegram & Camoufox');
-  $('ov-accounts').innerHTML = accountsList.map((a) => `<div class="mini"><div class="avatar">${esc((a.name || '?')[0].toUpperCase())}</div><div class="grow"><b>${esc(a.name || 'Account')}</b><div class="hint">${esc(a.phone || '')}</div></div><span class="badge ${!a.active ? 'off' : a.connected ? 'ok' : 'bad'}">${!a.active ? 'Paused' : a.connected ? 'Connected' : 'Signed out'}</span></div>`).join('') || '<div class="hint">No accounts yet.</div>';
+  $('ov-accounts').innerHTML = accountsList.map((a) => {
+    const init = esc((a.name || '?')[0].toUpperCase());
+    const av = a.has_avatar
+      ? `<div class="avatar"><img src="/accounts/${a.id}/avatar" alt="${esc(a.name || '')}" onerror="this.onerror=null; this.remove();" /><span class="av-fallback">${init}</span></div>`
+      : `<div class="avatar">${init}</div>`;
+    return `<div class="mini">${av}<div class="grow"><b>${esc(a.name || 'Account')}</b><div class="hint">${esc(a.phone || '')}</div></div><span class="badge ${!a.active ? 'off' : a.connected ? 'ok' : 'bad'}">${!a.active ? 'Paused' : a.connected ? 'Connected' : 'Signed out'}</span></div>`;
+  }).join('') || '<div class="hint">No accounts yet.</div>';
   $('ov-proxies').innerHTML = proxiesList.map((p) => `<div class="mini"><div class="grow"><b>${esc(p.label)}</b><div class="hint">${esc((p.accounts || []).join(', ') || 'Not assigned')}</div></div><span class="badge ${p.ok ? 'ok' : p.last_check ? 'bad' : 'off'}">${p.ok ? 'Working' : p.last_check ? 'Failed' : 'Not tested'}</span></div>`).join('') || '<div class="hint">No proxies yet.</div>';
 }
 
@@ -560,9 +566,13 @@ async function loadAccounts() {
     el.innerHTML = list.map((a) => {
       const badgeClass = !a.active ? 'off' : a.is_scout ? 'ok' : a.connected ? 'ok' : 'standby';
       const badgeLabel = !a.active ? 'Paused' : a.is_scout ? 'Scout (Listening)' : a.connected ? 'Connected' : 'Standby';
+      const init = esc((a.name || a.phone || '?')[0].toUpperCase());
+      const avHtml = a.has_avatar
+        ? `<div class="avatar"><img src="/accounts/${a.id}/avatar?t=${Date.now()}" alt="${esc(a.name || '')}" onerror="this.onerror=null; this.remove();" /><span class="av-fallback">${init}</span></div>`
+        : `<div class="avatar">${init}</div>`;
       return `
       <div class="card acc">
-        <div class="avatar">${esc((a.name || a.phone || '?')[0].toUpperCase())}</div>
+        ${avHtml}
         <div class="acc-info"><b>${esc(a.name || 'Account ' + a.id)}</b>
           <div class="hint">${[a.phone, a.username && '@' + a.username, `${a.groups || 0} group${a.groups === 1 ? '' : 's'}`].filter(Boolean).map(esc).join(' · ')}</div></div>
         <span class="badge ${badgeClass}">${badgeLabel}</span>
@@ -2496,3 +2506,39 @@ if ($('usage-days-select')) {
 }
 
 window.openPersonaStudio = openPersonaStudio;
+
+if ($('p-btn-reconcile')) {
+  $('p-btn-reconcile').onclick = async () => {
+    const btn = $('p-btn-reconcile');
+    const oldText = btn.textContent;
+    btn.disabled = true; btn.textContent = 'Verifying…';
+    try {
+      const r = await api('POST', '/personas/reconcile');
+      alert(`Verified ${r.verified || 0} personas.
+Created & linked ${r.created || 0} name-matched personas to accounts in xbiolabs.`);
+      loadPersonas();
+      if (window.loadNetwork) window.loadNetwork();
+    } catch (e) {
+      alert('Reconciliation failed: ' + e.message);
+    } finally {
+      btn.disabled = false; btn.textContent = oldText;
+    }
+  };
+}
+
+if ($('acc-sync-all-avatars')) {
+  $('acc-sync-all-avatars').onclick = async () => {
+    const btn = $('acc-sync-all-avatars');
+    const oldText = btn.textContent;
+    btn.disabled = true; btn.textContent = 'Syncing photos…';
+    try {
+      const r = await api('POST', '/accounts/sync-avatars');
+      alert(`Profile pictures synced (${r.synced || 0} updated).`);
+      loadAccounts();
+    } catch (e) {
+      alert('Avatar sync failed: ' + e.message);
+    } finally {
+      btn.disabled = false; btn.textContent = oldText;
+    }
+  };
+}

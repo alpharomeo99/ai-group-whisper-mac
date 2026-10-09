@@ -153,8 +153,12 @@
         const aids = (x.account_ids && x.account_ids.length) ? x.account_ids : (x.account_id ? [x.account_id] : []);
         return aids.map(String).includes(String(o.id));
       }).length : 0;
+      const initial = E((o.name || o.phone || '#')[0].toUpperCase());
+      const avMarkup = o.has_avatar
+        ? `<img src="/accounts/${o.id}/avatar" alt="${E(o.name || '')}" style="width:100%; height:100%; object-fit:cover; border-radius:50%; display:block;" onerror="this.onerror=null; this.remove();" />`
+        : initial;
       return `<i class="gx-port in" data-port="in"></i>
-        <div class="gx-head"><span class="gx-av acc" ${c ? `style="box-shadow:0 0 0 2px ${E(c)}"` : ''}>${E((o.name || o.phone || '#')[0].toUpperCase())}</span>
+        <div class="gx-head"><span class="gx-av acc" ${c ? `style="box-shadow:0 0 0 2px ${E(c)}"` : ''}>${avMarkup}</span>
         <div class="gx-ht"><b>${E(o.name || o.phone)}</b><small>${o.username ? '@' + E(o.username) : E(o.phone || '')}</small></div>
         <span class="gx-dot ${o.connected ? 'ok' : o.active ? 'warn' : ''}" title="${o.connected ? 'Connected' : o.active ? 'Not connected' : 'Paused'}"></span></div>
         <div class="gx-foot">

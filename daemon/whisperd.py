@@ -40,6 +40,8 @@ class Daemon:
         self.pending = {}        # login token -> {"client", "phone", "hash", "session"}
         self.sess_dir = os.path.join(data_dir, "sessions")
         os.makedirs(self.sess_dir, exist_ok=True)
+        self.avatars_dir = os.path.join(data_dir, "avatars")
+        os.makedirs(self.avatars_dir, exist_ok=True)
         self.suspended = False
         self.paused_reason = self.store.get("paused_reason")  # persisted AI pause (402/403)
         self._adopt_legacy_session()
@@ -151,6 +153,10 @@ class Daemon:
                            (session, int(api_id), api_hash, proxy_id, int(time.time())))
         new_aid = cur.lastrowid
         self._save_profile(new_aid, me, phone)
+        try:
+            await self.fetch_account_avatar(c, new_aid, me)
+        except Exception:
+            pass
         await self.ensure_clients()
         try:
             await self.sync_all_dialogs(account_ids=[new_aid])
@@ -307,6 +313,21 @@ class Daemon:
         name = " ".join(x for x in (me.first_name, me.last_name) if x) or "Account"
         self.store.q("UPDATE accounts SET user_id=?, phone=?, name=?, username=? WHERE id=?",
                      (me.id, phone, name, me.username, aid))
+
+    async def fetch_account_avatar(self, client, aid, me=None):
+        try:
+            if not me:
+                me = await client.get_me()
+            if not me:
+                return False
+            dest = os.path.join(self.avatars_dir, f"{aid}.jpg")
+            path = await client.download_profile_photo(me, file=dest)
+            if path and os.path.exists(dest):
+                log.info("Downloaded profile photo for account %s to %s", aid, dest)
+                return True
+        except Exception as e:
+            log.debug("Avatar fetch failed for account %s: %s", aid, e)
+        return False
 
     async def drop_clients(self):
         for c in list(self.clients.values()):
@@ -910,6 +931,13 @@ class Daemon:
             seen_group_ids = set()
             sync_succeeded = False
             try:
+                try:
+                    me = await c.get_me()
+                    if me:
+                        self._save_profile(aid, me, me.phone and "+" + me.phone.lstrip("+"))
+                        await self.fetch_account_avatar(c, aid, me)
+                except Exception:
+                    pass
                 async for d in c.iter_dialogs(limit=None):
                     is_grp = (
                         d.is_group or
@@ -1232,6 +1260,8 @@ class Daemon:
             for a in rows:
                 a["connected"] = a["id"] in ready
                 a["is_scout"] = (a["id"] == scout_aid)
+                avatar_path = os.path.join(self.avatars_dir, f"{a['id']}.jpg")
+                a["has_avatar"] = os.path.exists(avatar_path)
                 try:
                     a["groups"] = self.store.q(
                         "SELECT COUNT(DISTINCT chat_id) FROM ("
@@ -1244,6 +1274,50 @@ class Daemon:
                 except Exception:
                     a["groups"] = 0
             return J(rows)
+
+        @r.get("/accounts/{aid}/avatar")
+        async def acc_avatar(req):
+            aid = int(req.match_info["aid"])
+            avatar_path = os.path.join(self.avatars_dir, f"{aid}.jpg")
+            if os.path.exists(avatar_path):
+                return web.FileResponse(avatar_path, headers={"Cache-Control": "public, max-age=300"})
+            return web.Response(status=404)
+
+        @r.post("/accounts/sync-avatars")
+        async def acc_sync_avatars(_):
+            accs = self.store.rows("SELECT id FROM accounts WHERE active=1 ORDER BY id")
+            synced = 0
+            for a in accs:
+                aid = a["id"]
+                c = self.clients.get(aid)
+                close_after = False
+                if not (c and getattr(c, "is_connected", lambda: False)()):
+                    try:
+                        manager = self.account_session(aid)
+                        c = await manager.__aenter__()
+                        close_after = True
+                    except Exception:
+                        continue
+                try:
+                    me = await c.get_me()
+                    if me:
+                        ok = await self.fetch_account_avatar(c, aid, me)
+                        if ok:
+                            synced += 1
+                except Exception:
+                    pass
+                finally:
+                    if close_after:
+                        try:
+                            await c.disconnect()
+                        except Exception:
+                            pass
+            return J({"ok": True, "synced": synced})
+
+        @r.post("/personas/reconcile")
+        async def personas_reconcile(_):
+            res = self.store.reconcile_personas_and_accounts()
+            return J(res or {"ok": True})
 
         @r.post("/accounts/login/code")
         async def acc_code(req):
@@ -1309,6 +1383,10 @@ class Daemon:
                              (p["session"], p["api"][0], p["api"][1], p.get("proxy_id"), int(time.time())))
             new_aid = cur.lastrowid
             self._save_profile(new_aid, me, p["phone"])
+            try:
+                await self.fetch_account_avatar(c, new_aid, me)
+            except Exception:
+                pass
             await c.disconnect()
             await self.ensure_clients()
             try:
@@ -1726,7 +1804,11 @@ class Daemon:
         # ----- network graph (personas -> accounts -> groups) -----
         @r.get("/graph")
         async def graph(_):
-            # Groups and accounts graph query: only accounts with active persona are wired to groups
+            # Auto-reconcile personas and accounts so new accounts are linked with name-matched personas
+            try:
+                self.store.reconcile_personas_and_accounts()
+            except Exception as e:
+                log.warning("graph auto-reconciliation failed: %s", e)
 
             if not self.store.q("SELECT COUNT(*) FROM groups").fetchone()[0] and self.clients:
                 try:
@@ -1737,6 +1819,8 @@ class Daemon:
                                    "FROM accounts a LEFT JOIN proxies p ON p.id=a.proxy_id ORDER BY a.id")
             for a in accs:
                 a["connected"] = a["id"] in self.clients
+                avatar_path = os.path.join(self.avatars_dir, f"{a['id']}.jpg")
+                a["has_avatar"] = os.path.exists(avatar_path)
             grps = self.store.rows("SELECT chat_id,title,watched,auto_reply,persona,account_id FROM groups ORDER BY watched DESC, title")
             for g in grps:
                 g["chat_id"] = str(g["chat_id"])
