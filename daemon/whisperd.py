@@ -1223,21 +1223,26 @@ class Daemon:
         # ----- accounts -----
         @r.get("/accounts")
         async def accounts(_):
-            ready = await self.ensure_clients()
+            ready = {aid for aid, c in self.clients.items() if c and getattr(c, "is_connected", lambda: False)()}
             scout_aid = self.get_scout_account_id()
+            if scout_aid and scout_aid not in ready:
+                asyncio.create_task(self.ensure_clients())
             rows = self.store.rows("SELECT a.id,a.user_id,a.phone,a.name,a.username,a.active,a.api_id,a.proxy_id,a.persona_id,a.last_synced_at,p.label proxy_label "
                                    "FROM accounts a LEFT JOIN proxies p ON p.id=a.proxy_id ORDER BY a.id")
             for a in rows:
                 a["connected"] = a["id"] in ready
                 a["is_scout"] = (a["id"] == scout_aid)
-                a["groups"] = self.store.q(
-                    "SELECT COUNT(DISTINCT chat_id) FROM ("
-                    "  SELECT chat_id FROM group_accounts WHERE account_id=? "
-                    "  UNION "
-                    "  SELECT chat_id FROM groups WHERE account_id=?"
-                    ")",
-                    (a["id"], a["id"])
-                ).fetchone()[0]
+                try:
+                    a["groups"] = self.store.q(
+                        "SELECT COUNT(DISTINCT chat_id) FROM ("
+                        "  SELECT chat_id FROM group_accounts WHERE account_id=? "
+                        "  UNION "
+                        "  SELECT chat_id FROM groups WHERE account_id=?"
+                        ")",
+                        (a["id"], a["id"])
+                    ).fetchone()[0]
+                except Exception:
+                    a["groups"] = 0
             return J(rows)
 
         @r.post("/accounts/login/code")
@@ -1360,13 +1365,52 @@ class Daemon:
             a = self.store.rows("SELECT * FROM accounts WHERE id=?", (aid,))
             if not a:
                 return J({"ok": True})
-            api = self._api(a[0])
-            c = self.clients.pop(aid, None) or (self._new_client(a[0]["session"], api) if api else None)
+            acc_data = a[0]
+            api_info = self._api(acc_data)
+            session_name = acc_data.get("session")
+
+            # 1. Disconnect and log out active client if present
+            c = self.clients.pop(aid, None)
+            if not c and api_info and session_name:
+                try:
+                    c = self._new_client(session_name, api_info, acc_data.get("proxy_id"))
+                except Exception:
+                    c = None
             if c:
-                await self._discard(c, a[0]["session"], logout=True)
+                try:
+                    await self._discard(c, session_name, logout=True)
+                except Exception as e:
+                    log.warning("error logging out deleted account %s: %s", aid, e)
+
+            # 2. Delete session files on disk
+            if session_name:
+                for ext in (".session", ".session-journal"):
+                    p = os.path.join(self.sess_dir, session_name + ext)
+                    try:
+                        if os.path.exists(p):
+                            os.remove(p)
+                    except Exception:
+                        pass
+
+            # 3. Full cascade deletion in database
             self.store.q("DELETE FROM accounts WHERE id=?", (aid,))
+            self.store.q("DELETE FROM group_accounts WHERE account_id=?", (aid,))
+            self.store.q("DELETE FROM group_personas WHERE account_id=?", (aid,))
             self.store.q("UPDATE groups SET account_id=NULL WHERE account_id=?", (aid,))
-            return J({"ok": True})
+            self.store.q("DELETE FROM daily_batch_items WHERE account_id=?", (aid,))
+            self.store.q("DELETE FROM direct_chats WHERE account_id=?", (aid,))
+            self.store.q("DELETE FROM direct_messages WHERE account_id=?", (aid,))
+            self.store.q("DELETE FROM usage_logs WHERE account_id=?", (aid,))
+
+            # 4. Clear scout setting if this account was scout
+            try:
+                scout_setting = self.store.get("scout_account_id")
+                if str(scout_setting) == str(aid):
+                    self.store.set("scout_account_id", "")
+            except Exception:
+                pass
+
+            return J({"ok": True, "deleted": aid})
 
         @r.get("/groups")
         async def groups(_):
@@ -1635,6 +1679,27 @@ class Daemon:
             cid = int(req.match_info["cid"])
             return J({"messages": self.store.recent(cid, 100),
                       "summaries": self.store.rows("SELECT * FROM summaries WHERE chat_id=? ORDER BY created DESC LIMIT 20", (cid,))})
+
+        @r.delete("/groups/{cid}")
+        async def group_delete(req):
+            cid_raw = req.match_info["cid"]
+            try:
+                cid = int(cid_raw)
+            except ValueError:
+                return J({"error": "Invalid group ID"}, status=400)
+
+            # Cascade delete all group references
+            self.store.q("DELETE FROM groups WHERE chat_id=?", (cid,))
+            self.store.q("DELETE FROM group_accounts WHERE chat_id=?", (cid,))
+            self.store.q("DELETE FROM group_personas WHERE chat_id=?", (cid,))
+            self.store.q("DELETE FROM messages WHERE chat_id=?", (cid,))
+            self.store.q("DELETE FROM summaries WHERE chat_id=?", (cid,))
+            self.store.q("DELETE FROM queue WHERE chat_id=?", (cid,))
+            self.store.q("DELETE FROM daily_batches WHERE chat_id=?", (cid,))
+            self.store.q("DELETE FROM daily_batch_items WHERE chat_id=?", (cid,))
+            self.store.q("DELETE FROM persona_memories WHERE chat_id=?", (cid,))
+            self.store.q("DELETE FROM usage_logs WHERE chat_id=?", (cid,))
+            return J({"ok": True, "deleted": cid})
 
         @r.post("/groups/{cid}/{action}")
         async def action(req):

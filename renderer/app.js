@@ -38,7 +38,7 @@ function show(view) {
   document.querySelector('main').classList.toggle('flush', view === 'network');
   if (view === 'network') window.loadNetwork();
   if (view === 'overview') loadOverview();
-  if (view === 'batch') { loadDailyBatchView(); loadQueue(); }
+  if (view === 'batch') { loadDailyBatchView(); loadQueue(); if (typeof loadOrchConfig === 'function') loadOrchConfig(); }
   if (view === 'settings') loadSettings();
   if (view === 'accounts') loadAccounts();
   if (view === 'automation') loadAutomation();
@@ -113,6 +113,7 @@ async function loadGroups() {
         <div style="display: flex; gap: 4px; align-items: center;">
           ${g.auto_reply ? '<span style="font-size: 9px; padding: 1px 4px; border-radius: 3px; background: rgba(47,196,178,.15); color: var(--accent);">AUTO</span>' : ''}
           ${g.watched ? '<span class="dot" title="Watched"></span>' : ''}
+          <button class="danger xs g-item-del-btn" data-del-gid="${g.chat_id}" title="Delete Group" style="padding:1px 5px; font-size:9.5px; line-height:1; height:18px;">✕</button>
         </div>
       </div>`;
     }).join('');
@@ -120,6 +121,30 @@ async function loadGroups() {
 
   document.querySelectorAll('#group-list .gitem').forEach((el) => {
     el.onclick = () => openGroup(Number(el.dataset.id));
+  });
+
+  document.querySelectorAll('.g-item-del-btn').forEach((btn) => {
+    btn.onclick = async (e) => {
+      e.stopPropagation();
+      const gid = btn.dataset.delGid;
+      const grp = groups.find((x) => String(x.chat_id) === String(gid));
+      const title = (grp && grp.title) || ('Group ' + gid);
+      if (!confirm(`Permanently delete "${title}"?\n\nThis will completely delete the group, its stored messages, summaries, scheduled batch dialogues, and persona bindings from the system.`)) return;
+      try {
+        await api('DELETE', `/groups/${gid}`);
+        if (String(current) === String(gid)) {
+          current = null;
+          currentGroupData = null;
+          $('group-detail').classList.add('hidden');
+          $('group-empty').classList.remove('hidden');
+        }
+        await loadGroups();
+        if (window.loadNetwork) window.loadNetwork();
+        refreshStatus();
+      } catch (err) {
+        alert('Failed to delete group: ' + (err.message || err));
+      }
+    };
   });
 
   // If none selected but groups exist, open the first one (prefer xbiolabs if present)
@@ -170,6 +195,30 @@ async function openGroup(id) {
   document.querySelectorAll('#group-list .gitem').forEach((el) => {
     el.classList.toggle('sel', Number(el.dataset.id) === id);
   });
+
+  const delBtn = $('g-delete-btn');
+  if (delBtn) {
+    delBtn.onclick = async () => {
+      const title = (currentGroupData && currentGroupData.title) || ('Group ' + id);
+      if (!confirm(`Permanently delete group "${title}" (ID: ${id})?\n\nThis will completely delete the group, its stored messages, summaries, scheduled batch dialogues, and persona bindings from the system.`)) return;
+      delBtn.disabled = true;
+      delBtn.textContent = 'Deleting...';
+      try {
+        await api('DELETE', `/groups/${id}`);
+        current = null;
+        currentGroupData = null;
+        $('group-detail').classList.add('hidden');
+        $('group-empty').classList.remove('hidden');
+        await loadGroups();
+        if (window.loadNetwork) window.loadNetwork();
+        refreshStatus();
+      } catch (err) {
+        alert('Failed to delete group: ' + (err.message || err));
+        delBtn.disabled = false;
+        delBtn.textContent = 'Delete Group';
+      }
+    };
+  }
 
   loadFeed();
 }
@@ -497,50 +546,83 @@ async function loadOverview() {
 let loginToken = null;
 const wmsg = (t) => { $('w-msg').textContent = t || ''; };
 async function loadAccounts() {
-  const noApi = false;
-  await fetchProxies();
-  const res = await api('GET', '/accounts');
-  const list = Array.isArray(res) ? res : [];
-  $('acc-list').innerHTML = list.map((a) => {
-    const badgeClass = !a.active ? 'off' : a.is_scout ? 'ok' : a.connected ? 'ok' : 'standby';
-    const badgeLabel = !a.active ? 'Paused' : a.is_scout ? 'Scout (Listening)' : a.connected ? 'Connected' : 'Standby';
-    return `
-    <div class="card acc">
-      <div class="avatar">${esc((a.name || '?')[0].toUpperCase())}</div>
-      <div class="acc-info"><b>${esc(a.name || 'Account')}</b>
-        <div class="hint">${[a.phone, a.username && '@' + a.username, `${a.groups} group${a.groups === 1 ? '' : 's'}`].filter(Boolean).map(esc).join(' · ')}</div></div>
-      <span class="badge ${badgeClass}">${badgeLabel}</span>
-      <button class="ghost xs" data-sync-acc="${a.id}" title="Sync dialogs and groups for this account">&#8635; Sync</button>
-      <select data-px="${a.id}" title="Proxy">${proxyOptions(null, a.proxy_id)}</select>
-      <label><input type="checkbox" data-act="${a.id}" ${a.active ? 'checked' : ''}/> On</label>
-      <button data-del="${a.id}" data-name="${esc(a.name || 'this account')}">Remove</button>
-    </div>`;
-  }).join('') || (noApi ? '' : '<div class="empty">No accounts yet. Press “+ Add account”.</div>');
-  document.querySelectorAll('[data-sync-acc]').forEach((el) => el.onclick = async () => {
-    el.disabled = true;
-    const oldText = el.textContent;
-    el.textContent = 'Syncing...';
-    try {
-      await api('POST', `/accounts/${el.dataset.syncAcc}/sync`);
-      await loadAccounts();
-      await loadGroups();
-    } catch (e) {
-      alert('Sync failed: ' + (e.message || e));
-    } finally {
-      el.disabled = false;
-      el.textContent = oldText;
+  const el = $('acc-list');
+  if (!el) return;
+  el.innerHTML = '<div class="hint" style="padding:16px;">Loading accounts...</div>';
+  try {
+    await fetchProxies();
+    const res = await api('GET', '/accounts');
+    const list = Array.isArray(res) ? res : [];
+    if (!list.length) {
+      el.innerHTML = '<div class="empty">No Telegram accounts connected yet. Click “+ Add account manually” above to connect one.</div>';
+      return;
     }
-  });
-  document.querySelectorAll('[data-px]').forEach((el) => el.onchange = async () => {
-    await api('POST', '/accounts/' + el.dataset.px, { proxy_id: el.value ? Number(el.value) : null }); loadAccounts();
-  });
-  document.querySelectorAll('[data-act]').forEach((el) => el.onchange = async () => {
-    await api('POST', '/accounts/' + el.dataset.act, { active: el.checked }); loadAccounts(); refreshStatus();
-  });
-  document.querySelectorAll('[data-del]').forEach((el) => el.onclick = async () => {
-    if (!confirm(`Remove ${el.dataset.name}? It will be signed out of this app. Its collected messages stay.`)) return;
-    await api('DELETE', '/accounts/' + el.dataset.del); loadAccounts(); loadGroups(); refreshStatus();
-  });
+    el.innerHTML = list.map((a) => {
+      const badgeClass = !a.active ? 'off' : a.is_scout ? 'ok' : a.connected ? 'ok' : 'standby';
+      const badgeLabel = !a.active ? 'Paused' : a.is_scout ? 'Scout (Listening)' : a.connected ? 'Connected' : 'Standby';
+      return `
+      <div class="card acc">
+        <div class="avatar">${esc((a.name || a.phone || '?')[0].toUpperCase())}</div>
+        <div class="acc-info"><b>${esc(a.name || 'Account ' + a.id)}</b>
+          <div class="hint">${[a.phone, a.username && '@' + a.username, `${a.groups || 0} group${a.groups === 1 ? '' : 's'}`].filter(Boolean).map(esc).join(' · ')}</div></div>
+        <span class="badge ${badgeClass}">${badgeLabel}</span>
+        <button class="ghost xs" data-sync-acc="${a.id}" title="Sync dialogs and groups for this account">&#8635; Sync</button>
+        <select data-px="${a.id}" title="Proxy">${proxyOptions(null, a.proxy_id)}</select>
+        <label><input type="checkbox" data-act="${a.id}" ${a.active ? 'checked' : ''}/> On</label>
+        <button class="danger xs" data-del="${a.id}" data-name="${esc(a.name || a.phone || 'Account ' + a.id)}">Delete</button>
+      </div>`;
+    }).join('');
+
+    document.querySelectorAll('[data-sync-acc]').forEach((btn) => btn.onclick = async () => {
+      btn.disabled = true;
+      const oldText = btn.textContent;
+      btn.textContent = 'Syncing...';
+      try {
+        await api('POST', `/accounts/${btn.dataset.syncAcc}/sync`);
+        await loadAccounts();
+        await loadGroups();
+        if (window.loadNetwork) window.loadNetwork();
+      } catch (e) {
+        alert('Sync failed: ' + (e.message || e));
+      } finally {
+        btn.disabled = false;
+        btn.textContent = oldText;
+      }
+    });
+
+    document.querySelectorAll('[data-px]').forEach((sel) => sel.onchange = async () => {
+      await api('POST', '/accounts/' + sel.dataset.px, { proxy_id: sel.value ? Number(sel.value) : null });
+      loadAccounts();
+    });
+
+    document.querySelectorAll('[data-act]').forEach((cb) => cb.onchange = async () => {
+      await api('POST', '/accounts/' + cb.dataset.act, { active: cb.checked });
+      loadAccounts();
+      refreshStatus();
+    });
+
+    document.querySelectorAll('[data-del]').forEach((btn) => btn.onclick = async () => {
+      const aid = btn.dataset.del;
+      const aname = btn.dataset.name;
+      if (!confirm(`Permanently delete account "${aname}"?\n\nThis will completely delete the account, log out and destroy its Telegram session, remove it from all groups, and wipe its records.`)) return;
+      btn.disabled = true;
+      btn.textContent = 'Deleting...';
+      try {
+        await api('DELETE', '/accounts/' + aid);
+        await loadAccounts();
+        await loadGroups();
+        if (window.loadNetwork) window.loadNetwork();
+        refreshStatus();
+      } catch (err) {
+        alert('Failed to delete account: ' + (err.message || err));
+        btn.disabled = false;
+        btn.textContent = 'Delete';
+      }
+    });
+  } catch (err) {
+    console.error('Failed to load accounts:', err);
+    el.innerHTML = `<div class="card err" style="padding:16px;">Failed to load accounts: ${esc(err.message || err)}<br><button class="ghost xs" onclick="loadAccounts()" style="margin-top:8px;">Retry</button></div>`;
+  }
 }
 function wizard(step) {
   $('acc-wizard').classList.toggle('hidden', !step);
@@ -720,7 +802,7 @@ let currentStudioPersonaId = null;
 
 function switchPersonaTab(tabKey) {
   activePersonaTab = tabKey;
-  const tabs = ['roster', 'studio', 'matrix', 'cadence'];
+  const tabs = ['roster', 'studio'];
   tabs.forEach((t) => {
     const el = $('p-tab-' + t);
     if (el) el.classList.toggle('hidden', t !== tabKey);
@@ -730,11 +812,7 @@ function switchPersonaTab(tabKey) {
       b.classList.toggle('active', b.dataset.ptab === tabKey);
     });
   }
-  if (tabKey === 'cadence') {
-    if (typeof loadOrchConfig === 'function') loadOrchConfig();
-  } else if (tabKey === 'matrix') {
-    renderPersonaMatrix();
-  } else if (tabKey === 'roster') {
+  if (tabKey === 'roster') {
     renderPersonaRoster();
   }
 }
@@ -1754,6 +1832,7 @@ if ($('ptc-submit')) $('ptc-submit').onclick = runGroupTestChat;
 let dailyBatchData = null;
 
 async function loadDailyBatchView() {
+  if (typeof loadOrchConfig === 'function') loadOrchConfig();
   const statusEl = $('batch-gen-status');
   try {
     const [batchRes, matrixRes, accsRes] = await Promise.all([

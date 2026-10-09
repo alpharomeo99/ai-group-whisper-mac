@@ -19,7 +19,7 @@
         <button data-view="personas"><span class="ic">&#9813;</span>Personas</button>
         <button data-view="memory"><span class="ic">&#9778;</span>Memory</button>
         <button data-view="usage"><span class="ic">&#9680;</span>Usage</button>
-        <button data-view="batch"><span class="ic">&#9200;</span>Batch Scheduler</button>
+        <button data-view="batch"><span class="ic">&#9200;</span>Batch Maker</button>
         <button data-view="messages"><span class="ic">&#9993;</span>Messages &amp; DMs</button>
         <button data-view="groups"><span class="ic">&#9776;</span>Groups</button>
         <div class="nav-label">Accounts</div>
@@ -74,8 +74,6 @@
         <div class="p-tabs" id="p-main-tabs">
           <button type="button" class="p-tab active" data-ptab="roster">Overview</button>
           <button type="button" class="p-tab" data-ptab="studio">Persona Studio</button>
-          <button type="button" class="p-tab" data-ptab="matrix">Group Assignments</button>
-          <button type="button" class="p-tab" data-ptab="cadence">Cadence Engine</button>
         </div>
 
         <!-- Tab 1: Overview & Dashboard -->
@@ -418,87 +416,6 @@
                   <button type="button" class="primary" id="ps-btn-save-side">Save Persona</button>
                 </div>
               </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Tab 3: Group Matrix (Per User Per Group) -->
-        <div id="p-tab-matrix" class="hidden">
-          <div class="panel">
-            <div class="panel-head">
-              <div>
-                <h3 style="margin:0; font-size:14px;">Group &amp; User Assignments</h3>
-                <span class="hint" style="font-size:11.5px;">Each Telegram account embodies a specific persona in each group</span>
-              </div>
-              <input type="text" id="p-matrix-search" placeholder="Filter groups..." style="max-width:220px; font-size:12px; height:28px; padding:4px 8px; margin:0;" />
-            </div>
-            <p class="hint" style="margin-bottom:12px; font-size:12px;">
-              Select which persona each account adopts in each group. When an account has no group-specific persona assigned, it automatically uses its default account persona.
-            </p>
-            <div id="p-matrix-list" class="p-matrix-grid">
-              <div class="empty">Loading assignments matrix...</div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Tab 4: Cadence & Orchestration -->
-        <div id="p-tab-cadence" class="hidden">
-          <div class="panel">
-            <div class="panel-head">
-              <div>
-                <h3 style="margin:0; font-size:14px;">Cadence Engine Parameters</h3>
-                <span class="hint" style="font-size:11.5px;">Stochastic Poisson response delays, diurnal wakefulness &amp; turn-taking</span>
-              </div>
-            </div>
-            <p class="hint" style="margin-bottom:14px; font-size:12px;">
-              Eliminates mechanical instant responses by modeling stochastic human delays, reading speeds, circadian wakefulness, topic salience, and anti-dogpiling turn suppression.
-            </p>
-            <div class="grid2">
-              <div class="card ps-card">
-                <div class="ps-card-title">Stochastic Timing &amp; Poisson Process</div>
-                <div class="check" style="justify-content:space-between; margin-bottom:8px;">
-                  <label style="font-size:12px;"><b>Enable Orchestrator</b><br><small class="hint">Probabilistic deliberation &amp; fatigue dynamics</small></label>
-                  <input type="checkbox" id="orch-enabled" checked />
-                </div>
-                <div class="check" style="justify-content:space-between; margin-bottom:8px;">
-                  <label style="font-size:12px;"><b>Spontaneous Chatter</b><br><small class="hint">Allow chime-ins on relevant topics without @mention</small></label>
-                  <input type="checkbox" id="orch-spontaneous" checked />
-                </div>
-                <div class="ps-slider-group" style="margin-bottom:8px;">
-                  <div class="ps-slider-header">
-                    <span class="ps-slider-label">Relevance Threshold</span>
-                    <span class="ps-slider-val" id="orch-thresh-val">0.52</span>
-                  </div>
-                  <input type="range" id="orch-threshold" min="0.2" max="0.85" step="0.01" value="0.52" />
-                </div>
-                <div>
-                  <label class="ps-label">Reading Speed (chars/second)</label>
-                  <input type="number" id="orch-reading-cps" min="10" max="80" value="32" />
-                </div>
-              </div>
-
-              <div class="card ps-card">
-                <div class="ps-card-title">Circadian &amp; Multi-Persona Turn-Taking</div>
-                <div class="check" style="justify-content:space-between; margin-bottom:8px;">
-                  <label style="font-size:12px;"><b>Diurnal Activity Curve</b><br><small class="hint">Suppresses late-night replies unless night owl</small></label>
-                  <input type="checkbox" id="orch-circadian" checked />
-                </div>
-                <div style="margin-bottom:8px;">
-                  <label class="ps-label">Peak Activity Hour (0-23 UTC)</label>
-                  <input type="number" id="orch-peak-hour" min="0" max="23" value="15" />
-                </div>
-                <div style="margin-bottom:8px;">
-                  <label class="ps-label">Anti-Dogpiling Suppression Window (seconds)</label>
-                  <input type="number" id="orch-anti-dogpile" min="10" max="300" value="45" />
-                </div>
-                <div>
-                  <label class="ps-label">Fatigue Half-Life (seconds)</label>
-                  <input type="number" id="orch-fatigue-tau" min="60" max="1200" value="240" />
-                </div>
-              </div>
-            </div>
-            <div class="row" style="margin-top:14px;">
-              <button id="orch-save" class="primary">Save Orchestration Parameters</button>
             </div>
           </div>
         </div>
@@ -864,7 +781,7 @@
       <section id="view-batch" class="hidden">
         <div class="page-head">
           <div>
-            <h1>Batch Scheduler</h1>
+            <h1>Batch Maker</h1>
             <p class="sub">Pre-baked daily dialogue arcs, zero-RAM scout listener, and automated work queue.</p>
           </div>
           <div class="row">
@@ -973,6 +890,64 @@
                 <tr><td colspan="5" class="empty" style="padding:12px; text-align:center;">No batch generated for today. Click 'Generate Batch' above.</td></tr>
               </tbody>
             </table>
+          </div>
+        </div>
+
+        <!-- Cadence Engine & Human Simulation Timing -->
+        <div class="p-card" style="margin-bottom:10px; padding:10px 12px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+            <div>
+              <div style="font-weight:600; font-size:12px; color:var(--text);">Cadence Engine &amp; Human Simulation Timing</div>
+              <div class="hint" style="font-size:10.5px;">Stochastic Poisson response delays, diurnal wakefulness &amp; turn-taking</div>
+            </div>
+            <button id="orch-save" class="primary" style="font-size:11px; padding:3px 10px; height:24px;">Save Cadence Parameters</button>
+          </div>
+          <p class="hint" style="margin:2px 0 10px 0; font-size:11px;">
+            Eliminates mechanical instant responses by modeling stochastic human delays, reading speeds, circadian wakefulness, topic salience, and anti-dogpiling turn suppression.
+          </p>
+          <div class="grid2">
+            <div class="card ps-card">
+              <div class="ps-card-title">Stochastic Timing &amp; Poisson Process</div>
+              <div class="check" style="justify-content:space-between; margin-bottom:8px;">
+                <label style="font-size:11.5px;"><b>Enable Orchestrator</b><br><small class="hint">Probabilistic deliberation &amp; fatigue dynamics</small></label>
+                <input type="checkbox" id="orch-enabled" checked />
+              </div>
+              <div class="check" style="justify-content:space-between; margin-bottom:8px;">
+                <label style="font-size:11.5px;"><b>Spontaneous Chatter</b><br><small class="hint">Allow chime-ins on relevant topics without @mention</small></label>
+                <input type="checkbox" id="orch-spontaneous" checked />
+              </div>
+              <div class="ps-slider-group" style="margin-bottom:8px;">
+                <div class="ps-slider-header">
+                  <span class="ps-slider-label">Relevance Threshold</span>
+                  <span class="ps-slider-val" id="orch-thresh-val">(0.52)</span>
+                </div>
+                <input type="range" id="orch-threshold" min="0.2" max="0.85" step="0.01" value="0.52" />
+              </div>
+              <div>
+                <label class="ps-label">Reading Speed (chars/second)</label>
+                <input type="number" id="orch-reading-cps" min="10" max="80" value="32" />
+              </div>
+            </div>
+
+            <div class="card ps-card">
+              <div class="ps-card-title">Circadian &amp; Multi-Persona Turn-Taking</div>
+              <div class="check" style="justify-content:space-between; margin-bottom:8px;">
+                <label style="font-size:11.5px;"><b>Diurnal Activity Curve</b><br><small class="hint">Suppresses late-night replies unless night owl</small></label>
+                <input type="checkbox" id="orch-circadian" checked />
+              </div>
+              <div style="margin-bottom:8px;">
+                <label class="ps-label">Peak Activity Hour (0-23 UTC)</label>
+                <input type="number" id="orch-peak-hour" min="0" max="23" value="15" />
+              </div>
+              <div style="margin-bottom:8px;">
+                <label class="ps-label">Anti-Dogpiling Suppression Window (seconds)</label>
+                <input type="number" id="orch-anti-dogpile" min="10" max="300" value="45" />
+              </div>
+              <div>
+                <label class="ps-label">Fatigue Half-Life (seconds)</label>
+                <input type="number" id="orch-fatigue-tau" min="60" max="1200" value="240" />
+              </div>
+            </div>
           </div>
         </div>
 
@@ -1112,6 +1087,7 @@
                   <button id="g-test-chat-btn" class="ghost" style="font-size: 11.5px; padding: 4px 10px;">Test Chat</button>
                   <button id="g-summarize" class="ghost" style="font-size: 11.5px; padding: 4px 10px;">Summarize</button>
                   <button id="g-draft" class="ghost" style="font-size: 11.5px; padding: 4px 10px;">Draft</button>
+                  <button id="g-delete-btn" class="danger" style="font-size: 11.5px; padding: 4px 10px;">Delete Group</button>
                 </div>
               </div>
 

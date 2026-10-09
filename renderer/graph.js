@@ -416,7 +416,8 @@
         <div class="gx-kv"><span>Phone</span><b>${E(o.phone || '-')}</b><span>Status</span><b>${o.connected ? '<em class="ok">Connected</em>' : o.active ? 'Not connected' : 'Paused'}</b><span>Proxy</span><b>${E(o.proxy_label || 'None')}</b></div>
         <label class="gx-l">Persona</label><select id="ai-per"><option value="">None</option>${pers}</select>
         <label class="gx-l">Speaks in ${gs.length} group${gs.length === 1 ? '' : 's'}</label>
-        <div class="gx-list">${gs.map((x) => `<div>#${E(x.title)}</div>`).join('') || '<p class="gx-mut">Drag from this account\'s right dot to a group.</p>'}</div>`;
+        <div class="gx-list">${gs.map((x) => `<div>#${E(x.title)}</div>`).join('') || '<p class="gx-mut">Drag from this account\'s right dot to a group.</p>'}</div>
+        <button class="gx-btn danger wide" id="ai-del-acc" style="background:#ff4d4f; color:#fff; font-weight:600; margin:14px 0 0 0; border:none; border-radius:6px; padding:6px; cursor:pointer;">Delete Account</button>`;
       insp.querySelector('#ai-per').onchange = async (e) => {
         const v = e.target.value;
         try {
@@ -425,6 +426,17 @@
           await load();
         } catch (err) { toast(err.message, true); }
       };
+      const delAccBtn = insp.querySelector('#ai-del-acc');
+      if (delAccBtn) {
+        delAccBtn.onclick = async () => {
+          if (!confirm(`Permanently delete account "${o.name || o.phone}"?\n\nThis will log out the session, remove it from all groups, and wipe all its data from the database.`)) return;
+          try {
+            await call('DELETE', '/accounts/' + o.id);
+            insp.innerHTML = '<p class="gx-mut" style="padding:16px;">Account deleted.</p>';
+            await load();
+          } catch (err) { toast(err.message, true); }
+        };
+      }
     } else {
       const aids_insp = (o.account_ids && o.account_ids.length) ? o.account_ids : (o.account_id ? [o.account_id] : []);
       const memberAccs_insp = g.data.accounts.filter((a) => a.persona_id && aids_insp.map(String).includes(String(a.id)));
@@ -459,7 +471,8 @@
         <textarea id="gi-p" rows="4" placeholder="Leave empty to use the account's persona">${E(o.persona || '')}</textarea>
         <button class="gx-btn" id="gi-save">Save</button>
         <div class="gx-sep"></div>
-        <label class="gx-l">Recent messages</label><div id="gi-feed" class="gx-chat"><div class="gx-typing"><i></i><i></i><i></i></div></div>`;
+        <label class="gx-l">Recent messages</label><div id="gi-feed" class="gx-chat"><div class="gx-typing"><i></i><i></i><i></i></div></div>
+        <button class="gx-btn danger wide" id="gi-del-group" style="background:#ff4d4f; color:#fff; font-weight:600; margin:14px 0 0 0; border:none; border-radius:6px; padding:6px; cursor:pointer;">Delete Group</button>`;
       const testChatBtn = insp.querySelector('#gi-test-chat');
       if (testChatBtn) {
         testChatBtn.onclick = () => {
@@ -481,6 +494,17 @@
         };
       });
       insp.querySelector('#gi-save').onclick = async () => { try { await call('POST', '/groups/' + o.chat_id, { persona: insp.querySelector('#gi-p').value }); o.persona = insp.querySelector('#gi-p').value; toast('Saved'); } catch (err) { toast(err.message, true); } };
+      const delGrpBtn = insp.querySelector('#gi-del-group');
+      if (delGrpBtn) {
+        delGrpBtn.onclick = async () => {
+          if (!confirm(`Permanently delete group "${o.title}" (ID: ${o.chat_id})?\n\nThis will completely delete the group, its stored messages, summaries, scheduled batch dialogues, and persona bindings from the system.`)) return;
+          try {
+            await call('DELETE', '/groups/' + o.chat_id);
+            insp.innerHTML = '<p class="gx-mut" style="padding:16px;">Group deleted.</p>';
+            await load();
+          } catch (err) { toast(err.message, true); }
+        };
+      }
       const accs = g.data.accounts;
       const loadGP = async () => {
         const r = await call('GET', `/group-personas/${o.chat_id}`); const box = insp.querySelector('#gi-pers'); if (!box) return;
