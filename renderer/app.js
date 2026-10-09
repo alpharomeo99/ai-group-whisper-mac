@@ -29,15 +29,16 @@ let groups = [], current = null;
 
 function esc(s) { const d = document.createElement('div'); d.textContent = s ?? ''; return d.innerHTML; }
 function show(view) {
+  if (view === 'queue') view = 'batch';
   document.querySelectorAll('nav button').forEach((b) => b.classList.toggle('active', b.dataset.view === view));
-  ['overview', 'network', 'personas', 'messages', 'groups', 'accounts', 'automation', 'queue', 'settings'].forEach((v) => {
+  ['overview', 'network', 'personas', 'batch', 'messages', 'groups', 'accounts', 'automation', 'settings'].forEach((v) => {
     const el = $('view-' + v);
     if (el) el.classList.toggle('hidden', v !== view);
   });
   document.querySelector('main').classList.toggle('flush', view === 'network');
   if (view === 'network') window.loadNetwork();
   if (view === 'overview') loadOverview();
-  if (view === 'queue') loadQueue();
+  if (view === 'batch') { loadDailyBatchView(); loadQueue(); }
   if (view === 'settings') loadSettings();
   if (view === 'accounts') loadAccounts();
   if (view === 'automation') loadAutomation();
@@ -683,7 +684,7 @@ let currentStudioPersonaId = null;
 
 function switchPersonaTab(tabKey) {
   activePersonaTab = tabKey;
-  const tabs = ['roster', 'studio', 'matrix', 'cadence', 'batch'];
+  const tabs = ['roster', 'studio', 'matrix', 'cadence'];
   tabs.forEach((t) => {
     const el = $('p-tab-' + t);
     if (el) el.classList.toggle('hidden', t !== tabKey);
@@ -699,8 +700,6 @@ function switchPersonaTab(tabKey) {
     renderPersonaMatrix();
   } else if (tabKey === 'roster') {
     renderPersonaRoster();
-  } else if (tabKey === 'batch') {
-    loadDailyBatchView();
   }
 }
 
@@ -735,36 +734,22 @@ function renderPersonaRoster() {
   const matrix = personaData.matrix || [];
   const accounts = personaData.accounts || [];
 
-  if (countEl) countEl.textContent = `${personas.length} persona${personas.length === 1 ? '' : 's'} configured`;
+  if (countEl) countEl.textContent = `${personas.length} persona${personas.length === 1 ? '' : 's'}`;
 
-  // Calculate high-level summary metrics
+  // Summary metrics (clean without unhinged index)
   const boundAccountIds = new Set(accounts.filter((a) => a.persona_id).map((a) => a.id));
   const activeGroupsCount = matrix.filter((g) => (g.user_assignments || []).some((u) => u.assigned_persona || u.fallback_persona)).length;
-
-  let totalUnhinged = 0;
-  let unhingedCount = 0;
-  personas.forEach((p) => {
-    const d = p.details || {};
-    const u = d.unhinged_level != null ? d.unhinged_level : (d.psychometrics && d.psychometrics.unhinged_level);
-    if (u != null) {
-      totalUnhinged += Number(u);
-      unhingedCount++;
-    }
-  });
-  const avgUnhinged = unhingedCount > 0 ? Math.round(totalUnhinged / unhingedCount) : null;
 
   if ($('p-metric-total')) $('p-metric-total').textContent = personas.length;
   if ($('p-metric-bound')) $('p-metric-bound').textContent = `${boundAccountIds.size} / ${accounts.length}`;
   if ($('p-metric-groups')) $('p-metric-groups').textContent = activeGroupsCount;
-  if ($('p-metric-unhinged')) $('p-metric-unhinged').textContent = avgUnhinged != null ? `${avgUnhinged}%` : '--';
 
   if (!personas || personas.length === 0) {
     container.innerHTML = `
-      <div class="empty" style="grid-column: 1 / -1; padding: 40px 20px; text-align: center;">
-        <div style="font-size:12px; margin-bottom:4px; font-weight:600; color:var(--muted);">Library Empty</div>
-        <strong style="font-size:15px; display:block; margin-bottom:6px;">No personas configured yet</strong>
-        <p class="hint" style="margin-bottom:14px; max-width:400px; margin-left:auto; margin-right:auto;">Open Persona Studio to build autonomous human agents with custom psychometrics and styling.</p>
-        <button type="button" class="primary" id="p-btn-empty-studio">+ Open Persona Studio</button>
+      <div class="empty" style="grid-column: 1 / -1; padding: 24px 16px; text-align: center;">
+        <div style="font-size:12px; margin-bottom:4px; font-weight:600; color:var(--muted);">No Personas Configured</div>
+        <p class="hint" style="margin-bottom:12px; font-size:11.5px;">Open Persona Studio to create an autonomous persona with custom behavior and speech patterns.</p>
+        <button type="button" class="primary" id="p-btn-empty-studio" style="font-size:11.5px; padding:4px 12px;">+ Open Persona Studio</button>
       </div>
     `;
     const emptyBtn = $('p-btn-empty-studio');
@@ -782,117 +767,50 @@ function renderPersonaRoster() {
   });
 
   if (filtered.length === 0) {
-    container.innerHTML = '<div class="empty" style="grid-column: 1 / -1; padding: 24px; text-align: center;">No personas match your search.</div>';
+    container.innerHTML = '<div class="empty" style="grid-column: 1 / -1; padding: 16px; text-align: center; font-size:12px;">No personas match your search.</div>';
     return;
   }
 
+  // Compact mini-containers with persona name, subtitle, and instant click to dedicated settings page
   container.innerHTML = filtered.map((p) => {
     const d = p.details || {};
-    const t = d.typing || {};
     const col = p.color || '#2fc4b2';
-
-    const unhingedVal = d.unhinged_level != null ? d.unhinged_level : (d.psychometrics && d.psychometrics.unhinged_level != null ? d.psychometrics.unhinged_level : 85);
-    const unhingedBadge = unhingedVal >= 80
-      ? `<span class="p-tag p-tag-unhinged">${unhingedVal}% Unhinged</span>`
-      : unhingedVal >= 55
-      ? `<span class="p-tag" style="background:rgba(255,149,0,.12); color:var(--warn); border-color:rgba(255,149,0,.3); font-weight:600;">${unhingedVal}% Edgy</span>`
-      : `<span class="p-tag" style="background:rgba(56,212,139,.12); color:var(--ok); border-color:rgba(56,212,139,.3);">${unhingedVal}% Composed</span>`;
-
-    const demoLabel = [d.culture, d.age ? d.age + 'yo' : null, d.occupation || d.role_in_group].filter(Boolean).join(' · ');
-
-    // Account binding options
-    const accOptions = '<option value="">(None - Unbound)</option>' + accounts.map((a) => {
-      const isSelected = String(a.persona_id) === String(p.id);
-      return `<option value="${a.id}" ${isSelected ? 'selected' : ''}>${esc(a.name || a.phone)}</option>`;
-    }).join('');
+    const sub = d.occupation || p.bio || (d.culture ? `${d.culture}` : 'Autonomous Persona');
 
     return `
-      <div class="card p-card" style="border-top: 3px solid ${esc(col)};">
-        <div class="p-card-header">
-          <div class="p-avatar" style="background:${esc(col)};">${esc((p.name || 'P')[0].toUpperCase())}</div>
-          <div class="p-card-title">
-            <b>${esc(p.name)}</b>
-            <div class="hint">${esc(p.bio || d.occupation || 'Autonomous Persona')}</div>
-          </div>
-          <div>${unhingedBadge}</div>
+      <div class="p-card-mini" data-proster-open="${p.id}" style="border-left: 3px solid ${esc(col)};">
+        <div class="p-mini-avatar" style="background:${esc(col)};">${esc((p.name || 'P')[0].toUpperCase())}</div>
+        <div class="p-mini-body">
+          <div class="p-mini-name">${esc(p.name)}</div>
+          <div class="p-mini-sub">${esc(sub)}</div>
         </div>
-
-        <div class="p-traits">
-          ${demoLabel ? `<span class="p-tag" style="background:rgba(88,86,214,.12); color:#9997ff;">${esc(demoLabel)}</span>` : ''}
-          ${d.casing_style ? `<span class="p-tag">${esc(d.casing_style.replace(/_/g, ' '))}</span>` : ''}
-          ${d.slang_tier ? `<span class="p-tag">${esc(d.slang_tier.replace(/_/g, ' '))}</span>` : ''}
-          ${t.chars_per_second ? `<span class="p-tag">${t.chars_per_second} cps</span>` : ''}
-        </div>
-
-        <!-- Inline Account Quick-Binding -->
-        <div style="background:var(--bg); border:1px solid var(--line); border-radius:5px; padding:4px 8px; display:flex; align-items:center; justify-content:space-between; gap:6px;">
-          <span style="font-size:10.5px; font-weight:600; color:var(--muted); white-space:nowrap;">Default Account:</span>
-          <select class="p-select" data-roster-bind-pid="${p.id}" style="font-size:11.5px; padding:2px 6px; flex:1; max-width:180px;">
-            ${accOptions}
-          </select>
-        </div>
-
-        <div class="p-prompt-preview">
-          <div style="font-size:9.5px; text-transform:uppercase; color:var(--muted); margin-bottom:2px; font-weight:600; display:flex; justify-content:space-between;">
-            <span>System Directive</span>
-            <span>${p.prompt ? p.prompt.length : 0} chars</span>
-          </div>
-          ${esc((p.prompt || 'No custom directive compiled.').slice(0, 140))}${p.prompt && p.prompt.length > 140 ? '…' : ''}
-        </div>
-
-        <div class="p-card-footer">
-          <button type="button" class="primary" data-proster-edit="${p.id}" style="font-size:11.5px; font-weight:600; padding:4px 10px;">
-            Open Studio
-          </button>
-          <button type="button" class="ghost" data-proster-dup="${p.id}" style="font-size:11.5px; padding:4px 8px;">Clone</button>
-          <button type="button" class="ghost danger" data-proster-del="${p.id}" style="font-size:11.5px; padding:4px 8px; margin-left:auto;">Delete</button>
+        <div class="p-mini-actions">
+          <button type="button" class="ghost p-mini-btn" data-proster-edit="${p.id}" title="Open Persona Settings">Settings</button>
+          <button type="button" class="ghost danger p-mini-btn-del" data-proster-del="${p.id}" title="Delete Persona">&times;</button>
         </div>
       </div>
     `;
   }).join('');
 
-  // Handle direct account binding change
-  container.querySelectorAll('[data-roster-bind-pid]').forEach((sel) => {
-    sel.onchange = async () => {
-      const pid = sel.dataset.rosterBindPid;
-      const aid = sel.value;
-      try {
-        if (aid) {
-          await api('POST', '/personas/account-bind', { account_id: aid, persona_id: pid });
-          toast('Account bound to persona and synced to Network!');
-        } else {
-          const bound = (personaData.accounts || []).find((a) => String(a.persona_id) === String(pid));
-          if (bound) {
-            await api('POST', '/personas/account-bind', { account_id: bound.id, persona_id: null });
-            toast('Account unbound from persona.');
-          }
-        }
-        await loadPersonas();
-        if (window.loadNetwork) window.loadNetwork();
-      } catch (err) {
-        alert('Failed to bind account: ' + err.message);
-      }
+  // Clicking anywhere on mini card opens Studio settings
+  container.querySelectorAll('.p-card-mini').forEach((card) => {
+    card.onclick = (e) => {
+      if (e.target.closest('[data-proster-del]')) return;
+      const pid = Number(card.dataset.prosterOpen);
+      openPersonaStudio(pid);
     };
   });
 
   container.querySelectorAll('[data-proster-edit]').forEach((el) => {
-    el.onclick = () => openPersonaStudio(Number(el.dataset.prosterEdit));
-  });
-
-  container.querySelectorAll('[data-proster-dup]').forEach((el) => {
-    el.onclick = async () => {
-      try {
-        await api('POST', `/personas/${el.dataset.prosterDup}/duplicate`);
-        toast('Persona duplicated!');
-        loadPersonas();
-      } catch (err) {
-        alert('Failed to duplicate persona: ' + err.message);
-      }
+    el.onclick = (e) => {
+      e.stopPropagation();
+      openPersonaStudio(Number(el.dataset.prosterEdit));
     };
   });
 
   container.querySelectorAll('[data-proster-del]').forEach((el) => {
-    el.onclick = async () => {
+    el.onclick = async (e) => {
+      e.stopPropagation();
       if (!confirm('Delete this persona permanently? This will remove all account and group assignments using it.')) return;
       try {
         await api('DELETE', `/personas/${el.dataset.prosterDel}`);
@@ -913,41 +831,7 @@ if ($('p-roster-search')) {
 
 // ----- Dedicated Persona Studio (Full-Page Workspace) -----
 
-function updateStudioUnhingedMeter(val) {
-  const badge = $('ps-unhinged-badge');
-  const desc = $('ps-unhinged-desc');
-  if (badge) {
-    badge.textContent = `${val}% Unhinged`;
-    if (val >= 80) {
-      badge.style.background = 'rgba(255,45,85,.15)';
-      badge.style.color = '#ff2d55';
-      badge.style.borderColor = 'rgba(255,45,85,.3)';
-    } else if (val >= 50) {
-      badge.style.background = 'rgba(255,149,0,.15)';
-      badge.style.color = 'var(--warn)';
-      badge.style.borderColor = 'rgba(255,149,0,.3)';
-    } else {
-      badge.style.background = 'rgba(56,212,139,.12)';
-      badge.style.color = 'var(--ok)';
-      badge.style.borderColor = 'rgba(56,212,139,.3)';
-    }
-  }
-  if (desc) {
-    if (val >= 85) {
-      desc.textContent = 'Extremely high unpredictability: will argue contrarian angles, jump topics spontaneously, use raw unfiltered human slang, and ignore conventional AI conversational politeness.';
-      desc.style.color = '#ff8599';
-    } else if (val >= 60) {
-      desc.textContent = 'High human edge: questions consensus views, introduces occasional provocative takes, uses casual vernacular, and avoids sycophancy.';
-      desc.style.color = 'var(--warn)';
-    } else if (val >= 35) {
-      desc.textContent = 'Moderate pragmatism: balanced discussion with realistic human skepticism, standard chat rhythm, and mild personal opinions.';
-      desc.style.color = 'var(--text)';
-    } else {
-      desc.textContent = 'Measured and orderly: calm, polite, structured replies with standard group etiquette.';
-      desc.style.color = 'var(--ok)';
-    }
-  }
-}
+
 
 function getStudioPayload() {
   return {
@@ -963,11 +847,10 @@ function getStudioPayload() {
     education: $('ps-education') ? $('ps-education').value : 'street_smart',
     telegram_bio: ($('ps-bio') ? $('ps-bio').value.trim() : ''),
     color: $('ps-color') ? $('ps-color').value : '#2fc4b2',
-    unhinged_level: parseInt($('ps-unhinged') ? $('ps-unhinged').value : '88', 10),
-    emotional_volatility: parseInt($('ps-volatility') ? $('ps-volatility').value : '85', 10),
-    cynicism: parseInt($('ps-cynicism') ? $('ps-cynicism').value : '90', 10),
-    combative: parseInt($('ps-combative') ? $('ps-combative').value : '80', 10),
-    impulsive: parseInt($('ps-impulse') ? $('ps-impulse').value : '85', 10),
+    emotional_volatility: parseInt($('ps-volatility') ? $('ps-volatility').value : '80', 10),
+    cynicism: parseInt($('ps-cynicism') ? $('ps-cynicism').value : '85', 10),
+    combative: parseInt($('ps-combative') ? $('ps-combative').value : '75', 10),
+    impulsive: parseInt($('ps-impulse') ? $('ps-impulse').value : '80', 10),
     casing_style: $('ps-casing') ? $('ps-casing').value : 'all_lowercase',
     punctuation_style: $('ps-punctuation') ? $('ps-punctuation').value : 'none',
     typo_rate: parseFloat($('ps-typo') ? $('ps-typo').value : '6.0'),
@@ -1022,7 +905,7 @@ function openPersonaStudio(pid) {
 
   if (p) {
     $('ps-id').value = p.id;
-    $('ps-studio-title').textContent = `Editing: ${p.name}`;
+    $('ps-studio-title').textContent = `Settings: ${p.name}`;
     $('ps-name').value = p.name || '';
     $('ps-culture').value = d.culture || 'american';
     $('ps-gender').value = d.gender || 'man';
@@ -1042,9 +925,7 @@ function openPersonaStudio(pid) {
     $('ps-avatar-preview').style.background = col;
     $('ps-avatar-preview').textContent = (p.name || 'P')[0].toUpperCase();
 
-    const u = d.unhinged_level != null ? d.unhinged_level : (psych.unhinged_level != null ? psych.unhinged_level : 88);
-    $('ps-unhinged').value = u;
-    updateStudioUnhingedMeter(u);
+    // unhinged meter removed
 
     const vVol = psych.emotional_volatility != null ? psych.emotional_volatility : 85;
     $('ps-volatility').value = vVol;
@@ -1109,8 +990,7 @@ function openPersonaStudio(pid) {
     $('ps-avatar-preview').style.background = col;
     $('ps-avatar-preview').textContent = '+';
 
-    $('ps-unhinged').value = 88;
-    updateStudioUnhingedMeter(88);
+    // unhinged meter removed
     $('ps-volatility').value = 85;
     $('ps-volatility-val').textContent = '85%';
     $('ps-cynicism').value = 90;
@@ -1166,9 +1046,7 @@ async function savePersonaStudio() {
     occupation: p.occupation,
     seniority: p.seniority,
     education: p.education,
-    unhinged_level: p.unhinged_level,
     psychometrics: {
-      unhinged_level: p.unhinged_level,
       emotional_volatility: p.emotional_volatility,
       cynicism: p.cynicism,
       combative: p.combative,
@@ -1228,7 +1106,6 @@ async function savePersonaStudio() {
 }
 
 // Live Studio Input Listeners
-if ($('ps-unhinged')) $('ps-unhinged').oninput = (e) => updateStudioUnhingedMeter(parseInt(e.target.value, 10));
 if ($('ps-age')) $('ps-age').oninput = (e) => { $('ps-age-val').textContent = e.target.value; };
 if ($('ps-volatility')) $('ps-volatility').oninput = (e) => { $('ps-volatility-val').textContent = e.target.value + '%'; };
 if ($('ps-cynicism')) $('ps-cynicism').oninput = (e) => { $('ps-cynicism-val').textContent = e.target.value + '%'; };
@@ -1998,5 +1875,18 @@ if ($('batch-btn-clear')) {
     } catch (e) {
       alert('Failed to clear batch: ' + e.message);
     }
+  };
+}
+
+if ($('batch-btn-refresh-all')) {
+  $('batch-btn-refresh-all').onclick = () => {
+    loadDailyBatchView();
+    loadQueue();
+  };
+}
+
+if ($('batch-queue-refresh-btn')) {
+  $('batch-queue-refresh-btn').onclick = () => {
+    loadQueue();
   };
 }

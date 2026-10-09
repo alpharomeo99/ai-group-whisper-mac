@@ -1334,7 +1334,7 @@ class Daemon:
                 "1. NO RIGID PING-PONG: Do NOT alternate every single line in a neat ping-pong match. Allow multi-message bursts where one participant sends 2 short consecutive messages in a row (e.g. quick initial reaction + follow-up thought or clarification).\n"
                 "2. ZERO ECHOING OR VALIDATION: Never have either person start by echoing the previous speaker ('Yeah I agree', 'That is a great point', 'You are right that...'). Jump straight into raw personal reactions, counter-questions, or unprompted tangents.\n"
                 "3. EXTREME STRUCTURAL VARIATION: Wildly vary message lengths! Mix 1-3 word informal reactions ('lol nah', 'wait fr?', 'cap', 'bruh', 'rip') with quick colloquial statements and occasional raw opinions. Never make turns equal length.\n"
-                "4. HUMAN IRREGULARITY & UNHINGED SPICE: Embrace real human flaws—casual typos, missing punctuation, all-lowercase where fitting, erratic mood shifts, and blunt sarcasm. If a participant has high unhinged/volatility, let them show genuine edge or skepticism.\n"
+                "4. HUMAN IRREGULARITY & AUTHENTIC VOICE: Embrace real human flaws—casual typos, missing punctuation, all-lowercase where fitting, erratic mood shifts, and blunt sarcasm. Let participants show genuine edge and skepticism.\n"
                 "5. BANNED AI CLICHES: Absolute ban on 'delve', 'crucial', 'testament', 'landscape', 'pivotal', 'navigate', 'solid', 'align', 'streamline', 'nuanced', 'furthermore', 'in conclusion'.\n"
                 f"- Output between {turns_cnt} and {turns_cnt + 2} messages as a JSON array of objects with keys \"sender\" and \"text\". No markdown, no commentary."
             )

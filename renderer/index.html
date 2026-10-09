@@ -17,9 +17,9 @@
         <button data-view="overview" class="active"><span class="ic">&#9673;</span>Overview</button>
         <button data-view="network"><span class="ic">&#10070;</span>Network</button>
         <button data-view="personas"><span class="ic">&#9813;</span>Personas</button>
+        <button data-view="batch"><span class="ic">&#9200;</span>Batch Scheduler</button>
         <button data-view="messages"><span class="ic">&#9993;</span>Messages &amp; DMs</button>
         <button data-view="groups"><span class="ic">&#9776;</span>Groups</button>
-        <button data-view="queue"><span class="ic">&#8635;</span>Queue</button>
         <div class="nav-label">Accounts</div>
         <button data-view="accounts"><span class="ic">&#9786;</span>Telegram accounts</button>
         <button data-view="automation"><span class="ic">&#9881;</span>Automation <span id="nav-cfx" class="dot-s"></span></button>
@@ -74,7 +74,6 @@
           <button type="button" class="p-tab" data-ptab="studio">Persona Studio</button>
           <button type="button" class="p-tab" data-ptab="matrix">Group Assignments</button>
           <button type="button" class="p-tab" data-ptab="cadence">Cadence Engine</button>
-          <button type="button" class="p-tab" data-ptab="batch">Daily Batch Scheduler</button>
         </div>
 
         <!-- Tab 1: Overview & Dashboard -->
@@ -95,11 +94,6 @@
               <div class="k">Groups Covered</div>
               <div class="v" id="p-metric-groups" style="color:var(--warn);">0</div>
               <div class="s">Active conversation hubs</div>
-            </div>
-            <div class="p-metric-card" style="border-left: 2px solid #ff2d55;">
-              <div class="k">Avg Unhinged Index</div>
-              <div class="v" id="p-metric-unhinged" style="color:#ff2d55;">--</div>
-              <div class="s">Stochastic volatility</div>
             </div>
           </div>
 
@@ -239,13 +233,7 @@
                 </div>
               </div>
 
-              <!-- Card 2: Unhinged Human Factor -->
-              <div class="card ps-card ps-unhinged-card">
-                <div class="ps-card-title-row">
-                  <div>
-                    <span class="ps-card-title ps-unhinged-title">2. Unhinged Human Factor</span>
-                    <div class="hint" style="font-size:11px;">Stochastic cognitive unpredictability, polarizing takes &amp; non-linear reasoning</div>
-                  </div>
+              
                   <span id="ps-unhinged-badge" class="p-tag p-tag-unhinged">88% Unhinged</span>
                 </div>
                 <div style="margin: 8px 0 6px;">
@@ -258,7 +246,7 @@
 
               <!-- Card 3: Psychometrics & Cognitive Stance -->
               <div class="card ps-card">
-                <div class="ps-card-title">3. Psychometrics &amp; Cognitive Stance</div>
+                <div class="ps-card-title">2. Psychometrics &amp; Cognitive Stance</div>
                 <div class="ps-grid-2">
                   <div class="ps-slider-group">
                     <div class="ps-slider-header">
@@ -293,7 +281,7 @@
 
               <!-- Card 4: Stylometry & Linguistic Fingerprint -->
               <div class="card ps-card">
-                <div class="ps-card-title">4. Stylometry &amp; Linguistic Fingerprint</div>
+                <div class="ps-card-title">3. Stylometry &amp; Linguistic Fingerprint</div>
                 <div class="ps-grid-2">
                   <div>
                     <label class="ps-label">Casing Style</label>
@@ -361,7 +349,7 @@
 
               <!-- Card 5: Domain Knowledge, Biases & Triggers -->
               <div class="card ps-card">
-                <div class="ps-card-title">5. Domain Knowledge, Biases &amp; Triggers</div>
+                <div class="ps-card-title">4. Domain Knowledge, Biases &amp; Triggers</div>
                 <div class="ps-form-stack">
                   <div>
                     <label class="ps-label">Core Expertise / Domain Focus</label>
@@ -384,7 +372,7 @@
 
               <!-- Card 6: Typist Latencies & Network Wiring -->
               <div class="card ps-card">
-                <div class="ps-card-title">6. Typist Latencies &amp; Account Binding</div>
+                <div class="ps-card-title">5. Typist Latencies &amp; Account Binding</div>
                 <div class="ps-grid-3">
                   <div>
                     <label class="ps-label">Reading Speed (cps)</label>
@@ -552,113 +540,6 @@
           </div>
         </div>
 
-        <!-- Tab 5: Daily Batch Scheduler & Scout Architecture -->
-        <div id="p-tab-batch" class="hidden">
-          <!-- Architecture Banner -->
-          <div class="p-card" style="margin-bottom:12px; border-left:3px solid var(--accent); background:rgba(47,196,178,0.04);">
-            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
-              <div>
-                <h3 style="margin:0 0 4px 0; font-size:13.5px; font-weight:600; color:var(--text);">Zero-RAM Scout Architecture &amp; Scheduled Dialogue</h3>
-                <p class="hint" style="margin:0; font-size:11.5px; max-width:680px;">
-                  Only 1 account stays connected as a persistent Scout listener. All other persona accounts remain completely disconnected (0 MB idle RAM) and connect ephemerally only when their scheduled message is due. Live AI triggers <b>strictly on human messages</b>; multi-persona banter is generated once daily in advance.
-                </p>
-              </div>
-              <div style="display:flex; align-items:center; gap:8px;">
-                <span class="ps-chip" style="font-size:11px; font-weight:600; background:rgba(47,196,178,0.15); color:var(--accent);" id="batch-scout-badge">Scout: Auto-Selected</span>
-                <select id="batch-scout-select" style="font-size:11px; padding:3px 6px; width:auto; height:26px;"></select>
-                <button class="ghost" id="batch-scout-set-btn" style="padding:3px 8px; font-size:11px; height:26px;">Set Scout</button>
-              </div>
-            </div>
-          </div>
-
-          <!-- Batch Metrics Bar -->
-          <div class="p-metrics-grid" style="margin-bottom:12px;">
-            <div class="p-metric-card" style="border-left: 2px solid var(--accent);">
-              <div class="k">Today's Batch Items</div>
-              <div class="v" id="batch-metric-total">0</div>
-              <div class="s">Total generated for today</div>
-            </div>
-            <div class="p-metric-card" style="border-left: 2px solid #eab308;">
-              <div class="k">Pending / Upcoming</div>
-              <div class="v" id="batch-metric-pending">0</div>
-              <div class="s">Awakens account at timestamp</div>
-            </div>
-            <div class="p-metric-card" style="border-left: 2px solid #22c55e;">
-              <div class="k">Sent Messages</div>
-              <div class="v" id="batch-metric-sent">0</div>
-              <div class="s">Delivered to Telegram</div>
-            </div>
-            <div class="p-metric-card" style="border-left: 2px solid #ef4444;">
-              <div class="k">Human Silence Postponed</div>
-              <div class="v" id="batch-metric-postponed">0</div>
-              <div class="s">Paused due to human conversation</div>
-            </div>
-          </div>
-
-          <!-- Control Bar & Generation Form -->
-          <div class="p-card" style="margin-bottom:12px;">
-            <div style="font-size:12px; font-weight:600; margin-bottom:8px;">Generate Today's Dialogue Schedule</div>
-            <div style="display:grid; grid-template-columns: 1.5fr 1fr 2fr 1fr auto; gap:8px; align-items:end;">
-              <div>
-                <label class="ps-label">Target Watched Group</label>
-                <select id="batch-gen-group"></select>
-              </div>
-              <div>
-                <label class="ps-label">Messages Today</label>
-                <select id="batch-gen-count">
-                  <option value="4">4 messages (Light)</option>
-                  <option value="6" selected>6 messages (Natural)</option>
-                  <option value="8">8 messages (Active)</option>
-                  <option value="12">12 messages (Heavy)</option>
-                </select>
-              </div>
-              <div>
-                <label class="ps-label">Topic Focus (Optional)</label>
-                <input type="text" id="batch-gen-topic" placeholder="e.g. Discussing peptide purity, testing, and dosing routines" />
-              </div>
-              <div>
-                <label class="ps-label">Human Interruption Hold</label>
-                <select id="batch-hold-minutes">
-                  <option value="10">10 minutes</option>
-                  <option value="15" selected>15 minutes</option>
-                  <option value="30">30 minutes</option>
-                  <option value="60">60 minutes</option>
-                </select>
-              </div>
-              <div style="display:flex; gap:6px;">
-                <button class="primary" id="batch-btn-generate" style="white-space:nowrap;">Generate Batch</button>
-                <button class="ghost" id="batch-btn-send-next" title="Force send immediate next scheduled message">Send Next Now</button>
-                <button class="danger" id="batch-btn-clear" title="Clear all unsent batch messages">Clear Pending</button>
-              </div>
-            </div>
-            <div id="batch-gen-status" class="hint" style="margin-top:6px; min-height:16px; font-size:11.5px;"></div>
-          </div>
-
-          <!-- Schedule Timeline Table -->
-          <div class="p-card">
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-              <div style="font-weight:600; font-size:12.5px;">Today's Scheduled Dialogue Queue (<span id="batch-today-date">-</span>)</div>
-              <button class="ghost" id="batch-btn-refresh" style="font-size:11px; padding:3px 8px;">Refresh Schedule</button>
-            </div>
-            <div style="overflow-x:auto;">
-              <table style="width:100%; border-collapse:collapse; font-size:12px; text-align:left;">
-                <thead>
-                  <tr style="border-bottom:1px solid var(--border); color:var(--text-dim); font-size:11px; text-transform:uppercase;">
-                    <th style="padding:6px 8px; width:120px;">Scheduled Time</th>
-                    <th style="padding:6px 8px; width:140px;">Group</th>
-                    <th style="padding:6px 8px; width:160px;">Speaking Persona &amp; Account</th>
-                    <th style="padding:6px 8px;">Message Content</th>
-                    <th style="padding:6px 8px; width:100px;">Status</th>
-                  </tr>
-                </thead>
-                <tbody id="batch-schedule-tbody">
-                  <tr><td colspan="5" class="empty" style="padding:16px; text-align:center;">No batch generated for today. Click 'Generate Batch' above.</td></tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-
         <!-- Group Test Chat Modal (fal.ai inference) -->
         <div id="p-testchat-modal" class="p-modal hidden">
           <div class="p-modal-content" style="max-width:560px;">
@@ -711,6 +592,139 @@
               <button class="ghost" id="ptc-cancel">Close</button>
               <button class="primary" id="ptc-submit">Run Test Chat</button>
             </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Batch Scheduler & Queue Section -->
+      <section id="view-batch" class="hidden">
+        <div class="page-head">
+          <div>
+            <h1>Batch Scheduler</h1>
+            <p class="sub">Pre-baked daily dialogue arcs, zero-RAM scout listener, and automated work queue.</p>
+          </div>
+          <div class="row">
+            <button class="ghost" id="batch-btn-refresh-all">&#8635; Refresh All</button>
+          </div>
+        </div>
+
+        <!-- Architecture Banner -->
+        <div class="p-card" style="margin-bottom:10px; padding:8px 12px; border-left:3px solid var(--accent); background:rgba(47,196,178,0.04);">
+          <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+            <div>
+              <h3 style="margin:0 0 2px 0; font-size:12.5px; font-weight:600; color:var(--text);">Zero-RAM Scout Architecture &amp; Scheduled Dialogue</h3>
+              <p class="hint" style="margin:0; font-size:11px; max-width:680px;">
+                Only 1 account stays connected as a persistent Scout listener. All other persona accounts remain completely disconnected (0 MB idle RAM) and connect ephemerally only when their scheduled message is due. Live AI triggers <b>strictly on human messages</b>.
+              </p>
+            </div>
+            <div style="display:flex; align-items:center; gap:6px;">
+              <span class="ps-chip" style="font-size:10.5px; font-weight:600; padding:2px 6px; border-radius:4px; background:rgba(47,196,178,0.15); color:var(--accent);" id="batch-scout-badge">Scout: Auto-Selected</span>
+              <select id="batch-scout-select" style="font-size:11px; padding:2px 6px; width:auto; height:24px;"></select>
+              <button class="ghost" id="batch-scout-set-btn" style="padding:2px 8px; font-size:11px; height:24px;">Set Scout</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Batch Metrics Bar -->
+        <div class="p-metrics-grid" style="margin-bottom:10px;">
+          <div class="p-metric-card" style="border-left: 2px solid var(--accent); padding:8px 10px;">
+            <div class="k">Today's Batch Items</div>
+            <div class="v" id="batch-metric-total" style="font-size:16px;">0</div>
+            <div class="s">Total generated today</div>
+          </div>
+          <div class="p-metric-card" style="border-left: 2px solid #eab308; padding:8px 10px;">
+            <div class="k">Pending / Upcoming</div>
+            <div class="v" id="batch-metric-pending" style="font-size:16px;">0</div>
+            <div class="s">Awakens account at timestamp</div>
+          </div>
+          <div class="p-metric-card" style="border-left: 2px solid #22c55e; padding:8px 10px;">
+            <div class="k">Sent Messages</div>
+            <div class="v" id="batch-metric-sent" style="font-size:16px;">0</div>
+            <div class="s">Delivered to Telegram</div>
+          </div>
+          <div class="p-metric-card" style="border-left: 2px solid #ef4444; padding:8px 10px;">
+            <div class="k">Human Silence Postponed</div>
+            <div class="v" id="batch-metric-postponed" style="font-size:16px;">0</div>
+            <div class="s">Paused due to human conversation</div>
+          </div>
+        </div>
+
+        <!-- Control Bar & Generation Form -->
+        <div class="p-card" style="margin-bottom:10px; padding:8px 12px;">
+          <div style="font-size:11.5px; font-weight:600; margin-bottom:6px;">Generate Today's Dialogue Schedule</div>
+          <div style="display:grid; grid-template-columns: 1.4fr 1fr 2fr 1fr auto; gap:6px; align-items:end;">
+            <div>
+              <label class="ps-label">Target Watched Group</label>
+              <select id="batch-gen-group" style="height:26px; font-size:11.5px;"></select>
+            </div>
+            <div>
+              <label class="ps-label">Messages Today</label>
+              <select id="batch-gen-count" style="height:26px; font-size:11.5px;">
+                <option value="4">4 messages (Light)</option>
+                <option value="6" selected>6 messages (Natural)</option>
+                <option value="8">8 messages (Active)</option>
+                <option value="12">12 messages (Heavy)</option>
+              </select>
+            </div>
+            <div>
+              <label class="ps-label">Topic Focus (Optional)</label>
+              <input type="text" id="batch-gen-topic" placeholder="e.g. Discussing peptide purity, testing, and dosing routines" style="height:26px; font-size:11.5px;" />
+            </div>
+            <div>
+              <label class="ps-label">Human Interruption Hold</label>
+              <select id="batch-hold-minutes" style="height:26px; font-size:11.5px;">
+                <option value="10">10 minutes</option>
+                <option value="15" selected>15 minutes</option>
+                <option value="30">30 minutes</option>
+                <option value="60">60 minutes</option>
+              </select>
+            </div>
+            <div style="display:flex; gap:4px;">
+              <button class="primary" id="batch-btn-generate" style="white-space:nowrap; height:26px; font-size:11.5px; padding:0 10px;">Generate Batch</button>
+              <button class="ghost" id="batch-btn-send-next" title="Force send immediate next scheduled message" style="height:26px; font-size:11.5px; padding:0 8px;">Send Next</button>
+              <button class="danger" id="batch-btn-clear" title="Clear all unsent batch messages" style="height:26px; font-size:11.5px; padding:0 8px;">Clear</button>
+            </div>
+          </div>
+          <div id="batch-gen-status" class="hint" style="margin-top:4px; min-height:14px; font-size:11px;"></div>
+        </div>
+
+        <!-- Schedule Timeline Table -->
+        <div class="p-card" style="margin-bottom:10px; padding:8px 12px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+            <div style="font-weight:600; font-size:12px;">Today's Scheduled Dialogue Queue (<span id="batch-today-date">-</span>)</div>
+            <button class="ghost" id="batch-btn-refresh" style="font-size:10.5px; padding:2px 8px; height:22px;">Refresh Schedule</button>
+          </div>
+          <div style="overflow-x:auto;">
+            <table style="width:100%; border-collapse:collapse; font-size:11.5px; text-align:left;">
+              <thead>
+                <tr style="border-bottom:1px solid var(--border); color:var(--text-dim); font-size:10.5px; text-transform:uppercase;">
+                  <th style="padding:4px 6px; width:110px;">Time</th>
+                  <th style="padding:4px 6px; width:130px;">Group</th>
+                  <th style="padding:4px 6px; width:150px;">Persona &amp; Account</th>
+                  <th style="padding:4px 6px;">Message Content</th>
+                  <th style="padding:4px 6px; width:90px;">Status</th>
+                </tr>
+              </thead>
+              <tbody id="batch-schedule-tbody">
+                <tr><td colspan="5" class="empty" style="padding:12px; text-align:center;">No batch generated for today. Click 'Generate Batch' above.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Embedded Execution Work Queue -->
+        <div class="p-card" style="padding:8px 12px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+            <div>
+              <div style="font-weight:600; font-size:12px;">Work &amp; Execution Queue</div>
+              <div class="hint" style="font-size:10.5px;">Daemon jobs waiting, executing, and sent across all accounts and groups</div>
+            </div>
+            <button class="ghost" id="batch-queue-refresh-btn" style="font-size:10.5px; padding:2px 8px; height:22px;">Refresh Queue</button>
+          </div>
+          <div style="overflow-x:auto;">
+            <table id="queue-table" style="width:100%; border-collapse:collapse; font-size:11.5px; text-align:left;">
+              <tr><th>#</th><th>Type</th><th>Status</th><th>Tries</th><th>Last error</th></tr>
+            </table>
           </div>
         </div>
       </section>
@@ -909,7 +923,7 @@
           </div>
         </div>
       </section>
-      <section id="view-queue" class="hidden"><div class="page-head"><div><h1>Queue</h1><p class="sub">AI jobs waiting, running and finished.</p></div></div><table id="queue-table"></table></section>
+      
       <section id="view-accounts" class="hidden">
         <div class="acc-head page-head"><div><h1>Telegram accounts</h1><p class="sub">Connect and manage accounts manually. Each account keeps its own API keys, session and proxy.</p></div><button id="acc-add" class="primary">+ Add account manually</button></div>
         <div id="acc-list"></div>
