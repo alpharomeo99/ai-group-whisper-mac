@@ -918,6 +918,26 @@ async function compileStudioPrompt() {
   }
 }
 
+window.openPersonaStudioFromNetwork = async function(pid) {
+  const navBtn = document.querySelector('nav button[data-view="personas"]');
+  if (navBtn) navBtn.click();
+  if (!personaData || !personaData.personas || personaData.personas.length === 0) {
+    await loadPersonas();
+  }
+  openPersonaStudio(pid);
+};
+
+window.syncPersonaLibraryPrompt = function(pid, name, prompt, color) {
+  if (personaData && personaData.personas) {
+    const p = personaData.personas.find((x) => x.id === pid);
+    if (p) {
+      if (name) p.name = name;
+      if (prompt !== undefined) p.prompt = prompt;
+      if (color) p.color = color;
+    }
+  }
+};
+
 function openPersonaStudio(pid) {
   currentStudioPersonaId = pid;
   const p = pid ? (personaData.personas || []).find((x) => x.id === pid) : null;
@@ -2395,3 +2415,5 @@ if ($('usage-btn-refresh')) {
 if ($('usage-days-select')) {
   $('usage-days-select').onchange = () => loadUsageView();
 }
+
+window.openPersonaStudio = openPersonaStudio;

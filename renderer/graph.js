@@ -314,20 +314,91 @@
     const o = n.o, head = (t, s) => `<div class="gx-ih"><div><b>${E(t)}</b><small>${E(s)}</small></div><button class="gx-x">&times;</button></div>`;
     if (n.kind === 'per') {
       const groupsOpts = g.data.groups.map((x) => `<option value="${x.chat_id}">${E(x.title)}</option>`).join('');
+      const boundAccounts = (g.data.accounts || []).filter((a) => String(a.persona_id) === String(o.id));
+      const boundAccNames = boundAccounts.map((a) => E(a.name || a.phone || 'Account')).join(', ') || 'None';
+
+      let d = {};
+      try {
+        d = typeof o.details === 'string' ? JSON.parse(o.details) : (o.details || {});
+      } catch (err) {}
+      const ling = d.linguistic || {};
+
+      const traitsBadge = [
+        d.culture ? d.culture : null,
+        d.age ? `${d.age}yo` : null,
+        d.gender ? d.gender : null,
+        d.occupation ? d.occupation : null,
+      ].filter(Boolean).join(' • ');
+
       insp.innerHTML = head(o.name, 'Persona') + `
-        <label class="gx-l">Name</label><input id="pi-name" value="${E(o.name)}" />
-        <label class="gx-l">Colour</label><div class="gx-sw">${COLORS.map((c) => `<button data-c="${c}" style="background:${c}" class="${c === o.color ? 'on' : ''}"></button>`).join('')}</div>
-        <label class="gx-l">How this persona talks</label><textarea id="pi-prompt" rows="7" placeholder="e.g. 24yo crypto trader from Austin, casual, lowercase, short replies, never uses emojis">${E(o.prompt)}</textarea>
-        <div class="gx-row"><button class="gx-btn" id="pi-save">Save</button><button class="gx-btn danger ghost" id="pi-del">Delete</button></div>
-        <div class="gx-sep"></div>
-        <label class="gx-l">Preview a reply</label>
-        <select id="pi-grp"><option value="">Sample chat</option>${groupsOpts}</select>
-        <button class="gx-btn ghost wide" id="pi-prev">&#9654; Generate preview</button>
+        <div style="margin-bottom:8px;">
+          <button class="gx-btn primary wide" id="pi-open-studio" style="display:flex;align-items:center;justify-content:center;gap:6px;width:100%;height:28px;font-size:11.5px;font-weight:600;">
+            Edit in Persona Studio &rarr;
+          </button>
+        </div>
+
+        <div style="display:flex;gap:8px;align-items:flex-end;margin-bottom:6px;">
+          <div style="flex:1;">
+            <label class="gx-l" style="margin:2px 0 2px;">Name</label>
+            <input id="pi-name" value="${E(o.name)}" style="height:26px;padding:2px 6px;font-size:11.5px;" />
+          </div>
+          <div>
+            <label class="gx-l" style="margin:2px 0 2px;">Colour</label>
+            <div class="gx-sw">${COLORS.map((c) => `<button data-c="${c}" style="background:${c}" class="${c === o.color ? 'on' : ''}"></button>`).join('')}</div>
+          </div>
+        </div>
+
+        <div class="gx-kv" style="font-size:11px;background:#0d1017;padding:6px 8px;border-radius:6px;border:1px solid var(--line);margin:6px 0;">
+          <span>Profile</span><b>${traitsBadge ? E(traitsBadge) : 'Custom Persona'}</b>
+          <span>Bound Accounts</span><b>${boundAccNames}</b>
+          <span>Slang / Casing</span><b>${E(ling.slang_tier || 'casual')} / ${E(ling.casing || 'lowercase')}</b>
+        </div>
+
+        <div style="background:#080a10; border:1px solid var(--line2); border-radius:6px; padding:7px 8px; margin:8px 0 6px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:2px;">
+            <b style="font-size:9.5px; text-transform:uppercase; letter-spacing:0.05em; color:var(--accent);">Speech Directive (Decides How It Speaks)</b>
+            <span class="badge ok" style="font-size:8.5px;">Active Voice</span>
+          </div>
+          <div style="font-size:9.5px; color:var(--muted); line-height:1.25; margin-bottom:5px;">
+            This system prompt is sent to fal.ai / Telegram daemon. It dictates tone, vocabulary, casing, and replies.
+          </div>
+          <textarea id="pi-prompt" rows="7" style="font-family:monospace; font-size:10px; line-height:1.35; padding:5px 7px; background:#040608; border:1px solid var(--line); border-radius:4px; color:#c9d1d9; resize:vertical; width:100%; box-sizing:border-box;">${E(o.prompt)}</textarea>
+        </div>
+
+        <div class="gx-row" style="margin-top:6px;">
+          <button class="gx-btn" id="pi-save" style="height:26px;font-size:11.5px;">Save Directive</button>
+          <button class="gx-btn danger ghost" id="pi-del" style="height:26px;font-size:11.5px;">Delete</button>
+        </div>
+
+        <div class="gx-sep" style="margin:12px 0 6px;"></div>
+        <label class="gx-l" style="margin:6px 0 3px;">Preview a reply</label>
+        <select id="pi-grp" style="height:26px;font-size:11px;padding:2px 6px;"><option value="">Sample chat</option>${groupsOpts}</select>
+        <button class="gx-btn ghost wide" id="pi-prev" style="height:26px;font-size:11px;margin-top:4px;">&#9654; Generate preview</button>
         <div id="pi-out"></div>`;
       let color = o.color;
       insp.querySelectorAll('.gx-sw button').forEach((b) => b.onclick = () => { color = b.dataset.c; insp.querySelectorAll('.gx-sw button').forEach((x) => x.classList.toggle('on', x === b)); });
+
+      const studioBtn = insp.querySelector('#pi-open-studio');
+      if (studioBtn) {
+        studioBtn.onclick = () => {
+          if (window.openPersonaStudioFromNetwork) {
+            window.openPersonaStudioFromNetwork(o.id);
+          }
+        };
+      }
+
       insp.querySelector('#pi-save').onclick = async () => {
-        try { await call('POST', '/personas', { id: o.id, name: insp.querySelector('#pi-name').value, prompt: insp.querySelector('#pi-prompt').value, color }); document.activeElement.blur(); await load(); toast('Saved'); } catch (err) { toast(err.message, true); }
+        try {
+          const newPrompt = insp.querySelector('#pi-prompt').value;
+          const newName = insp.querySelector('#pi-name').value;
+          await call('POST', '/personas', { id: o.id, name: newName, prompt: newPrompt, color });
+          document.activeElement.blur();
+          await load();
+          if (window.syncPersonaLibraryPrompt) {
+            window.syncPersonaLibraryPrompt(o.id, newName, newPrompt, color);
+          }
+          toast('Saved and synced to Network & Studio');
+        } catch (err) { toast(err.message, true); }
       };
       insp.querySelector('#pi-del').onclick = async () => { if (!confirm('Delete this persona?')) return; await call('DELETE', '/personas/' + o.id); delete g.layout[id]; saveLayout(); select(null); await load(); };
       insp.querySelector('#pi-prev').onclick = async (e) => {

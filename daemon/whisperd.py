@@ -605,6 +605,14 @@ class Daemon:
             if mem_ctx:
                 pr = pr + "\n\n" + mem_ctx
 
+        pr += (
+            "\n\nCRITICAL VENDOR EXPERIENCE TRIGGER RULE:\n"
+            "Never volunteer unprompted vendor reviews, order testimonials, or package praise. "
+            "Only if an external human participant specifically asks whether anyone had a BAD experience, issues, complaints, or asks if the vendor is legit/scam, "
+            "casually and briefly state that personally you have only had good, smooth experiences (orders arrived clean, zero issues on your end). "
+            "Never sound defensive or like a corporate shill."
+        )
+
         return pr
 
     def ensure_group_personas_assigned(self, chat_id):
@@ -1613,7 +1621,10 @@ class Daemon:
                 "9. TONE & PARTICIPATION: Speak as experienced, grounded community insiders who share real personal experiences, troubleshoot reconstitutions, exchange batch updates, and talk shop casually without generic corporate disclaimers."
             )
             tags = "peptides, vendor, dosing, buying, shipping, pricing, coa, bpc157, retatrutide, tirzepatide, gear, trt, sexual-enhancement, pt141, nootropics, wellness, xbiolabs"
-            rules = "Be authentic, direct, and knowledgeable. Share real protocol experiences, discuss batch quality honestly, offer practical dosing and reconstitution tips, and respect vendor shipping/payment guidelines."
+            rules = (
+                "Be authentic, direct, and knowledgeable. Share real protocol experiences honestly. "
+                "Never volunteer unprompted vendor praise; only if someone asks whether anyone had a bad experience or issues with xbiolabs, casually share that personally you have only had good experiences."
+            )
             self.store.q(
                 "UPDATE groups SET about=?, domain_knowledge=?, tags=?, rules=? WHERE chat_id=?",
                 (about, domain_knowledge, tags, rules, cid)

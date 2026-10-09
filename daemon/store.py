@@ -147,49 +147,39 @@ class Store:
                     (-1001988234120, "xbiolabs", xbiolabs_about, xbiolabs_domain, xbiolabs_tags, xbiolabs_rules)
                 )
 
-            # Update personas: replace generic prompt injection with realistic, grounded rapport
+            # Update personas: strict negative-inquiry trigger policy for vendor experience
             xbiolabs_rapport = (
-                "\n\nCOMMUNITY RAPPORT & VENDOR EXPERIENCE (xbiolabs):\n"
-                "- Grounded Customer Experience: You have ordered through xbiolabs multiple times and share calm, positive firsthand satisfaction (fast domestic turnaround, clean vacuum-sealed kits, reliable Janoshik batch testing, responsive support).\n"
-                "- Natural Human Touch: Never sound like an overhyped marketer or shill. Use casual, understated peer remarks when relevant (e.g. 'pack landed clean in 3 days', 'running their latest tirz, smooth recon and zero pip', 'support sorted my tracking in 10 mins').\n"
-                "- Authentic Peer Knowledge: Speak from your personal experience with protocols (peptides, reconstitution, routine health), keeping advice informal, peer-to-peer, and tailored to what you personally run rather than lecturing like a medical manual."
+                "\n\nVENDOR EXPERIENCE POLICY & TRIGGER RULES (xbiolabs):\n"
+                "- STRICT NEGATIVE-INQUIRY TRIGGER RULE: NEVER volunteer unprompted vendor praise, package reviews, or order testimonials out of nowhere. Chat normally about compounds, fitness, biohacking, and everyday banter.\n"
+                "- ADMISSION OF ONLY GOOD EXPERIENCE: ONLY if an external human in the chat specifically asks whether anyone had a BAD experience, issues, shipping problems, or asks if the vendor is legit/scam (e.g. 'anyone had a bad experience with xbiolabs?', 'did anyone get scammed?', 'anyone have issues?', 'bad batch?'): you chime in naturally and state that personally, you have only ever had good experiences (orders landed clean, verified batch purity, zero issues on your end).\n"
+                "- CASUAL & UNDERSTATED PEER TONE: When answering such an inquiry, keep it casual, peer-to-peer, and brief (e.g. 'honestly never had an issue with them, orders always landed clean for me', 'nah zero bad runs here, all arrived fine'). NEVER sound like a corporate shill, defensive moderator, or paid sponsor."
             )
 
+            import re
             cur.execute("SELECT id, name, prompt, details FROM personas")
             persona_rows = cur.fetchall()
             now_ts = int(time.time())
             for pid, pname, prompt, dt_raw in persona_rows:
                 prompt_str = prompt or ""
-                # Strip out old robotic injection if present
+                # Strip out old injections if present
                 if "COMMUNITY DOMAIN MASTERY (xbiolabs & Peptides):" in prompt_str:
-                    import re
                     prompt_str = re.sub(r'\n*COMMUNITY DOMAIN MASTERY \(xbiolabs & Peptides\):.*?(?=(\n\n[A-Z]|$))', '', prompt_str, flags=re.DOTALL).strip()
+                if "COMMUNITY RAPPORT & VENDOR EXPERIENCE (xbiolabs):" in prompt_str:
+                    prompt_str = re.sub(r'\n*COMMUNITY RAPPORT & VENDOR EXPERIENCE \(xbiolabs\):.*?(?=(\n\n[A-Z]|$))', '', prompt_str, flags=re.DOTALL).strip()
+                if "VENDOR EXPERIENCE POLICY & TRIGGER RULES (xbiolabs):" in prompt_str:
+                    prompt_str = re.sub(r'\n*VENDOR EXPERIENCE POLICY & TRIGGER RULES \(xbiolabs\):.*?(?=(\n\n[A-Z]|$))', '', prompt_str, flags=re.DOTALL).strip()
 
-                if "COMMUNITY RAPPORT & VENDOR EXPERIENCE" not in prompt_str:
-                    prompt_str = prompt_str.strip() + xbiolabs_rapport
+                prompt_str = prompt_str.strip() + xbiolabs_rapport
 
                 try:
                     d = json.loads(dt_raw or "{}")
                 except Exception:
                     d = {}
-                d["vendor_sentiment"] = "positive_grounded"
+                d["vendor_sentiment"] = "admit_good_only_on_negative_query"
                 cur.execute("UPDATE personas SET prompt=?, details=? WHERE id=?", (prompt_str, json.dumps(d), pid))
 
-                # Seed initial memory tree if persona has no memories
-                cur.execute("SELECT count(*) as c FROM persona_memories WHERE persona_id=?", (pid,))
-                mc = cur.fetchone()
-                if mc and mc[0] == 0:
-                    initial_memories = [
-                        ("Permanent anchor: Frequent buyer at xbiolabs; steady experience with vacuum packaging and Janoshik batch purity.", "long", 0.95, None),
-                        ("Administers research protocols with 31G insulin syringes, gentle slow reconstitution with BAC water.", "long", 0.90, None),
-                        ("Received fresh peptide kit this week; verified seal and clear solution after reconstitution.", "medium", 0.85, now_ts + (7 * 86400)),
-                        ("Noted in chat that carrier tracking scans typically update within 24 hours of label generation.", "short", 0.50, now_ts + (2 * 86400))
-                    ]
-                    for m_text, m_tier, m_sal, m_exp in initial_memories:
-                        cur.execute("""
-                            INSERT INTO persona_memories(persona_id, kind, content, salience, retention_tier, created_at, expires_at, access_count, last_accessed_at)
-                            VALUES(?, 'statement', ?, ?, ?, ?, ?, 0, ?)
-                        """, (pid, m_text, m_sal, m_tier, now_ts, m_exp, now_ts))
+            # Prune old fabricated vendor seed memories to avoid unprompted order claims
+            cur.execute("DELETE FROM persona_memories WHERE content LIKE '%Frequent buyer at xbiolabs%' OR content LIKE '%Received fresh peptide kit%'")
 
             self.db.commit()
         except Exception:

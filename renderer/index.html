@@ -339,30 +339,32 @@
                 </div>
               </div>
 
-              <!-- Card 5: Domain Knowledge, Biases & Triggers -->
+              <!-- Card 4: Domain Knowledge, Biases & Triggers -->
               <div class="card ps-card">
                 <div class="ps-card-title">4. Domain Knowledge, Biases &amp; Triggers</div>
-                <div class="ps-form-stack">
+                <div class="ps-grid-2">
                   <div>
-                    <label class="ps-label">Core Expertise / Domain Focus</label>
+                    <label class="ps-label">Core Expertise / Focus</label>
                     <input type="text" id="ps-expertise" placeholder="e.g. On-chain token flows, memecoin pools" value="On-chain token flows, memecoin liquidity pools, smart contract exploits" />
                   </div>
                   <div>
-                    <label class="ps-label">Off-Topic Fixations &amp; Rabbit Holes</label>
+                    <label class="ps-label">Polarizing Hot Takes</label>
+                    <input type="text" id="ps-hottakes" placeholder="Unfiltered views the persona strongly defends" value="99% of web3 founders are grifters who never wrote code; centralized exchanges are rigged casinos" />
+                  </div>
+                </div>
+                <div class="ps-grid-2">
+                  <div>
+                    <label class="ps-label">Off-Topic Fixations</label>
                     <input type="text" id="ps-offtopic" placeholder="e.g. obscure podcasts, energy drinks" value="yerba mate, conspiracy rabbit holes, adderall shortages" />
                   </div>
                   <div>
-                    <label class="ps-label">Polarizing Hot Takes &amp; Biases</label>
-                    <input type="text" id="ps-hottakes" placeholder="Unfiltered views the persona strongly defends" value="99% of web3 founders are grifters who never wrote code; centralized exchanges are rigged casinos" />
-                  </div>
-                  <div>
-                    <label class="ps-label">Cognitive Triggers (Topics that elicit immediate reaction)</label>
+                    <label class="ps-label">Cognitive Triggers</label>
                     <input type="text" id="ps-triggers" placeholder="Phrases or topics that make persona push back" value="VC token unlock schedules, sponsored influencer shills" />
                   </div>
                 </div>
               </div>
 
-              <!-- Card 6: Typist Latencies & Network Wiring -->
+              <!-- Card 5: Typist Latencies & Account Binding -->
               <div class="card ps-card">
                 <div class="ps-card-title">5. Typist Latencies &amp; Account Binding</div>
                 <div class="ps-grid-3">
@@ -371,32 +373,31 @@
                     <input type="number" id="ps-reading-cps" min="10" max="60" value="28" />
                   </div>
                   <div>
-                    <label class="ps-label">Min Delay (seconds)</label>
-                    <input type="number" id="ps-min-delay" min="1.0" max="15.0" step="0.5" value="2.0" />
+                    <label class="ps-label">Delay Range (min / max sec)</label>
+                    <div style="display:flex; gap:4px;">
+                      <input type="number" id="ps-min-delay" min="1.0" max="15.0" step="0.5" value="2.0" placeholder="Min" />
+                      <input type="number" id="ps-max-delay" min="3.0" max="45.0" step="0.5" value="8.0" placeholder="Max" />
+                    </div>
                   </div>
                   <div>
-                    <label class="ps-label">Max Delay (seconds)</label>
-                    <input type="number" id="ps-max-delay" min="3.0" max="45.0" step="0.5" value="8.0" />
+                    <label class="ps-label">Default Telegram Account</label>
+                    <select id="ps-bind-account">
+                      <option value="">None (Library Persona / Group Assignment Only)</option>
+                    </select>
                   </div>
-                </div>
-                <div>
-                  <label class="ps-label">Default Telegram Account Binding</label>
-                  <select id="ps-bind-account">
-                    <option value="">None (Library Persona / Group Assignment Only)</option>
-                  </select>
                 </div>
               </div>
             </div>
 
-            <!-- Right Column: Compiled Prompt & Live Inspector -->
+            <!-- Right Column: Compiled Speech Directive & Live Inspector -->
             <div class="ps-side-col">
               <div class="card ps-card ps-sticky-card">
                 <div class="ps-card-title-row">
                   <div>
-                    <span class="ps-card-title" style="color:var(--text);">Fal.ai System Prompt</span>
-                    <div class="hint" style="font-size:11px;">Autonomous directive sent to fal.ai inference</div>
+                    <span class="ps-card-title" style="color:var(--text);">Active Speech Directive</span>
+                    <div class="hint" style="font-size:10px; color:var(--accent);">Exact system prompt driving fal.ai &amp; Telegram generation</div>
                   </div>
-                  <button type="button" class="ghost" id="ps-btn-recompile" style="font-size:11px; padding:3px 8px;">Re-compile</button>
+                  <button type="button" class="ghost" id="ps-btn-recompile" style="font-size:10.5px; padding:2px 7px; height:22px;">Re-compile</button>
                 </div>
 
                 <div class="ps-prompt-chips">
@@ -405,10 +406,10 @@
                   <span class="p-tag">High Entropy</span>
                 </div>
 
-                <textarea id="ps-compiled-prompt" rows="18" placeholder="Compiled system directive appears here..."></textarea>
+                <textarea id="ps-compiled-prompt" rows="15" placeholder="Compiled system directive appears here..."></textarea>
 
                 <div class="ps-prompt-footer">
-                  <span>Direct prompt payload sent to fal.ai and daemon.</span>
+                  <span style="font-size:9.5px;">Dictates how this persona speaks in chat.</span>
                   <span id="ps-prompt-chars">0 characters</span>
                 </div>
 

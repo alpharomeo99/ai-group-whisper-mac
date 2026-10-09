@@ -248,7 +248,7 @@ class DailyBatchEngine:
             (p3, 115, "make sure to let the bac water drip down the inside glass slowly, don't spray straight onto the puck"),
             (p1, 185, "good shout. keeping it chilled in the fridge. did you notice any systemic benefits or mostly localized?"),
             (p2, 290, "mostly localized on tendon inflammation by day 5, also gut felt notably calmer with morning subQ"),
-            (p3, 380, "solid. coa checked out at 99.3% purity on janoshik anyway, shipping was fast too")
+            (p3, 380, "solid. coa checked out at 99.3% purity on janoshik anyway, reconstituted clean")
         ]
         items = []
         for cand, offset, text in templates[:count]:
