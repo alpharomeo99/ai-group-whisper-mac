@@ -17,6 +17,8 @@
         <button data-view="overview" class="active"><span class="ic">&#9673;</span>Overview</button>
         <button data-view="network"><span class="ic">&#10070;</span>Network</button>
         <button data-view="personas"><span class="ic">&#9813;</span>Personas</button>
+        <button data-view="memory"><span class="ic">&#9778;</span>Memory</button>
+        <button data-view="usage"><span class="ic">&#9680;</span>Usage</button>
         <button data-view="batch"><span class="ic">&#9200;</span>Batch Scheduler</button>
         <button data-view="messages"><span class="ic">&#9993;</span>Messages &amp; DMs</button>
         <button data-view="groups"><span class="ic">&#9776;</span>Groups</button>
@@ -582,6 +584,277 @@
               <button class="ghost" id="ptc-cancel">Close</button>
               <button class="primary" id="ptc-submit">Run Test Chat</button>
             </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Memory View Section -->
+      <section id="view-memory" class="hidden">
+        <div class="page-head">
+          <div>
+            <h1>Persona Memory Trees</h1>
+            <p class="sub">Episodic statements, weekly storylines, and permanent identity anchors with autonomous pruning agent.</p>
+          </div>
+          <div class="row">
+            <button type="button" class="ghost" id="mem-btn-prune-all">Prune Expired (Agent)</button>
+            <button type="button" class="primary" id="mem-btn-new">+ Add Memory</button>
+          </div>
+        </div>
+
+        <div class="mem-container">
+          <!-- Left Column: Persona Selector Sidebar -->
+          <div class="mem-sidebar">
+            <div class="mem-sidebar-head">
+              <span class="mem-sidebar-title">Personas</span>
+              <span class="badge" id="mem-persona-count">0</span>
+            </div>
+            <div class="mem-search-box">
+              <input type="text" id="mem-search-input" placeholder="Filter personas..." />
+            </div>
+            <div class="mem-persona-list" id="mem-persona-list">
+              <!-- Dynamically populated -->
+            </div>
+          </div>
+
+          <!-- Right Column: Memory Tree & Inspection Details -->
+          <div class="mem-main">
+            <!-- Active Persona Header & Stats -->
+            <div class="mem-detail-header" id="mem-detail-header">
+              <div class="mem-detail-title-wrap">
+                <span class="dot" id="mem-active-dot"></span>
+                <h2 id="mem-active-name">Select a persona</h2>
+                <span class="badge" id="mem-active-total">0 memories</span>
+              </div>
+              <div class="row">
+                <button type="button" class="ghost btn-xs" id="mem-btn-prune-active">Prune Expired</button>
+              </div>
+            </div>
+
+            <!-- Stats Chips Row -->
+            <div class="mem-stats-row">
+              <div class="mem-stat-chip">
+                <span class="mem-stat-val" id="mem-stat-anchors">0</span>
+                <span class="mem-stat-lbl">Permanent Anchors</span>
+              </div>
+              <div class="mem-stat-chip">
+                <span class="mem-stat-val" id="mem-stat-weekly">0</span>
+                <span class="mem-stat-lbl">Weekly Protocols (7d)</span>
+              </div>
+              <div class="mem-stat-chip">
+                <span class="mem-stat-val" id="mem-stat-short">0</span>
+                <span class="mem-stat-lbl">Transient Notes (48h)</span>
+              </div>
+              <div class="mem-stat-chip">
+                <span class="mem-stat-val" id="mem-stat-status">Active</span>
+                <span class="mem-stat-lbl">Agent Status</span>
+              </div>
+            </div>
+
+            <!-- Add Memory Inline Form (collapsible) -->
+            <div class="panel hidden" id="mem-add-form" style="margin-bottom: 12px; border-color: var(--line2);">
+              <div class="panel-head">
+                <h4>Add Memory Node</h4>
+                <button type="button" class="ghost btn-xs" id="mem-add-close">Cancel</button>
+              </div>
+              <div class="grid2" style="margin-bottom: 8px;">
+                <div>
+                  <label class="hint">Retention Tier</label>
+                  <select id="mem-add-tier" style="width: 100%; padding: 4px 8px; font-size: 11.5px; background: #080a10; border: 1px solid var(--line2); border-radius: 5px; color: var(--text);">
+                    <option value="long">Permanent Anchor (Identity Fact / Chronic Context)</option>
+                    <option value="medium" selected>Weekly Storyline (7-Day Active Protocol / Order)</option>
+                    <option value="short">Transient Banter (48-Hour Ephemeral)</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="hint">Salience / Importance (0.1 - 1.0)</label>
+                  <input type="number" id="mem-add-salience" min="0.1" max="1.0" step="0.05" value="0.80" style="width: 100%; padding: 4px 8px; font-size: 11.5px; background: #080a10; border: 1px solid var(--line2); border-radius: 5px; color: var(--text);" />
+                </div>
+              </div>
+              <div>
+                <label class="hint">Memory Statement / Factual Context</label>
+                <textarea id="mem-add-content" rows="2" placeholder="e.g. Received xbiolabs shipment today, verified Janoshik COA, gentle BAC recon..." style="width: 100%; padding: 6px 8px; font-size: 11.5px; background: #080a10; border: 1px solid var(--line2); border-radius: 5px; color: var(--text); resize: vertical;"></textarea>
+              </div>
+              <div class="row right" style="margin-top: 6px;">
+                <button type="button" class="primary btn-xs" id="mem-add-submit">Save Memory Node</button>
+              </div>
+            </div>
+
+            <!-- Memory Tree Nodes Container -->
+            <div id="mem-tree-content">
+              <!-- Tier 1: Permanent Anchors -->
+              <div class="mem-tier-section">
+                <div class="mem-tier-header">
+                  <span class="mem-tier-indicator tier-long"></span>
+                  <span class="mem-tier-title">Permanent Anchors</span>
+                  <span class="hint">Biographical anchors &amp; non-expiring factual continuity</span>
+                  <span class="badge" id="mem-badge-long">0</span>
+                </div>
+                <div class="mem-node-list" id="mem-list-long">
+                  <!-- Injected items -->
+                </div>
+              </div>
+
+              <!-- Tier 2: Weekly Storylines -->
+              <div class="mem-tier-section">
+                <div class="mem-tier-header">
+                  <span class="mem-tier-indicator tier-medium"></span>
+                  <span class="mem-tier-title">Weekly Protocols &amp; Orders</span>
+                  <span class="hint">Retained for 7 days then autonomously evaluated</span>
+                  <span class="badge" id="mem-badge-medium">0</span>
+                </div>
+                <div class="mem-node-list" id="mem-list-medium">
+                  <!-- Injected items -->
+                </div>
+              </div>
+
+              <!-- Tier 3: Transient Notes -->
+              <div class="mem-tier-section">
+                <div class="mem-tier-header">
+                  <span class="mem-tier-indicator tier-short"></span>
+                  <span class="mem-tier-title">Transient Notes &amp; Banter</span>
+                  <span class="hint">48-hour short-term conversational context</span>
+                  <span class="badge" id="mem-badge-short">0</span>
+                </div>
+                <div class="mem-node-list" id="mem-list-short">
+                  <!-- Injected items -->
+                </div>
+              </div>
+            </div>
+
+            <!-- Feedback notice -->
+            <div id="mem-msg" class="hint" style="margin-top: 10px;"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Usage & Telemetry Section -->
+      <section id="view-usage" class="hidden">
+        <div class="page-head">
+          <div>
+            <h1>Usage &amp; Telemetry</h1>
+            <p class="sub">Telegram message velocity, AI token consumption, latency, and socket computing footprint.</p>
+          </div>
+          <div class="row">
+            <select id="usage-days-select" style="padding: 4px 8px; font-size: 11.5px; background: var(--panel2); border: 1px solid var(--line2); border-radius: 5px; color: var(--text);">
+              <option value="7" selected>Last 7 Days</option>
+              <option value="14">Last 14 Days</option>
+              <option value="30">Last 30 Days</option>
+            </select>
+            <button type="button" class="ghost" id="usage-btn-refresh">Refresh</button>
+          </div>
+        </div>
+
+        <!-- 4 Metrics Summary Cards -->
+        <div class="usage-kpi-grid">
+          <div class="usage-kpi-card">
+            <div class="usage-kpi-lbl">Telegram Messages</div>
+            <div class="usage-kpi-val" id="u-msg-sent-today">0</div>
+            <div class="usage-kpi-sub">
+              <span>Sent today</span> · <span id="u-msg-sent-7d">0</span> in window · <span id="u-msg-sent-total">0</span> all-time
+            </div>
+            <div class="usage-kpi-bar-wrap">
+              <div class="usage-kpi-sub-line">
+                <span>Received (External):</span>
+                <strong id="u-msg-recv-today">0 today</strong> (<span id="u-msg-recv-total">0</span> total)
+              </div>
+            </div>
+          </div>
+
+          <div class="usage-kpi-card">
+            <div class="usage-kpi-lbl">AI Token Consumption</div>
+            <div class="usage-kpi-val" id="u-ai-tokens-total">0</div>
+            <div class="usage-kpi-sub">
+              Prompt: <span id="u-ai-tokens-prompt">0</span> · Completion: <span id="u-ai-tokens-comp">0</span>
+            </div>
+            <div class="usage-kpi-bar-wrap">
+              <div class="usage-kpi-sub-line">
+                <span>Est. Router Cost:</span>
+                <strong id="u-ai-cost-est">$0.0000</strong>
+              </div>
+            </div>
+          </div>
+
+          <div class="usage-kpi-card">
+            <div class="usage-kpi-lbl">Inference Performance</div>
+            <div class="usage-kpi-val" id="u-ai-latency-avg">0 ms</div>
+            <div class="usage-kpi-sub">
+              Avg latency per completion
+            </div>
+            <div class="usage-kpi-bar-wrap">
+              <div class="usage-kpi-sub-line">
+                <span>Active Model:</span>
+                <strong id="u-ai-model-active">fal.ai router</strong>
+              </div>
+            </div>
+          </div>
+
+          <div class="usage-kpi-card">
+            <div class="usage-kpi-lbl">Computing Architecture</div>
+            <div class="usage-kpi-val" id="u-comp-sockets">1 Scout</div>
+            <div class="usage-kpi-sub">
+              <span id="u-comp-dormant">0</span> accounts 100% idle (zero sockets)
+            </div>
+            <div class="usage-kpi-bar-wrap">
+              <div class="usage-kpi-sub-line">
+                <span>RAM Efficiency:</span>
+                <strong id="u-comp-savings">~90% overhead saved</strong>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Advanced Analytics Charts -->
+        <div class="usage-charts-grid">
+          <!-- Chart 1: Message Velocity & Tokens Timeseries -->
+          <div class="panel usage-chart-panel">
+            <div class="panel-head">
+              <h4>Activity Velocity (Messages &amp; Inferences)</h4>
+              <div class="usage-chart-legend">
+                <span class="legend-dot dot-sent"></span><span>Sent</span>
+                <span class="legend-dot dot-recv"></span><span>Received</span>
+                <span class="legend-dot dot-tok"></span><span>Tokens</span>
+              </div>
+            </div>
+            <div class="usage-svg-wrap" id="usage-chart-timeseries">
+              <!-- Rendered via SVG -->
+            </div>
+          </div>
+
+          <!-- Chart 2: Persona Speech Distribution -->
+          <div class="panel usage-chart-panel">
+            <div class="panel-head">
+              <h4>Persona Speech &amp; Token Share</h4>
+              <span class="hint">Activity distribution across active personas</span>
+            </div>
+            <div class="usage-personas-list" id="usage-personas-list">
+              <!-- Rendered dynamically -->
+            </div>
+          </div>
+        </div>
+
+        <!-- Recent Telemetry & Activity Feed -->
+        <div class="panel" style="margin-top: 14px;">
+          <div class="panel-head">
+            <h4>Recent Telemetry &amp; System Events</h4>
+            <span class="badge" id="u-activity-count">0 events</span>
+          </div>
+          <div class="table-wrap">
+            <table class="usage-activity-table" style="width: 100%; border-collapse: collapse; font-size: 11.5px;">
+              <thead>
+                <tr style="border-bottom: 1px solid var(--line); color: var(--muted); text-align: left;">
+                  <th style="padding: 6px 8px;">Time</th>
+                  <th style="padding: 6px 8px;">Event</th>
+                  <th style="padding: 6px 8px;">Persona / Account</th>
+                  <th style="padding: 6px 8px;">Group / Peer</th>
+                  <th style="padding: 6px 8px; text-align: right;">Tokens</th>
+                  <th style="padding: 6px 8px; text-align: right;">Latency</th>
+                  <th style="padding: 6px 8px; text-align: right;">Est Cost</th>
+                </tr>
+              </thead>
+              <tbody id="usage-activity-rows">
+                <!-- Dynamically populated -->
+              </tbody>
+            </table>
           </div>
         </div>
       </section>

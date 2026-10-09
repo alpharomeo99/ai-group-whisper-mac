@@ -31,7 +31,7 @@ function esc(s) { const d = document.createElement('div'); d.textContent = s ?? 
 function show(view) {
   if (view === 'queue') view = 'batch';
   document.querySelectorAll('nav button').forEach((b) => b.classList.toggle('active', b.dataset.view === view));
-  ['overview', 'network', 'personas', 'batch', 'messages', 'groups', 'accounts', 'automation', 'settings'].forEach((v) => {
+  ['overview', 'network', 'personas', 'memory', 'usage', 'batch', 'messages', 'groups', 'accounts', 'automation', 'settings'].forEach((v) => {
     const el = $('view-' + v);
     if (el) el.classList.toggle('hidden', v !== view);
   });
@@ -43,6 +43,8 @@ function show(view) {
   if (view === 'accounts') loadAccounts();
   if (view === 'automation') loadAutomation();
   if (view === 'personas') loadPersonas();
+  if (view === 'memory') loadMemoryView();
+  if (view === 'usage') loadUsageView();
   if (view === 'groups') loadGroups();
   if (view === 'messages') loadDirectChats();
 }
@@ -1904,4 +1906,470 @@ if ($('batch-queue-refresh-btn')) {
   $('batch-queue-refresh-btn').onclick = () => {
     loadQueue();
   };
+}
+
+
+/* ==========================================================================
+   PERSONA MEMORY CONTROLLER & AUTONOMOUS AGENT
+   ========================================================================== */
+
+let activeMemoryPersonaId = null;
+let memoryPersonasData = [];
+
+async function loadMemoryView() {
+  try {
+    const ov = await api('GET', '/memory/overview');
+    memoryPersonasData = ov.personas || [];
+    renderMemoryPersonaList();
+
+    if (!activeMemoryPersonaId && memoryPersonasData.length > 0) {
+      activeMemoryPersonaId = memoryPersonasData[0].id;
+    }
+    if (activeMemoryPersonaId) {
+      await selectMemoryPersona(activeMemoryPersonaId);
+    }
+  } catch (err) {
+    const msg = $('mem-msg');
+    if (msg) msg.textContent = 'Failed to load memory overview: ' + err.message;
+  }
+}
+
+function renderMemoryPersonaList() {
+  const container = $('mem-persona-list');
+  const countEl = $('mem-persona-count');
+  if (!container) return;
+
+  const search = ($('mem-search-input') && $('mem-search-input').value || '').trim().toLowerCase();
+  const filtered = memoryPersonasData.filter(p => !search || (p.name || '').toLowerCase().includes(search));
+
+  if (countEl) countEl.textContent = memoryPersonasData.length;
+
+  container.innerHTML = filtered.map(p => {
+    const stats = p.stats || { anchors: 0, weekly: 0, short_term: 0 };
+    const isActive = p.id === activeMemoryPersonaId;
+    return `
+      <div class="mem-p-item ${isActive ? 'active' : ''}" data-pid="${p.id}">
+        <div class="mem-p-info">
+          <span class="dot" style="background:${esc(p.color || '#2fc4b2')};"></span>
+          <span class="mem-p-name">${esc(p.name)}</span>
+        </div>
+        <div class="mem-p-badges">
+          <span class="mem-mini-badge mem-mini-long" title="Permanent Anchors">${stats.anchors}</span>
+          <span class="mem-mini-badge mem-mini-med" title="Weekly Protocols">${stats.weekly}</span>
+          <span class="mem-mini-badge mem-mini-short" title="Transient Notes">${stats.short_term}</span>
+        </div>
+      </div>
+    `;
+  }).join('') || '<div class="hint" style="padding:10px;">No personas found</div>';
+
+  container.querySelectorAll('.mem-p-item').forEach(el => {
+    el.onclick = () => selectMemoryPersona(parseInt(el.dataset.pid, 10));
+  });
+}
+
+async function selectMemoryPersona(pid) {
+  activeMemoryPersonaId = pid;
+  renderMemoryPersonaList();
+
+  try {
+    const tree = await api('GET', `/personas/${pid}/memory-tree`);
+    renderMemoryTree(tree);
+  } catch (err) {
+    const msg = $('mem-msg');
+    if (msg) msg.textContent = 'Failed to load memory tree: ' + err.message;
+  }
+}
+
+function renderMemoryTree(data) {
+  if (!data) return;
+  const nameEl = $('mem-active-name');
+  const dotEl = $('mem-active-dot');
+  const totalEl = $('mem-active-total');
+
+  if (nameEl) nameEl.textContent = data.persona_name || `Persona #${data.persona_id}`;
+  if (dotEl) dotEl.style.background = data.persona_color || '#2fc4b2';
+  if (totalEl) totalEl.textContent = `${data.stats.total || 0} memories`;
+
+  if ($('mem-stat-anchors')) $('mem-stat-anchors').textContent = data.stats.anchors || 0;
+  if ($('mem-stat-weekly')) $('mem-stat-weekly').textContent = data.stats.weekly || 0;
+  if ($('mem-stat-short')) $('mem-stat-short').textContent = data.stats.short_term || 0;
+
+  if ($('mem-badge-long')) $('mem-badge-long').textContent = (data.tree.anchors || []).length;
+  if ($('mem-badge-medium')) $('mem-badge-medium').textContent = (data.tree.weekly || []).length;
+  if ($('mem-badge-short')) $('mem-badge-short').textContent = (data.tree.short_term || []).length;
+
+  const renderNodes = (items, isLong, isMedium) => {
+    if (!items || items.length === 0) {
+      return '<div class="hint" style="padding: 6px 8px;">No memory nodes in this tier.</div>';
+    }
+    return items.map(m => {
+      let expiryLabel = '';
+      if (m.remaining_hours !== null && m.remaining_hours !== undefined) {
+        if (m.remaining_hours <= 0) {
+          expiryLabel = '<span class="badge bad">Expired</span>';
+        } else if (m.remaining_hours < 24) {
+          expiryLabel = `<span class="badge warn">${m.remaining_hours}h left</span>`;
+        } else {
+          const days = Math.round((m.remaining_hours / 24) * 10) / 10;
+          expiryLabel = `<span class="badge" style="background:rgba(255,255,255,0.06);">${days}d left</span>`;
+        }
+      }
+
+      const salienceBadge = `<span class="badge" style="background:rgba(47,196,178,0.12);color:var(--accent);">Salience ${Math.round((m.salience || 0.7) * 100)}%</span>`;
+      const accessesBadge = m.access_count > 0 ? `<span class="hint" style="font-size:10px;">Accessed ${m.access_count}x</span>` : '';
+
+      const promoteBtn = !isLong ? `
+        <button type="button" class="ghost btn-xs mem-act-promote" data-mid="${m.id}" title="Promote to permanent anchor">Promote to Anchor</button>
+      ` : '';
+
+      return `
+        <div class="mem-node-card">
+          <div class="mem-node-head">
+            <div class="mem-node-meta">
+              ${salienceBadge}
+              ${expiryLabel}
+              ${accessesBadge}
+            </div>
+            <div class="mem-node-actions">
+              ${promoteBtn}
+              <button type="button" class="ghost btn-xs mem-act-del" data-mid="${m.id}" style="color:#ff6b6b;" title="Delete memory node">Delete</button>
+            </div>
+          </div>
+          <div class="mem-node-text">${esc(m.content)}</div>
+        </div>
+      `;
+    }).join('');
+  };
+
+  const listLong = $('mem-list-long');
+  const listMed = $('mem-list-medium');
+  const listShort = $('mem-list-short');
+
+  if (listLong) listLong.innerHTML = renderNodes(data.tree.anchors, true, false);
+  if (listMed) listMed.innerHTML = renderNodes(data.tree.weekly, false, true);
+  if (listShort) listShort.innerHTML = renderNodes(data.tree.short_term, false, false);
+
+  // Wire node action listeners
+  document.querySelectorAll('.mem-act-del').forEach(btn => {
+    btn.onclick = async () => {
+      const mid = parseInt(btn.dataset.mid, 10);
+      try {
+        await api('DELETE', `/personas/memories/${mid}`);
+        if (activeMemoryPersonaId) await selectMemoryPersona(activeMemoryPersonaId);
+      } catch (err) {
+        alert('Failed to delete memory: ' + err.message);
+      }
+    };
+  });
+
+  document.querySelectorAll('.mem-act-promote').forEach(btn => {
+    btn.onclick = async () => {
+      const mid = parseInt(btn.dataset.mid, 10);
+      try {
+        await api('POST', `/personas/memories/${mid}/promote`);
+        if (activeMemoryPersonaId) await selectMemoryPersona(activeMemoryPersonaId);
+      } catch (err) {
+        alert('Failed to promote memory: ' + err.message);
+      }
+    };
+  });
+}
+
+// Add memory handlers
+if ($('mem-btn-new')) {
+  $('mem-btn-new').onclick = () => {
+    const f = $('mem-add-form');
+    if (f) f.classList.toggle('hidden');
+  };
+}
+if ($('mem-add-close')) {
+  $('mem-add-close').onclick = () => {
+    const f = $('mem-add-form');
+    if (f) f.classList.add('hidden');
+  };
+}
+if ($('mem-add-submit')) {
+  $('mem-add-submit').onclick = async () => {
+    if (!activeMemoryPersonaId) {
+      alert('Select a persona first');
+      return;
+    }
+    const textEl = $('mem-add-content');
+    const text = (textEl && textEl.value || '').trim();
+    if (!text) {
+      alert('Please enter memory statement content');
+      return;
+    }
+    const tier = $('mem-add-tier') ? $('mem-add-tier').value : 'medium';
+    const salience = $('mem-add-salience') ? parseFloat($('mem-add-salience').value) : 0.8;
+
+    try {
+      await api('POST', `/personas/${activeMemoryPersonaId}/memories`, {
+        content: text,
+        retention_tier: tier,
+        salience: salience
+      });
+      textEl.value = '';
+      const f = $('mem-add-form');
+      if (f) f.classList.add('hidden');
+      await selectMemoryPersona(activeMemoryPersonaId);
+    } catch (err) {
+      alert('Failed to add memory node: ' + err.message);
+    }
+  };
+}
+
+// Pruning agent handlers
+if ($('mem-btn-prune-all')) {
+  $('mem-btn-prune-all').onclick = async () => {
+    const btn = $('mem-btn-prune-all');
+    btn.disabled = true;
+    btn.textContent = 'Agent Pruning...';
+    try {
+      const res = await api('POST', '/memory/prune-all');
+      alert(`Autonomous Memory Pruning Completed:
+• Scanned: ${res.scanned}
+• Pruned/Expired: ${res.pruned}
+• Promoted to Anchors: ${res.promoted}
+• Retained Active: ${res.retained}`);
+      await loadMemoryView();
+    } catch (err) {
+      alert('Memory pruning agent failed: ' + err.message);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Prune Expired (Agent)';
+    }
+  };
+}
+
+if ($('mem-btn-prune-active')) {
+  $('mem-btn-prune-active').onclick = async () => {
+    if (!activeMemoryPersonaId) return;
+    try {
+      const res = await api('POST', `/personas/${activeMemoryPersonaId}/memory/prune`);
+      alert(`Persona Memory Cleanup:
+• Scanned: ${res.scanned}
+• Pruned: ${res.pruned}
+• Promoted: ${res.promoted}`);
+      await selectMemoryPersona(activeMemoryPersonaId);
+    } catch (err) {
+      alert('Pruning failed: ' + err.message);
+    }
+  };
+}
+
+if ($('mem-search-input')) {
+  $('mem-search-input').oninput = () => {
+    renderMemoryPersonaList();
+  };
+}
+
+
+/* ==========================================================================
+   USAGE, TELEMETRY & COMPUTING RESOURCE CONTROLLER
+   ========================================================================== */
+
+async function loadUsageView() {
+  const daysSel = $('usage-days-select');
+  const days = daysSel ? parseInt(daysSel.value, 10) || 7 : 7;
+
+  try {
+    const [summary, timeseries, personas, activity] = await Promise.all([
+      api('GET', '/usage/summary'),
+      api('GET', `/usage/timeseries?days=${days}`),
+      api('GET', '/usage/personas'),
+      api('GET', '/usage/activity?limit=30')
+    ]);
+
+    renderUsageSummary(summary);
+    renderUsageTimeseriesChart(timeseries);
+    renderUsagePersonaBreakdown(personas);
+    renderUsageActivityTable(activity);
+  } catch (err) {
+    console.error('Failed to load usage telemetry:', err);
+  }
+}
+
+function renderUsageSummary(s) {
+  if (!s) return;
+  const msgs = s.messages || {};
+  const aiStats = s.ai || {};
+  const comp = s.compute || {};
+
+  if ($('u-msg-sent-today')) $('u-msg-sent-today').textContent = msgs.sent_today || 0;
+  if ($('u-msg-sent-7d')) $('u-msg-sent-7d').textContent = msgs.sent_7d || 0;
+  if ($('u-msg-sent-total')) $('u-msg-sent-total').textContent = msgs.sent_total || 0;
+  if ($('u-msg-recv-today')) $('u-msg-recv-today').textContent = `${msgs.received_today || 0} today`;
+  if ($('u-msg-recv-total')) $('u-msg-recv-total').textContent = msgs.received_total || 0;
+
+  if ($('u-ai-tokens-total')) $('u-ai-tokens-total').textContent = (aiStats.total_tokens || 0).toLocaleString();
+  if ($('u-ai-tokens-prompt')) $('u-ai-tokens-prompt').textContent = (aiStats.prompt_tokens || 0).toLocaleString();
+  if ($('u-ai-tokens-comp')) $('u-ai-tokens-comp').textContent = (aiStats.completion_tokens || 0).toLocaleString();
+  if ($('u-ai-cost-est')) $('u-ai-cost-est').textContent = `$${(aiStats.cost_estimate_usd || 0).toFixed(4)}`;
+
+  if ($('u-ai-latency-avg')) $('u-ai-latency-avg').textContent = `${aiStats.avg_latency_ms || 0} ms`;
+
+  if ($('u-comp-sockets')) $('u-comp-sockets').textContent = `${comp.active_sockets || 1} Scout Socket`;
+  if ($('u-comp-dormant')) $('u-comp-dormant').textContent = `${comp.dormant_accounts || 0}`;
+  if ($('u-comp-savings')) $('u-comp-savings').textContent = `~${comp.ram_savings_percent || 90}% overhead saved`;
+}
+
+function renderUsageTimeseriesChart(ts) {
+  const container = $('usage-chart-timeseries');
+  if (!container) return;
+  if (!ts || ts.length === 0) {
+    container.innerHTML = '<div class="hint" style="padding:20px;text-align:center;">No activity recorded in this window.</div>';
+    return;
+  }
+
+  const width = container.clientWidth || 580;
+  const height = 180;
+  const padLeft = 35;
+  const padRight = 15;
+  const padTop = 15;
+  const padBottom = 25;
+  const chartW = width - padLeft - padRight;
+  const chartH = height - padTop - padBottom;
+
+  const maxMsgs = Math.max(1, ...ts.map(d => Math.max(d.sent || 0, d.received || 0)));
+  const maxTok = Math.max(1, ...ts.map(d => d.tokens || 0));
+
+  const n = ts.length;
+  const barGroupWidth = chartW / n;
+  const barWidth = Math.max(4, Math.min(14, (barGroupWidth - 10) / 2));
+
+  let barsSvg = '';
+  let tokenLinePoints = [];
+
+  ts.forEach((d, i) => {
+    const xGroupCenter = padLeft + (i * barGroupWidth) + (barGroupWidth / 2);
+    const xSent = xGroupCenter - barWidth - 1;
+    const xRecv = xGroupCenter + 1;
+
+    const sentH = Math.round(((d.sent || 0) / maxMsgs) * chartH);
+    const recvH = Math.round(((d.received || 0) / maxMsgs) * chartH);
+
+    const sentY = padTop + chartH - sentH;
+    const recvY = padTop + chartH - recvH;
+
+    barsSvg += `
+      <rect x="${xSent}" y="${sentY}" width="${barWidth}" height="${sentH}" fill="var(--accent)" rx="2">
+        <title>${esc(d.label)}: ${d.sent} messages sent</title>
+      </rect>
+      <rect x="${xRecv}" y="${recvY}" width="${barWidth}" height="${recvH}" fill="#3b82f6" rx="2">
+        <title>${esc(d.label)}: ${d.received} messages received</title>
+      </rect>
+      <text x="${xGroupCenter}" y="${height - 6}" font-size="9.5" fill="var(--muted)" text-anchor="middle">${esc(d.label)}</text>
+    `;
+
+    const tokY = padTop + chartH - Math.round(((d.tokens || 0) / maxTok) * chartH);
+    tokenLinePoints.push(`${xGroupCenter},${tokY}`);
+  });
+
+  const polyline = `<polyline fill="none" stroke="#a855f7" stroke-width="2" points="${tokenLinePoints.join(' ')}" />`;
+  const dots = tokenLinePoints.map((pt, idx) => {
+    const [px, py] = pt.split(',');
+    return `<circle cx="${px}" cy="${py}" r="3" fill="#a855f7"><title>${esc(ts[idx].label)}: ${ts[idx].tokens} tokens</title></circle>`;
+  }).join('');
+
+  container.innerHTML = `
+    <svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none">
+      <line x1="${padLeft}" y1="${padTop + chartH}" x2="${width - padRight}" y2="${padTop + chartH}" stroke="var(--line)" />
+      <line x1="${padLeft}" y1="${padTop + (chartH/2)}" x2="${width - padRight}" y2="${padTop + (chartH/2)}" stroke="rgba(255,255,255,0.03)" stroke-dasharray="3,3" />
+      ${barsSvg}
+      ${polyline}
+      ${dots}
+    </svg>
+  `;
+}
+
+function renderUsagePersonaBreakdown(list) {
+  const container = $('usage-personas-list');
+  if (!container) return;
+  if (!list || list.length === 0) {
+    container.innerHTML = '<div class="hint" style="padding:15px;text-align:center;">No personas configured yet.</div>';
+    return;
+  }
+
+  container.innerHTML = list.map(p => {
+    const color = esc(p.color || '#2fc4b2');
+    const share = p.share_pct || 0;
+    return `
+      <div class="usage-p-row">
+        <div class="usage-p-row-top">
+          <span class="usage-p-row-name">
+            <span class="dot" style="background:${color};"></span>
+            ${esc(p.name)}
+          </span>
+          <span class="usage-p-row-stat">${p.messages_sent} msgs · ${(p.tokens || 0).toLocaleString()} tokens · ${share}%</span>
+        </div>
+        <div class="usage-p-bar-bg">
+          <div class="usage-p-bar-fill" style="width: ${Math.max(2, share)}%; background: ${color};"></div>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function renderUsageActivityTable(rows) {
+  const tbody = $('usage-activity-rows');
+  const countEl = $('u-activity-count');
+  if (!tbody) return;
+
+  if (countEl) countEl.textContent = `${rows ? rows.length : 0} events`;
+
+  if (!rows || rows.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="7" class="hint" style="text-align:center;padding:16px;">No activity logs recorded yet. Events record automatically as messages send and receive.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = rows.map(r => {
+    const dt = new Date(r.timestamp * 1000);
+    const timeStr = dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+    let eventBadge = '';
+    if (r.event_type === 'msg_sent') {
+      eventBadge = '<span class="u-badge-sent">Sent Message</span>';
+    } else if (r.event_type === 'msg_recv') {
+      eventBadge = '<span class="u-badge-recv">Received Msg</span>';
+    } else if (r.event_type === 'ai_chat') {
+      eventBadge = '<span class="u-badge-ai">Live AI Reply</span>';
+    } else if (r.event_type === 'ai_batch') {
+      eventBadge = '<span class="u-badge-ai">Daily Batch AI</span>';
+    } else {
+      eventBadge = `<span>${esc(r.event_type)}</span>`;
+    }
+
+    const personaName = r.persona_name ? `
+      <span style="display:inline-flex;align-items:center;gap:4px;">
+        <span class="dot" style="background:${esc(r.persona_color || '#2fc4b2')};width:6px;height:6px;"></span>
+        ${esc(r.persona_name)}
+      </span>
+    ` : `<span class="hint">Account #${r.account_id || '-'}</span>`;
+
+    const groupTitle = r.group_title ? esc(r.group_title) : (r.chat_id ? `Chat ${r.chat_id}` : '-');
+    const tokens = r.tokens_total > 0 ? r.tokens_total.toLocaleString() : '-';
+    const latency = r.latency_ms > 0 ? `${r.latency_ms} ms` : '-';
+    const cost = r.cost_est > 0 ? `$${parseFloat(r.cost_est).toFixed(4)}` : '-';
+
+    return `
+      <tr>
+        <td style="padding:6px 8px; color:var(--muted);">${timeStr}</td>
+        <td style="padding:6px 8px;">${eventBadge}</td>
+        <td style="padding:6px 8px;">${personaName}</td>
+        <td style="padding:6px 8px;">${groupTitle}</td>
+        <td style="padding:6px 8px; text-align:right;">${tokens}</td>
+        <td style="padding:6px 8px; text-align:right;">${latency}</td>
+        <td style="padding:6px 8px; text-align:right; color:var(--muted);">${cost}</td>
+      </tr>
+    `;
+  }).join('');
+}
+
+// Wire Usage buttons
+if ($('usage-btn-refresh')) {
+  $('usage-btn-refresh').onclick = () => loadUsageView();
+}
+if ($('usage-days-select')) {
+  $('usage-days-select').onchange = () => loadUsageView();
 }

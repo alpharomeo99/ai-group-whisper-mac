@@ -13,6 +13,8 @@ import time
 from aiohttp import web
 from contextlib import asynccontextmanager
 import daily_batch
+import memory
+import usage
 from telethon import TelegramClient, events, errors
 
 import ai
@@ -45,8 +47,23 @@ class Daemon:
         self.prov = Provisioner(self)
         self.orchestrator = PersonaCadenceOrchestrator(self.store)
         self.daily_batch = daily_batch.DailyBatchEngine(self.store, ai)
+        self.memory = memory.MemoryEngine(self.store, ai)
+        self.usage = usage.UsageTracker(self.store)
         self.autoapi = {}        # token -> {"future": code future, "task": camoufox task}
         self.cfx_install = {"running": False, "log": ""}
+
+    async def memory_pruner_loop(self):
+        """Autonomous Agent that wakes up every 12 hours to prune expired, useless, and overextended memories."""
+        while True:
+            try:
+                await asyncio.sleep(12 * 3600)
+                res = self.memory.prune_memories()
+                log.info("Autonomous memory cleanup completed: %s", res)
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                log.warning("Autonomous memory cleanup loop error: %s", e)
+                await asyncio.sleep(600)
 
     async def ensure_camoufox(self, force=False):
         """Camoufox ships with the app: install the package and its browser automatically in the background."""
@@ -422,6 +439,7 @@ class Daemon:
             chat_id, event.id, name, event.raw_text, int(event.date.timestamp()),
             is_bot=1 if is_internal_bot else 0, sender_id=sender_id
         )
+        self.usage.log_event("msg_recv", account_id=client_acc_id, chat_id=chat_id)
 
         # STRICT RULE: Bot-to-bot dialogue is governed strictly by the Daily Batch Schedule.
         # Messages sent by any bot account in our system DO NOT trigger live AI replies!
@@ -563,6 +581,25 @@ class Daemon:
         if group_ctx:
             pr = pr + "\n\n--- GROUP CONTEXT & TOPIC MASTERY ---\n" + "\n".join(group_ctx)
 
+        # Inject Episodic & Semantic Persona Memory Context
+        effective_pid = persona_id
+        if not effective_pid:
+            aid = account_id or (g.get("account_id") if isinstance(g, dict) else None)
+            if aid and isinstance(g, dict) and g.get("chat_id"):
+                gp = self.store.rows("SELECT persona_id FROM group_personas WHERE chat_id=? AND account_id=?", (g["chat_id"], aid))
+                if gp:
+                    effective_pid = gp[0]["persona_id"]
+            if not effective_pid and aid:
+                ap = self.store.rows("SELECT persona_id FROM accounts WHERE id=?", (aid,))
+                if ap:
+                    effective_pid = ap[0]["persona_id"]
+
+        if effective_pid:
+            cid = g.get("chat_id") if isinstance(g, dict) else None
+            mem_ctx = self.memory.get_prompt_memory_context(effective_pid, chat_id=cid)
+            if mem_ctx:
+                pr = pr + "\n\n" + mem_ctx
+
         return pr
 
     def ensure_group_personas_assigned(self, chat_id):
@@ -673,8 +710,13 @@ class Daemon:
                              (job["chat_id"], body, int(time.time())))
             elif job["kind"] == "draft_reply":
                 chosen_persona = self.persona_for(g, persona_id=p.get("persona_id"), account_id=p.get("account_id"))
-                text = await ai.draft_reply(settings, g.get("title", ""), chosen_persona,
-                                            self.store.recent(job["chat_id"], 30))
+                text, meta = await ai.draft_reply_with_meta(settings, g.get("title", ""), chosen_persona,
+                                                            self.store.recent(job["chat_id"], 30))
+                # Log AI token & latency usage
+                self.usage.log_ai("ai_chat", persona_id=p.get("persona_id"), account_id=p.get("account_id"),
+                                  chat_id=job["chat_id"], tokens_prompt=meta.get("prompt_tokens"),
+                                  tokens_completion=meta.get("completion_tokens"), latency_ms=meta.get("latency_ms"),
+                                  model=meta.get("model"))
                 if p.get("auto_send"):
                     self.store.enqueue("send", job["chat_id"],
                                        {"text": text, "reply_to": p.get("trigger"), "account_id": p.get("account_id")},
@@ -692,6 +734,14 @@ class Daemon:
                     except Exception:  # noqa
                         pass
                     await cl.send_message(job["chat_id"], p["text"], reply_to=p.get("reply_to"))
+                    # Record memory and message sent usage
+                    eff_pid = p.get("persona_id")
+                    if not eff_pid and aid:
+                        acc_p = self.store.rows("SELECT persona_id FROM accounts WHERE id=?", (aid,))
+                        eff_pid = acc_p[0]["persona_id"] if acc_p else None
+                    if eff_pid:
+                        self.memory.auto_record_statement(eff_pid, aid, job["chat_id"], p.get("text"))
+                    self.usage.log_event("msg_sent", persona_id=eff_pid, account_id=aid, chat_id=job["chat_id"])
 
             elif job["kind"] == "batch_scheduled_send":
                 # Check if a human recently spoke in this group:
@@ -715,6 +765,14 @@ class Daemon:
                     except Exception:  # noqa
                         pass
                     await cl.send_message(job["chat_id"], p["text"], reply_to=p.get("reply_to"))
+                    # Record memory and message sent usage
+                    eff_pid = p.get("persona_id")
+                    if not eff_pid and aid:
+                        acc_p = self.store.rows("SELECT persona_id FROM accounts WHERE id=?", (aid,))
+                        eff_pid = acc_p[0]["persona_id"] if acc_p else None
+                    if eff_pid:
+                        self.memory.auto_record_statement(eff_pid, aid, job["chat_id"], p.get("text"))
+                    self.usage.log_event("msg_sent", persona_id=eff_pid, account_id=aid, chat_id=job["chat_id"])
 
                 if p.get("batch_item_id"):
                     self.store.mark_batch_item_sent(p["batch_item_id"], int(time.time()))
@@ -731,6 +789,13 @@ class Daemon:
                         pass
                     sent = await cl.send_message(peer_id, p["text"], reply_to=p.get("reply_to"))
                     self.store.add_direct_message(aid, peer_id, sent.id, "Me", 0, p["text"], int(time.time()))
+                    eff_pid = p.get("persona_id")
+                    if not eff_pid and aid:
+                        acc_p = self.store.rows("SELECT persona_id FROM accounts WHERE id=?", (aid,))
+                        eff_pid = acc_p[0]["persona_id"] if acc_p else None
+                    if eff_pid:
+                        self.memory.auto_record_statement(eff_pid, aid, peer_id, p.get("text"))
+                    self.usage.log_event("msg_sent", persona_id=eff_pid, account_id=aid, chat_id=peer_id)
             elif job["kind"] == "direct_reply":
                 aid = p.get("account_id")
                 peer_id = job["chat_id"]
@@ -2065,6 +2130,93 @@ class Daemon:
             await self.set_power(b.get("state"), b.get("reason", ""))
             return J({"ok": True})
 
+                # ---------- Persona Memory Engine Routes ----------
+        @r.get("/personas/{pid}/memory-tree")
+        async def persona_mem_tree(req):
+            pid = int(req.match_info["pid"])
+            tree = self.memory.get_memory_tree(pid)
+            return J(tree)
+
+        @r.get("/personas/{pid}/memories")
+        async def persona_mem_list(req):
+            pid = int(req.match_info["pid"])
+            tier = req.query.get("tier")
+            mems = self.memory.get_memories(pid, retention_tier=tier)
+            return J(mems)
+
+        @r.post("/personas/{pid}/memories")
+        async def persona_mem_add(req):
+            pid = int(req.match_info["pid"])
+            b = await req.json()
+            mid = self.memory.add_memory(
+                persona_id=pid,
+                content=b.get("content"),
+                kind=b.get("kind", "statement"),
+                retention_tier=b.get("retention_tier", "medium"),
+                salience=float(b.get("salience", 0.7)),
+                expires_in_seconds=int(b["expires_in_seconds"]) if b.get("expires_in_seconds") else None
+            )
+            return J({"ok": True, "id": mid})
+
+        @r.delete("/personas/memories/{mid}")
+        async def persona_mem_del(req):
+            mid = int(req.match_info["mid"])
+            self.memory.delete_memory(mid)
+            return J({"ok": True})
+
+        @r.post("/personas/memories/{mid}/promote")
+        async def persona_mem_promote(req):
+            mid = int(req.match_info["mid"])
+            self.memory.promote_to_anchor(mid)
+            return J({"ok": True})
+
+        @r.post("/personas/{pid}/memory/prune")
+        async def persona_mem_prune(req):
+            pid = int(req.match_info["pid"])
+            res = self.memory.prune_memories(pid)
+            return J(res)
+
+        @r.post("/memory/prune-all")
+        async def memory_prune_all(_):
+            res = self.memory.prune_memories()
+            return J(res)
+
+        @r.get("/memory/overview")
+        async def memory_overview(_):
+            personas = self.store.rows("SELECT id, name, color FROM personas ORDER BY id ASC")
+            items = []
+            for p in personas:
+                tree = self.memory.get_memory_tree(p["id"])
+                items.append({
+                    "id": p["id"],
+                    "name": p["name"],
+                    "color": p["color"],
+                    "stats": tree["stats"]
+                })
+            return J({"personas": items})
+
+        # ---------- Usage & Compute Analytics Routes ----------
+        @r.get("/usage/summary")
+        async def usage_summary(_):
+            summary = self.usage.get_summary()
+            return J(summary)
+
+        @r.get("/usage/timeseries")
+        async def usage_timeseries(req):
+            days = int(req.query.get("days", 7))
+            ts = self.usage.get_timeseries(days=days)
+            return J(ts)
+
+        @r.get("/usage/personas")
+        async def usage_personas(_):
+            pb = self.usage.get_persona_breakdown()
+            return J(pb)
+
+        @r.get("/usage/activity")
+        async def usage_activity(req):
+            limit = int(req.query.get("limit", 25))
+            act = self.usage.get_recent_activity(limit=limit)
+            return J(act)
         return r
 
 
@@ -2104,6 +2256,7 @@ async def main():
     asyncio.create_task(d.ensure_camoufox())
     asyncio.create_task(d.auto_sync_loop())
     asyncio.create_task(d.daily_batch_loop())
+    asyncio.create_task(d.memory_pruner_loop())
     try:
         await d.ensure_clients()
     except Exception as e:  # noqa

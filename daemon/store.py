@@ -96,7 +96,12 @@ class Store:
             "CREATE TABLE IF NOT EXISTS daily_batches (id INTEGER PRIMARY KEY AUTOINCREMENT, date_str TEXT, chat_id INTEGER, topic TEXT, created_at INTEGER)",
             "CREATE TABLE IF NOT EXISTS daily_batch_items (id INTEGER PRIMARY KEY AUTOINCREMENT, batch_id INTEGER, chat_id INTEGER, account_id INTEGER, persona_id INTEGER, sender_name TEXT, text TEXT, scheduled_ts INTEGER, status TEXT DEFAULT 'pending', sent_ts INTEGER, error TEXT, created_at INTEGER)",
             "ALTER TABLE messages ADD COLUMN is_bot INTEGER DEFAULT 0",
-            "ALTER TABLE messages ADD COLUMN sender_id INTEGER"
+            "ALTER TABLE messages ADD COLUMN sender_id INTEGER",
+            "CREATE TABLE IF NOT EXISTS persona_memories (id INTEGER PRIMARY KEY AUTOINCREMENT, persona_id INTEGER NOT NULL, account_id INTEGER, chat_id INTEGER, kind TEXT DEFAULT 'statement', content TEXT NOT NULL, context TEXT DEFAULT '', salience REAL DEFAULT 0.7, retention_tier TEXT DEFAULT 'medium', created_at INTEGER NOT NULL, expires_at INTEGER, access_count INTEGER DEFAULT 0, last_accessed_at INTEGER)",
+            "CREATE INDEX IF NOT EXISTS idx_mem_pid_tier ON persona_memories(persona_id, retention_tier, expires_at)",
+            "CREATE TABLE IF NOT EXISTS usage_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp INTEGER NOT NULL, event_type TEXT NOT NULL, persona_id INTEGER, account_id INTEGER, chat_id INTEGER, tokens_prompt INTEGER DEFAULT 0, tokens_completion INTEGER DEFAULT 0, tokens_total INTEGER DEFAULT 0, latency_ms INTEGER DEFAULT 0, model TEXT DEFAULT '', cost_est REAL DEFAULT 0.0)",
+            "CREATE INDEX IF NOT EXISTS idx_usage_ts ON usage_logs(timestamp)",
+            "CREATE INDEX IF NOT EXISTS idx_usage_pid ON usage_logs(persona_id, timestamp)"
 ):
             try:
                 self.db.execute(ddl)
@@ -140,30 +145,49 @@ class Store:
                     (-1001988234120, "xbiolabs", xbiolabs_about, xbiolabs_domain, xbiolabs_tags, xbiolabs_rules)
                 )
 
-            # Update personas: enrich old and current personas with xbiolabs & peptide domain mastery
+            # Update personas: replace generic prompt injection with realistic, grounded rapport
+            xbiolabs_rapport = (
+                "\n\nCOMMUNITY RAPPORT & VENDOR EXPERIENCE (xbiolabs):\n"
+                "- Grounded Customer Experience: You have ordered through xbiolabs multiple times and share calm, positive firsthand satisfaction (fast domestic turnaround, clean vacuum-sealed kits, reliable Janoshik batch testing, responsive support).\n"
+                "- Natural Human Touch: Never sound like an overhyped marketer or shill. Use casual, understated peer remarks when relevant (e.g. 'pack landed clean in 3 days', 'running their latest tirz, smooth recon and zero pip', 'support sorted my tracking in 10 mins').\n"
+                "- Authentic Peer Knowledge: Speak from your personal experience with protocols (peptides, reconstitution, routine health), keeping advice informal, peer-to-peer, and tailored to what you personally run rather than lecturing like a medical manual."
+            )
+
             cur.execute("SELECT id, name, prompt, details FROM personas")
             persona_rows = cur.fetchall()
+            now_ts = int(time.time())
             for pid, pname, prompt, dt_raw in persona_rows:
                 prompt_str = prompt or ""
-                if "xbiolabs" not in prompt_str.lower() and "peptides" not in prompt_str.lower():
-                    prompt_str += (
-                        f"\n\nCOMMUNITY DOMAIN MASTERY (xbiolabs & Peptides):\n"
-                        f"- You are a veteran member of the xbiolabs vendor & peptide community.\n"
-                        f"- Deeply knowledgeable in: peptides (BPC-157, TB-500, Tirzepatide, Retatrutide, Semaglutide, GHK-Cu, CJC/Ipamorelin), "
-                        f"dosing, reconstitution math (BAC water), vendor shipping, tracking, pricing, batch COAs, "
-                        f"gear/TRT (test, primo, mast, var), sexual enhancements (PT-141, Cialis), wellness, and nootropics.\n"
-                        f"- Discuss these topics casually and conversationally like a true insider."
-                    )
-                    try:
-                        d = json.loads(dt_raw or "{}")
-                    except Exception:
-                        d = {}
-                    off_topic = d.get("off_topic") or d.get("off_topic_interests") or []
-                    if "peptide protocols & sourcing" not in off_topic:
-                        off_topic.extend(["peptide protocols & sourcing", "gear & bloodwork", "nootropics", "xbiolabs batch testing"])
-                        d["off_topic"] = off_topic
-                    d["domain_mastery"] = "xbiolabs peptides, dosing, buying, shipping, gear, sexual enhancement, nootropics"
-                    cur.execute("UPDATE personas SET prompt=?, details=? WHERE id=?", (prompt_str, json.dumps(d), pid))
+                # Strip out old robotic injection if present
+                if "COMMUNITY DOMAIN MASTERY (xbiolabs & Peptides):" in prompt_str:
+                    import re
+                    prompt_str = re.sub(r'\n*COMMUNITY DOMAIN MASTERY \(xbiolabs & Peptides\):.*?(?=(\n\n[A-Z]|$))', '', prompt_str, flags=re.DOTALL).strip()
+
+                if "COMMUNITY RAPPORT & VENDOR EXPERIENCE" not in prompt_str:
+                    prompt_str = prompt_str.strip() + xbiolabs_rapport
+
+                try:
+                    d = json.loads(dt_raw or "{}")
+                except Exception:
+                    d = {}
+                d["vendor_sentiment"] = "positive_grounded"
+                cur.execute("UPDATE personas SET prompt=?, details=? WHERE id=?", (prompt_str, json.dumps(d), pid))
+
+                # Seed initial memory tree if persona has no memories
+                cur.execute("SELECT count(*) as c FROM persona_memories WHERE persona_id=?", (pid,))
+                mc = cur.fetchone()
+                if mc and mc[0] == 0:
+                    initial_memories = [
+                        ("Permanent anchor: Frequent buyer at xbiolabs; steady experience with vacuum packaging and Janoshik batch purity.", "long", 0.95, None),
+                        ("Administers research protocols with 31G insulin syringes, gentle slow reconstitution with BAC water.", "long", 0.90, None),
+                        ("Received fresh peptide kit this week; verified seal and clear solution after reconstitution.", "medium", 0.85, now_ts + (7 * 86400)),
+                        ("Noted in chat that carrier tracking scans typically update within 24 hours of label generation.", "short", 0.50, now_ts + (2 * 86400))
+                    ]
+                    for m_text, m_tier, m_sal, m_exp in initial_memories:
+                        cur.execute("""
+                            INSERT INTO persona_memories(persona_id, kind, content, salience, retention_tier, created_at, expires_at, access_count, last_accessed_at)
+                            VALUES(?, 'statement', ?, ?, ?, ?, ?, 0, ?)
+                        """, (pid, m_text, m_sal, m_tier, now_ts, m_exp, now_ts))
 
             self.db.commit()
         except Exception:

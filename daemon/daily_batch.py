@@ -134,10 +134,21 @@ class DailyBatchEngine:
         items = []
 
         try:
-            raw_ai = await self.ai.chat(settings, system_prompt, user_prompt, temperature=0.88)
+            raw_ai, meta = await self.ai.chat_with_meta(settings, system_prompt, user_prompt, temperature=0.88)
             match = re.search(r"\[\s*\{.*\}\s*\]", raw_ai, re.DOTALL)
             if match:
                 items = json.loads(match.group(0))
+            now_ts = int(time.time())
+            p_tok = meta.get("prompt_tokens", 0)
+            c_tok = meta.get("completion_tokens", 0)
+            tot_tok = p_tok + c_tok
+            cost_est = (tot_tok / 1000.0) * 0.0003
+            self.store.q("""
+                INSERT INTO usage_logs(timestamp, event_type, chat_id, tokens_prompt, tokens_completion,
+                                       tokens_total, latency_ms, model, cost_est)
+                VALUES(?,?,?,?,?,?,?,?,?)
+            """, (now_ts, "ai_batch", chat_id, p_tok, c_tok, tot_tok, meta.get("latency_ms", 0),
+                  meta.get("model", ""), cost_est))
         except Exception as e:
             log.warning("AI batch generation failed (%s), using domain fallback: %s", type(e).__name__, e)
 
