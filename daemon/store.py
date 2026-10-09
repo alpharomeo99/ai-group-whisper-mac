@@ -41,7 +41,8 @@ CREATE TABLE IF NOT EXISTS queue (
 -- Telegram accounts; each has its own session file in data/sessions/
 CREATE TABLE IF NOT EXISTS accounts (
   id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER UNIQUE, phone TEXT, name TEXT,
-  username TEXT, session TEXT, active INTEGER DEFAULT 1, created INTEGER
+  username TEXT, session TEXT, active INTEGER DEFAULT 1, created INTEGER,
+  last_synced_at INTEGER DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS proxies (
   id INTEGER PRIMARY KEY AUTOINCREMENT, label TEXT, url TEXT, last_ip TEXT,
@@ -101,7 +102,8 @@ class Store:
             "CREATE INDEX IF NOT EXISTS idx_mem_pid_tier ON persona_memories(persona_id, retention_tier, expires_at)",
             "CREATE TABLE IF NOT EXISTS usage_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp INTEGER NOT NULL, event_type TEXT NOT NULL, persona_id INTEGER, account_id INTEGER, chat_id INTEGER, tokens_prompt INTEGER DEFAULT 0, tokens_completion INTEGER DEFAULT 0, tokens_total INTEGER DEFAULT 0, latency_ms INTEGER DEFAULT 0, model TEXT DEFAULT '', cost_est REAL DEFAULT 0.0)",
             "CREATE INDEX IF NOT EXISTS idx_usage_ts ON usage_logs(timestamp)",
-            "CREATE INDEX IF NOT EXISTS idx_usage_pid ON usage_logs(persona_id, timestamp)"
+            "CREATE INDEX IF NOT EXISTS idx_usage_pid ON usage_logs(persona_id, timestamp)",
+            "ALTER TABLE accounts ADD COLUMN last_synced_at INTEGER DEFAULT 0"
 ):
             try:
                 self.db.execute(ddl)

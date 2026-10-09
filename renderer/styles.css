@@ -102,6 +102,7 @@ td button { padding: 4px 10px; font-size: 12px; }
 .badge.ok { background: rgba(56,212,139,.14); color: var(--ok); }
 .badge.bad { background: rgba(255,107,107,.14); color: var(--bad); }
 .badge.off { background: #232836; color: var(--muted); }
+.badge.standby { background: rgba(88,86,214,.18); color: #9d9bf7; }
 
 /* banners */
 .banner { padding: 9px 18px; background: #12403b; display: flex; gap: 12px; align-items: center; font-size: 13px; }

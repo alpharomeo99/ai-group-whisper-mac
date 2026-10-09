@@ -299,9 +299,11 @@ $('g-sync-btn').onclick = async () => {
   btn.disabled = true;
   btn.textContent = 'Syncing...';
   try {
-    await api('GET', '/groups');
-    loadGroups();
-  } catch (_) {}
+    await api('POST', '/groups/sync');
+    await loadGroups();
+  } catch (_) {
+    await loadGroups();
+  }
   btn.textContent = 'Sync Dialogs';
   btn.disabled = false;
 };
@@ -499,16 +501,36 @@ async function loadAccounts() {
   await fetchProxies();
   const res = await api('GET', '/accounts');
   const list = Array.isArray(res) ? res : [];
-  $('acc-list').innerHTML = list.map((a) => `
+  $('acc-list').innerHTML = list.map((a) => {
+    const badgeClass = !a.active ? 'off' : a.is_scout ? 'ok' : a.connected ? 'ok' : 'standby';
+    const badgeLabel = !a.active ? 'Paused' : a.is_scout ? 'Scout (Listening)' : a.connected ? 'Connected' : 'Standby';
+    return `
     <div class="card acc">
       <div class="avatar">${esc((a.name || '?')[0].toUpperCase())}</div>
       <div class="acc-info"><b>${esc(a.name || 'Account')}</b>
         <div class="hint">${[a.phone, a.username && '@' + a.username, `${a.groups} group${a.groups === 1 ? '' : 's'}`].filter(Boolean).map(esc).join(' · ')}</div></div>
-      <span class="badge ${!a.active ? 'off' : a.connected ? 'ok' : 'bad'}">${!a.active ? 'Paused' : a.connected ? 'Connected' : 'Signed out'}</span>
+      <span class="badge ${badgeClass}">${badgeLabel}</span>
+      <button class="ghost xs" data-sync-acc="${a.id}" title="Sync dialogs and groups for this account">&#8635; Sync</button>
       <select data-px="${a.id}" title="Proxy">${proxyOptions(null, a.proxy_id)}</select>
       <label><input type="checkbox" data-act="${a.id}" ${a.active ? 'checked' : ''}/> On</label>
       <button data-del="${a.id}" data-name="${esc(a.name || 'this account')}">Remove</button>
-    </div>`).join('') || (noApi ? '' : '<div class="empty">No accounts yet. Press “+ Add account”.</div>');
+    </div>`;
+  }).join('') || (noApi ? '' : '<div class="empty">No accounts yet. Press “+ Add account”.</div>');
+  document.querySelectorAll('[data-sync-acc]').forEach((el) => el.onclick = async () => {
+    el.disabled = true;
+    const oldText = el.textContent;
+    el.textContent = 'Syncing...';
+    try {
+      await api('POST', `/accounts/${el.dataset.syncAcc}/sync`);
+      await loadAccounts();
+      await loadGroups();
+    } catch (e) {
+      alert('Sync failed: ' + (e.message || e));
+    } finally {
+      el.disabled = false;
+      el.textContent = oldText;
+    }
+  });
   document.querySelectorAll('[data-px]').forEach((el) => el.onchange = async () => {
     await api('POST', '/accounts/' + el.dataset.px, { proxy_id: el.value ? Number(el.value) : null }); loadAccounts();
   });
