@@ -77,6 +77,7 @@ let groupSearchQuery = '';
 
 async function loadGroups() {
   try { groups = await api('GET', '/groups'); } catch { return; }
+  if (!Array.isArray(groups)) groups = [];
   const multiAcc = new Set(groups.map((g) => g.account_id).filter(Boolean)).size > 1;
 
   const filtered = groups.filter((g) => {
@@ -321,9 +322,17 @@ async function loadFeed() {
 }
 
 async function loadQueue() {
-  const rows = await api('GET', '/queue');
-  $('queue-table').innerHTML = '<tr><th>#</th><th>Type</th><th>Status</th><th>Tries</th><th>Last error</th></tr>' +
-    rows.map((r) => `<tr><td>${r.id}</td><td>${esc(r.kind)}</td><td>${esc(r.status)}</td><td>${r.attempts}</td><td>${esc(r.last_error || '')}</td></tr>`).join('');
+  try {
+    const rows = await api('GET', '/queue');
+    const list = Array.isArray(rows) ? rows : [];
+    const el = $('queue-table');
+    if (el) {
+      el.innerHTML = '<tr><th>#</th><th>Type</th><th>Status</th><th>Tries</th><th>Last error</th></tr>' +
+        list.map((r) => `<tr><td>${r.id}</td><td>${esc(r.kind)}</td><td>${esc(r.status)}</td><td>${r.attempts}</td><td>${esc(r.last_error || '')}</td></tr>`).join('');
+    }
+  } catch (err) {
+    console.error('Failed to load queue:', err);
+  }
 }
 
 async function loadSettings() {
@@ -365,7 +374,7 @@ function proxyOptions(sel, current) {
   return `<option value="">No proxy</option>` + proxyList.map((p) =>
     `<option value="${p.id}" ${String(current) === String(p.id) ? 'selected' : ''}>${esc(p.label)}${p.ok ? ' ✓' : ''}</option>`).join('');
 }
-async function fetchProxies() { proxyList = await api('GET', '/proxies'); return proxyList; }
+async function fetchProxies() { try { const p = await api('GET', '/proxies'); proxyList = Array.isArray(p) ? p : []; } catch { proxyList = []; } return proxyList; }
 async function loadProxies() {
   await fetchProxies();
   $('px-table').innerHTML = proxyList.length ? '<tr><th>Proxy</th><th>Status</th><th>Exit IP</th><th>Used by</th><th></th></tr>' +
@@ -466,16 +475,18 @@ async function loadOverview() {
     cfxNav(),
     api('GET', '/system/status').catch(() => ({ enabled: true }))
   ]);
-  updateMasterSystemUI(sys.enabled);
-  const q = s.queue || {};
+  updateMasterSystemUI((sys && sys.enabled !== undefined) ? sys.enabled : true);
+  const accountsList = Array.isArray(accs) ? accs : [];
+  const proxiesList = Array.isArray(pxs) ? pxs : [];
+  const q = (s && s.queue) || {};
   const stat = (k, v, sub) => `<div class="stat"><div class="k">${k}</div><div class="v">${v}</div><div class="s">${sub}</div></div>`;
-  const dormantCount = Math.max(0, accs.length - (s.connected || 0));
-  $('ov-stats').innerHTML = stat('Scout listener', `${s.connected || 0}<span class="hint"> / ${accs.length}</span>`, `${dormantCount} dormant in RAM (0 sockets)`)
+  const dormantCount = Math.max(0, accountsList.length - ((s && s.connected) || 0));
+  $('ov-stats').innerHTML = stat('Scout listener', `${(s && s.connected) || 0}<span class="hint"> / ${accountsList.length}</span>`, `${dormantCount} dormant in RAM (0 sockets)`)
     + stat('Live AI routing', 'Humans Only', 'Bots pre-scheduled daily')
     + stat('Queued jobs', q.pending || 0, `${q.failed || 0} failed`)
-    + stat('Proxies working', `${pxs.filter((p) => p.ok).length}<span class="hint"> / ${pxs.length}</span>`, 'Tested through Telegram & Camoufox');
-  $('ov-accounts').innerHTML = accs.map((a) => `<div class="mini"><div class="avatar">${esc((a.name || '?')[0].toUpperCase())}</div><div class="grow"><b>${esc(a.name || 'Account')}</b><div class="hint">${esc(a.phone || '')}</div></div><span class="badge ${!a.active ? 'off' : a.connected ? 'ok' : 'bad'}">${!a.active ? 'Paused' : a.connected ? 'Connected' : 'Signed out'}</span></div>`).join('') || '<div class="hint">No accounts yet.</div>';
-  $('ov-proxies').innerHTML = pxs.map((p) => `<div class="mini"><div class="grow"><b>${esc(p.label)}</b><div class="hint">${esc(p.accounts.join(', ') || 'Not assigned')}</div></div><span class="badge ${p.ok ? 'ok' : p.last_check ? 'bad' : 'off'}">${p.ok ? 'Working' : p.last_check ? 'Failed' : 'Not tested'}</span></div>`).join('') || '<div class="hint">No proxies yet.</div>';
+    + stat('Proxies working', `${proxiesList.filter((p) => p.ok).length}<span class="hint"> / ${proxiesList.length}</span>`, 'Tested through Telegram & Camoufox');
+  $('ov-accounts').innerHTML = accountsList.map((a) => `<div class="mini"><div class="avatar">${esc((a.name || '?')[0].toUpperCase())}</div><div class="grow"><b>${esc(a.name || 'Account')}</b><div class="hint">${esc(a.phone || '')}</div></div><span class="badge ${!a.active ? 'off' : a.connected ? 'ok' : 'bad'}">${!a.active ? 'Paused' : a.connected ? 'Connected' : 'Signed out'}</span></div>`).join('') || '<div class="hint">No accounts yet.</div>';
+  $('ov-proxies').innerHTML = proxiesList.map((p) => `<div class="mini"><div class="grow"><b>${esc(p.label)}</b><div class="hint">${esc((p.accounts || []).join(', ') || 'Not assigned')}</div></div><span class="badge ${p.ok ? 'ok' : p.last_check ? 'bad' : 'off'}">${p.ok ? 'Working' : p.last_check ? 'Failed' : 'Not tested'}</span></div>`).join('') || '<div class="hint">No proxies yet.</div>';
 }
 
 // ----- Accounts -----
@@ -484,7 +495,8 @@ const wmsg = (t) => { $('w-msg').textContent = t || ''; };
 async function loadAccounts() {
   const noApi = false;
   await fetchProxies();
-  const list = await api('GET', '/accounts');
+  const res = await api('GET', '/accounts');
+  const list = Array.isArray(res) ? res : [];
   $('acc-list').innerHTML = list.map((a) => `
     <div class="card acc">
       <div class="avatar">${esc((a.name || '?')[0].toUpperCase())}</div>
@@ -571,7 +583,7 @@ let provTimer = null;
 async function pollProv() {
   const s = await api('GET', '/provision/status');
   $('prov-phases').innerHTML = (s.phases || []).map((p, i) => `<div class="phase ${p.status}"><span>${p.status === 'done' ? '✓' : p.status === 'error' ? '!' : i + 1}</span>${esc(p.label)}</div>`).join('');
-  $('prov-steps').innerHTML = s.steps.map((x) => `<li>${esc(x.text)}</li>`).join('');
+  $('prov-steps').innerHTML = (s.steps || []).map((x) => `<li>${esc(x.text)}</li>`).join('');
   $('prov-msg').textContent = s.error ? 'Stopped: ' + s.error : s.done ? 'Account created and connected.' : s.running ? 'Working…' : '';
   $('prov-go').disabled = s.running; $('prov-cancel').disabled = !s.running;
   setGenBtn(s.running);
@@ -1314,7 +1326,7 @@ let activeDmAid = '';
 async function loadDirectChats() {
   try {
     const chats = await api('GET', '/direct-chats');
-    dmChatsList = chats || [];
+    dmChatsList = Array.isArray(chats) ? chats : [];
     renderDmFilters();
     renderDmChatList();
   } catch (err) {
@@ -1705,43 +1717,46 @@ async function loadDailyBatchView() {
       api('GET', '/personas/matrix').catch(() => ({ matrix: [] })),
       api('GET', '/accounts').catch(() => [])
     ]);
-    dailyBatchData = batchRes;
+    const batch = (batchRes && typeof batchRes === 'object') ? batchRes : {};
+    const accounts = Array.isArray(accsRes) ? accsRes : [];
+    const matrix = Array.isArray(matrixRes && matrixRes.matrix) ? matrixRes.matrix : [];
+    dailyBatchData = batch;
 
     // Current Date
-    if ($('batch-today-date')) $('batch-today-date').textContent = batchRes.date_str || new Date().toISOString().slice(0, 10);
+    if ($('batch-today-date')) $('batch-today-date').textContent = batch.date_str || new Date().toISOString().slice(0, 10);
 
     // Scout selector
     const scoutSel = $('batch-scout-select');
     if (scoutSel) {
-      scoutSel.innerHTML = (accsRes || []).filter((a) => a.active).map((a) => `
-        <option value="${a.id}" ${batchRes.scout_account_id === a.id ? 'selected' : ''}>
+      scoutSel.innerHTML = accounts.filter((a) => a.active).map((a) => `
+        <option value="${a.id}" ${batch.scout_account_id === a.id ? 'selected' : ''}>
           ${esc(a.name || 'Account ' + a.id)} (${esc(a.phone || '')})
         </option>
       `).join('') || '<option value="">No active accounts</option>';
     }
     if ($('batch-scout-badge')) {
-      const activeScout = (accsRes || []).find((a) => a.id === batchRes.scout_account_id);
+      const activeScout = accounts.find((a) => a.id === batch.scout_account_id);
       $('batch-scout-badge').textContent = activeScout ? `Scout: ${activeScout.name || activeScout.phone} (1 Socket)` : 'Scout: Auto-Selected';
     }
 
     // Watched groups dropdown
     const groupSel = $('batch-gen-group');
     if (groupSel) {
-      const watched = (matrixRes.matrix || []).filter((g) => g.watched);
+      const watched = matrix.filter((g) => g.watched);
       groupSel.innerHTML = watched.map((g) => `
         <option value="${g.chat_id}">${esc(g.title || 'Group ' + g.chat_id)} (${g.user_assignments ? g.user_assignments.length : 0} personas)</option>
       `).join('') || '<option value="">No watched groups</option>';
     }
 
     // Metrics
-    const st = batchRes.stats || {};
+    const st = batch.stats || {};
     if ($('batch-metric-total')) $('batch-metric-total').textContent = st.total || 0;
     if ($('batch-metric-pending')) $('batch-metric-pending').textContent = st.pending || 0;
     if ($('batch-metric-sent')) $('batch-metric-sent').textContent = st.sent || 0;
     if ($('batch-metric-postponed')) $('batch-metric-postponed').textContent = st.postponed || 0;
 
     // Render schedule table
-    renderBatchScheduleTable(batchRes.items || []);
+    renderBatchScheduleTable(Array.isArray(batch.items) ? batch.items : []);
   } catch (err) {
     console.error('Failed to load daily batch view:', err);
     if (statusEl) statusEl.textContent = 'Error loading batch status: ' + err.message;
