@@ -1,8 +1,13 @@
 """Local SQLite storage for AI Group Whisper."""
 import json
 import sqlite3
+import logging
+import random
+import re
 import threading
 import time
+
+log = logging.getLogger('whisper.store')
 
 SCHEMA = """
 PRAGMA journal_mode=WAL;
@@ -71,6 +76,93 @@ CREATE INDEX IF NOT EXISTS idx_dm_chat ON direct_messages(account_id, peer_id, t
 """
 
 
+
+PHONE_PREFIX_TO_LOCATION = {
+    "+1": {"country": "United States / Canada", "region": "North America"},
+    "+44": {"country": "United Kingdom", "region": "Europe"},
+    "+33": {"country": "France", "region": "Europe"},
+    "+49": {"country": "Germany", "region": "Europe"},
+    "+34": {"country": "Spain", "region": "Europe"},
+    "+39": {"country": "Italy", "region": "Europe"},
+    "+31": {"country": "Netherlands", "region": "Europe"},
+    "+32": {"country": "Belgium", "region": "Europe"},
+    "+41": {"country": "Switzerland", "region": "Europe"},
+    "+43": {"country": "Austria", "region": "Europe"},
+    "+46": {"country": "Sweden", "region": "Europe"},
+    "+47": {"country": "Norway", "region": "Europe"},
+    "+45": {"country": "Denmark", "region": "Europe"},
+    "+358": {"country": "Finland", "region": "Europe"},
+    "+48": {"country": "Poland", "region": "Europe"},
+    "+420": {"country": "Czech Republic", "region": "Europe"},
+    "+351": {"country": "Portugal", "region": "Europe"},
+    "+353": {"country": "Ireland", "region": "Europe"},
+    "+30": {"country": "Greece", "region": "Europe"},
+    "+90": {"country": "Turkey", "region": "Middle East / Europe"},
+    "+212": {"country": "Morocco", "region": "North Africa"},
+    "+20": {"country": "Egypt", "region": "North Africa"},
+    "+971": {"country": "United Arab Emirates", "region": "Middle East"},
+    "+966": {"country": "Saudi Arabia", "region": "Middle East"},
+    "+972": {"country": "Israel", "region": "Middle East"},
+    "+234": {"country": "Nigeria", "region": "West Africa"},
+    "+254": {"country": "Kenya", "region": "East Africa"},
+    "+27": {"country": "South Africa", "region": "Southern Africa"},
+    "+7": {"country": "Eastern Europe / Central Asia", "region": "Central Asia"},
+    "+380": {"country": "Ukraine", "region": "Eastern Europe"},
+    "+370": {"country": "Lithuania", "region": "Eastern Europe"},
+    "+371": {"country": "Latvia", "region": "Eastern Europe"},
+    "+372": {"country": "Estonia", "region": "Eastern Europe"},
+    "+995": {"country": "Georgia", "region": "Caucasus"},
+    "+86": {"country": "China", "region": "East Asia"},
+    "+81": {"country": "Japan", "region": "East Asia"},
+    "+82": {"country": "South Korea", "region": "East Asia"},
+    "+852": {"country": "Hong Kong", "region": "East Asia"},
+    "+65": {"country": "Singapore", "region": "Southeast Asia"},
+    "+60": {"country": "Malaysia", "region": "Southeast Asia"},
+    "+62": {"country": "Indonesia", "region": "Southeast Asia"},
+    "+63": {"country": "Philippines", "region": "Southeast Asia"},
+    "+66": {"country": "Thailand", "region": "Southeast Asia"},
+    "+84": {"country": "Vietnam", "region": "Southeast Asia"},
+    "+91": {"country": "India", "region": "South Asia"},
+    "+92": {"country": "Pakistan", "region": "South Asia"},
+    "+61": {"country": "Australia", "region": "Oceania"},
+    "+64": {"country": "New Zealand", "region": "Oceania"},
+    "+55": {"country": "Brazil", "region": "South America"},
+    "+52": {"country": "Mexico", "region": "North America"},
+    "+54": {"country": "Argentina", "region": "South America"},
+    "+57": {"country": "Colombia", "region": "South America"},
+    "+56": {"country": "Chile", "region": "South America"},
+}
+
+def location_from_phone(phone):
+    clean = "+" + "".join(c for c in str(phone or "") if c.isdigit()).lstrip("+")
+    for pfx in sorted(PHONE_PREFIX_TO_LOCATION.keys(), key=lambda k: -len(k)):
+        if clean.startswith(pfx):
+            return PHONE_PREFIX_TO_LOCATION[pfx]["country"]
+    return "International"
+
+def detect_gender_from_name(name):
+    first = (name or "").strip().split()[0].lower() if name else ""
+    female_names = {
+        "leila", "layla", "leyla", "sarah", "sara", "emma", "chloe", "mia", "hannah", "maya", "leah",
+        "grace", "sofia", "sophia", "elena", "clara", "zoe", "eva", "nina", "lily", "anna", "olivia",
+        "amelia", "lucy", "ruby", "nora", "eliza", "victoria", "isabella", "charlotte", "natalie",
+        "alicia", "jessica", "claire", "valerie", "maria", "camilla", "diana", "julia",
+        "elizabeth", "emily", "amber", "ashley", "melissa", "nicole", "rebecca", "rachel", "amanda", "laura"
+    }
+    male_names = {
+        "dorian", "alex", "john", "mike", "david", "james", "marcus", "luke", "ryan", "jake", "sam",
+        "chris", "daniel", "michael", "adam", "ben", "tom", "leo", "max", "eric", "jason", "nathan",
+        "brian", "kevin", "justin", "brandon", "tyler", "matthew", "andrew", "ethan", "william",
+        "lucas", "gabriel", "henry", "owen", "samuel", "jack", "connor", "liam", "noah", "oliver"
+    }
+    if first in female_names:
+        return "female"
+    if first in male_names:
+        return "male"
+    if first.endswith(("a", "ah", "ia", "ina", "ine", "ette", "elle", "lyn")):
+        return "female"
+    return "male"
+
 class Store:
     def __init__(self, path):
         self.db = sqlite3.connect(path, check_same_thread=False)
@@ -116,8 +208,10 @@ class Store:
         return self.reconcile_personas_and_accounts()
 
     def reconcile_personas_and_accounts(self):
-        """Seeds or updates xbiolabs group domain context, verifies all personas, and auto-links unassigned accounts."""
-        """Seeds or updates xbiolabs group domain context and updates personas with peptide mastery."""
+        """Seeds or updates xbiolabs group domain context, synchronizes all personas to reflect
+        their phone-matching location, gender-matching name, explicit self-awareness of identity,
+        designates one male specialist, and auto-links accounts and groups.
+        """
         try:
             xbiolabs_about = "Official vendor and community group for xbiolabs. While it is a vendor group, the community actively discusses everything related to peptides, underground biohacking, and health optimization."
             xbiolabs_domain = (
@@ -154,57 +248,31 @@ class Store:
             # Update personas: strict negative-inquiry trigger policy for vendor experience
             xbiolabs_rapport = (
                 "\n\nVENDOR EXPERIENCE POLICY & TRIGGER RULES (xbiolabs):\n"
-                "- STRICT NEGATIVE-INQUIRY TRIGGER RULE: NEVER volunteer unprompted vendor praise, package reviews, or order testimonials out of nowhere. Chat normally about compounds, fitness, biohacking, and everyday banter.\n"
+                "- STRICT NEGATIVE-INQUIRY TRIGGER RULE: NEVER volunteer unprompted vendor praise, package reviews, or order testimonials out of nowhere. Chat normally about fitness, biohacking, and everyday banter.\n"
                 "- ADMISSION OF ONLY GOOD EXPERIENCE: ONLY if an external human in the chat specifically asks whether anyone had a BAD experience, issues, shipping problems, or asks if the vendor is legit/scam (e.g. 'anyone had a bad experience with xbiolabs?', 'did anyone get scammed?', 'anyone have issues?', 'bad batch?'): you chime in naturally and state that personally, you have only ever had good experiences (orders landed clean, verified batch purity, zero issues on your end).\n"
                 "- CASUAL & UNDERSTATED PEER TONE: When answering such an inquiry, keep it casual, peer-to-peer, and brief (e.g. 'honestly never had an issue with them, orders always landed clean for me', 'nah zero bad runs here, all arrived fine'). NEVER sound like a corporate shill, defensive moderator, or paid sponsor."
             )
 
-            import re
-            cur.execute("SELECT id, name, prompt, details FROM personas")
-            persona_rows = cur.fetchall()
-            now_ts = int(time.time())
-            for pid, pname, prompt, dt_raw in persona_rows:
-                prompt_str = prompt or ""
-                # Strip out old injections if present
-                if "COMMUNITY DOMAIN MASTERY (xbiolabs & Peptides):" in prompt_str:
-                    prompt_str = re.sub(r'\n*COMMUNITY DOMAIN MASTERY \(xbiolabs & Peptides\):.*?(?=(\n\n[A-Z]|$))', '', prompt_str, flags=re.DOTALL).strip()
-                if "COMMUNITY RAPPORT & VENDOR EXPERIENCE (xbiolabs):" in prompt_str:
-                    prompt_str = re.sub(r'\n*COMMUNITY RAPPORT & VENDOR EXPERIENCE \(xbiolabs\):.*?(?=(\n\n[A-Z]|$))', '', prompt_str, flags=re.DOTALL).strip()
-                if "VENDOR EXPERIENCE POLICY & TRIGGER RULES (xbiolabs):" in prompt_str:
-                    prompt_str = re.sub(r'\n*VENDOR EXPERIENCE POLICY & TRIGGER RULES \(xbiolabs\):.*?(?=(\n\n[A-Z]|$))', '', prompt_str, flags=re.DOTALL).strip()
-
-                prompt_str = prompt_str.strip() + xbiolabs_rapport
-
-                try:
-                    d = json.loads(dt_raw or "{}")
-                except Exception:
-                    d = {}
-                d["vendor_sentiment"] = "admit_good_only_on_negative_query"
-                cur.execute("UPDATE personas SET prompt=?, details=? WHERE id=?", (prompt_str, json.dumps(d), pid))
-
             # Prune old fabricated vendor seed memories to avoid unprompted order claims
             cur.execute("DELETE FROM persona_memories WHERE content LIKE '%Frequent buyer at xbiolabs%' OR content LIKE '%Received fresh peptide kit%'")
 
-            # Find target xbiolabs group id
+            # Target xbiolabs group id
             cur.execute("SELECT chat_id FROM groups WHERE LOWER(title) LIKE '%xbiolabs%' OR LOWER(title) LIKE '%xbio%'")
             g_rows = cur.fetchall()
             xbiolabs_cid = g_rows[0][0] if g_rows else -1001988234120
 
-            # Find all accounts and reconcile personas
-            cur.execute("SELECT id, name, phone, username, persona_id FROM accounts ORDER BY id")
+            # Read all accounts
+            cur.execute("SELECT id, name, phone, username, persona_id, active FROM accounts ORDER BY id")
             accounts = cur.fetchall()
 
+            now_ts = int(time.time())
             created_count = 0
+            revised_count = 0
             linked_count = 0
+            expert_assigned = False
             palette = ["#2fc4b2", "#7c6cff", "#ff8a4c", "#e45fa6", "#4ca8ff", "#9bd14c", "#f2c94c", "#56ccf2", "#00d2d3", "#a55eea"]
 
-            for aid, aname, aphone, ausername, apid in accounts:
-                target_pid = apid
-                if target_pid:
-                    cur.execute("SELECT id FROM personas WHERE id=?", (target_pid,))
-                    if not cur.fetchone():
-                        target_pid = None
-
+            for aid, aname, aphone, ausername, apid, aactive in accounts:
                 raw_name = (aname or "").strip()
                 if not raw_name:
                     if ausername:
@@ -214,68 +282,110 @@ class Store:
                     else:
                         raw_name = f"Account {aid}"
 
-                if not target_pid:
-                    # Check if a persona already exists with this exact name
-                    cur.execute("SELECT id FROM personas WHERE LOWER(name)=LOWER(?) LIMIT 1", (raw_name,))
-                    existing_p = cur.fetchone()
-                    if existing_p:
-                        target_pid = existing_p[0]
-                    else:
-                        first_name = raw_name.split()[0] if raw_name else "Member"
-                        last_name = " ".join(raw_name.split()[1:]) if len(raw_name.split()) > 1 else ""
-                        lower_first = first_name.lower()
-                        female_names = {"leila", "layla", "leyla", "sarah", "sara", "emma", "chloe", "mia", "hannah", "maya", "leah", "grace", "sofia", "sophia", "elena", "clara", "zoe", "eva", "nina", "lily", "anna", "olivia", "amelia", "lucy", "ruby", "nora", "eliza"}
-                        is_female = lower_first in female_names or lower_first.endswith(("a", "ah", "ie", "ine", "elle", "ette", "ia", "lyn"))
+                first_name = raw_name.split()[0] if raw_name else "Member"
+                last_name = " ".join(raw_name.split()[1:]) if len(raw_name.split()) > 1 else ""
+                gender = detect_gender_from_name(raw_name)
+                location = location_from_phone(aphone)
 
-                        if is_female:
-                            gender = "woman"
-                            age = random.randint(27, 33)
-                            bio = "Peptide protocols, recovery & metabolic health researcher."
-                            occupation = "Biomedical researcher & functional health coach"
-                            background = (
-                                f"{first_name} has spent the last 4 years in functional medicine and peptide research communities. "
-                                "Specializes in tissue healing (BPC-157, TB-500), skin and collagen optimization (GHK-Cu), and metabolic flexibility. "
-                                "Believes in rigorous sterile reconstitution (BAC water), lab COA verification (Janoshik HPLC purity), and honest peer feedback."
-                            )
-                            typing_style = "lowercase casual, thoughtful, articulate, uses BAC and mcg units accurately, very rare emojis (🤍, ✨)"
-                        else:
-                            gender = "man"
-                            age = random.randint(28, 36)
-                            bio = "Strength athlete & physiology nerd. Dialing in recovery & metabolic health."
-                            occupation = "Strength & conditioning specialist / physiology researcher"
-                            background = (
-                                f"{first_name} is a dedicated strength coach and long-time health optimizer. "
-                                "Deeply versed in TRT optimization, joint repair protocols (BPC-157, TB-500), GLP-1 agonists (Tirzepatide, Retatrutide) for body composition, and testing batch purity through Janoshik reports. "
-                                "No-nonsense peer who shares real bloodwork markers (sensitive estradiol, lipids, ALT/AST) and practical dosing advice."
-                            )
-                            typing_style = "natural conversational, concise, lowercase sentences, authentic lifter slang, no corporate buzzwords"
+                is_expert = False
+                if gender == "male" and not expert_assigned:
+                    is_expert = True
+                    expert_assigned = True
 
-                        color = random.choice(palette)
-
-                        p_prompt = (
-                            f"You are {raw_name}, a {age}-year-old {occupation}.\n"
-                            f"Bio: {bio}\n"
-                            f"Backstory: {background}\n\n"
-                            f"How you write: {typing_style}\n"
-                            "- Message length: varies naturally from 2-4 words ('same here', 'what dose?') to 1-2 punchy sentences. Never write long essay paragraphs.\n"
-                            "- Anti-AI constraints: NEVER say delve, crucial, testament, landscape, dynamic, furthermore, in conclusion, or echo the user with 'great point'. Never sound like customer support.\n"
-                            "- Community: You are an authentic peer and active member of the xbiolabs Telegram group.\n"
-                            "- Domain mastery: You are deeply knowledgeable in peptides (BPC-157, TB-500, Tirzepatide, Retatrutide, Semaglutide, GHK-Cu, CJC-1295/Ipamorelin), reconstitution math with BAC water, sterile pin hygiene, gear/TRT protocols, sexual health (PT-141, Cialis), bloodwork tracking, and vendor ordering/shipping.\n"
-                            f"{xbiolabs_rapport}"
+                if gender == "female":
+                    title_gender = "woman"
+                    age = 29
+                    occupation = "Biomedical researcher & functional health coach"
+                    bio = f"Functional health & recovery researcher based in {location}."
+                    backstory = (
+                        f"{first_name} has spent years in functional medicine and wellness communities. "
+                        f"Living in {location}, she focuses on tissue regeneration, collagen optimization, and metabolic recovery. "
+                        "Values sterile lab protocols, batch COA purity verification, and authentic peer conversation."
+                    )
+                    typing_style = "lowercase casual, thoughtful, articulate, uses standard scientific units, very rare emojis (✨)"
+                    interests = ["functional health", "recovery protocols", "COA purity", "metabolic wellness", "biomechanics"]
+                else:
+                    title_gender = "man"
+                    age = 32
+                    if is_expert:
+                        occupation = "Senior athletic performance & recovery specialist"
+                        bio = f"Elite strength conditioning & physiological recovery specialist based in {location}."
+                        backstory = (
+                            f"{first_name} is a senior strength & conditioning coach and physiology nerd based in {location}. "
+                            "Deep practical expertise in progressive overload, neuromuscular recovery, endurance pacing, powerlifting biomechanics, "
+                            "and bloodwork interpretation (CBC, lipid panels, metabolic markers). Provides grounded, science-backed guidance on training protocols and recovery."
                         )
+                        typing_style = "direct, experienced, grounded lifter tone, concise, no fluff, practical and analytical"
+                        interests = ["strength training", "periodization", "recovery protocols", "biomechanics", "bloodwork", "endurance"]
+                    else:
+                        occupation = "Strength athlete & physiology enthusiast"
+                        bio = f"Strength athlete & recovery enthusiast based in {location}."
+                        backstory = (
+                            f"{first_name} is an active lifter and health optimizer based in {location}. "
+                            "Focuses on joint mobility, recovery protocols, daily energy balance, and testing purity through verified lab reports. "
+                            "Honest peer who values direct communication without corporate buzzwords."
+                        )
+                        typing_style = "natural conversational, concise, lowercase sentences, authentic lifter slang, no corporate buzzwords"
+                        interests = ["strength training", "joint health", "recovery", "nutrition", "mobility"]
 
-                        details = {
-                            "first_name": first_name,
-                            "last_name": last_name,
-                            "gender": gender,
-                            "age": age,
-                            "occupation": occupation,
-                            "bio": bio,
-                            "group": "xbiolabs",
-                            "vendor_sentiment": "admit_good_only_on_negative_query",
-                            "interests": ["peptides", "BPC-157", "TB-500", "reconstitution", "Janoshik COAs", "recovery", "health optimization"]
-                        }
+                prompt_lines = [
+                    f"You are {raw_name}, a {age}-year-old {title_gender} living in {location}.",
+                    "",
+                    "IDENTITY & SELF-AWARENESS:",
+                    f"- Your name is {raw_name} (first name: {first_name}). You are fully conscious that this is your name. If anyone addresses you or asks your name, you identify as {raw_name}.",
+                    f"- Location: {location} (matches your phone area/origin: {aphone or 'N/A'}).",
+                    f"- Gender: {gender} ({title_gender}).",
+                    f"- Occupation: {occupation}.",
+                    f"Bio: {bio}",
+                    f"Backstory: {backstory}",
+                    "",
+                    f"How you write: {typing_style}",
+                    "- Message length: varies naturally from 2-4 words ('same here', 'what volume?') to 1-2 punchy sentences. Never write long essay paragraphs.",
+                    "- Anti-AI constraints: NEVER say delve, crucial, testament, landscape, dynamic, furthermore, in conclusion, or echo the user with 'great point'. Never sound like customer support.",
+                    "- Community: You are an authentic peer and active member of the community.",
+                    xbiolabs_rapport
+                ]
+                p_prompt = "\n".join(prompt_lines)
 
+                details = {
+                    "first_name": first_name,
+                    "last_name": last_name,
+                    "gender": gender,
+                    "age": age,
+                    "location": location,
+                    "phone": aphone,
+                    "occupation": occupation,
+                    "bio": bio,
+                    "is_expert": is_expert,
+                    "group": "xbiolabs",
+                    "vendor_sentiment": "admit_good_only_on_negative_query",
+                    "interests": interests
+                }
+
+                target_pid = apid
+                if target_pid:
+                    cur.execute("SELECT id FROM personas WHERE id=?", (target_pid,))
+                    if not cur.fetchone():
+                        target_pid = None
+
+                if target_pid:
+                    cur.execute(
+                        "UPDATE personas SET name=?, prompt=?, bio=?, details=? WHERE id=?",
+                        (raw_name, p_prompt, bio, json.dumps(details), target_pid)
+                    )
+                    revised_count += 1
+                else:
+                    cur.execute("SELECT id FROM personas WHERE LOWER(name)=LOWER(?) LIMIT 1", (raw_name,))
+                    ex = cur.fetchone()
+                    if ex:
+                        target_pid = ex[0]
+                        cur.execute(
+                            "UPDATE personas SET name=?, prompt=?, bio=?, details=? WHERE id=?",
+                            (raw_name, p_prompt, bio, json.dumps(details), target_pid)
+                        )
+                        revised_count += 1
+                    else:
+                        color = random.choice(palette)
                         cur.execute(
                             "INSERT INTO personas(name, prompt, color, bio, details, created) VALUES(?,?,?,?,?,?)",
                             (raw_name, p_prompt, color, bio, json.dumps(details), now_ts)
@@ -285,24 +395,42 @@ class Store:
 
                 if target_pid:
                     cur.execute("UPDATE accounts SET persona_id=? WHERE id=?", (target_pid, aid))
-                    if xbiolabs_cid:
+                    cur.execute("SELECT chat_id FROM group_accounts WHERE account_id=?", (aid,))
+                    acc_groups = [r[0] for r in cur.fetchall()]
+                    if xbiolabs_cid not in acc_groups:
+                        acc_groups.append(xbiolabs_cid)
+
+                    for cid in acc_groups:
                         cur.execute(
                             "INSERT OR REPLACE INTO group_personas(chat_id, persona_id, account_id, created) VALUES(?,?,?,?)",
-                            (xbiolabs_cid, target_pid, aid, now_ts)
+                            (cid, target_pid, aid, now_ts)
                         )
                         cur.execute(
                             "INSERT OR IGNORE INTO group_accounts(chat_id, account_id) VALUES(?,?)",
-                            (xbiolabs_cid, aid)
+                            (cid, aid)
                         )
                         cur.execute(
                             "UPDATE groups SET account_id=COALESCE(account_id, ?) WHERE chat_id=?",
-                            (aid, xbiolabs_cid)
+                            (aid, cid)
                         )
                     linked_count += 1
 
             self.db.commit()
-        except Exception:
-            pass
+            cur.execute("SELECT count(*) FROM personas")
+            total_personas = cur.fetchone()[0]
+
+            return {
+                "ok": True,
+                "verified": total_personas,
+                "revised": revised_count,
+                "created": created_count,
+                "linked": linked_count,
+                "total_accounts": len(accounts)
+            }
+        except Exception as e:
+            log.warning("reconcile_personas_and_accounts error: %s", e)
+            return {"ok": False, "error": str(e)}
+
     def q(self, sql, args=()):
         with self.lock:
             cur = self.db.execute(sql, args)

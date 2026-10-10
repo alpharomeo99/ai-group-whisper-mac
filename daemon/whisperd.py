@@ -1418,6 +1418,13 @@ class Daemon:
         @r.post("/personas/reconcile")
         async def personas_reconcile(_):
             res = self.store.reconcile_personas_and_accounts()
+            try:
+                acc_rows = self.store.rows("SELECT id FROM accounts WHERE active=1")
+                for ar in acc_rows:
+                    self.ensure_group_personas_assigned_for_account(ar["id"])
+            except Exception as e:
+                log.warning("error auto-assigning group personas during reconcile: %s", e)
+            asyncio.create_task(self._do_sync_all_dialogs(force_all=True))
             return J(res or {"ok": True})
 
         @r.post("/accounts/login/code")

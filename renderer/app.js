@@ -895,7 +895,12 @@ function renderPersonaRoster() {
   container.innerHTML = filtered.map((p) => {
     const d = p.details || {};
     const col = p.color || '#2fc4b2';
-    const sub = d.occupation || p.bio || (d.culture ? `${d.culture}` : 'Autonomous Persona');
+    const metaParts = [];
+    if (d.gender) metaParts.push(d.gender);
+    if (d.location) metaParts.push(d.location);
+    if (d.is_expert) metaParts.push('Expert');
+    const metaStr = metaParts.length ? ` • ${metaParts.join(', ')}` : '';
+    const sub = (d.occupation || p.bio || (d.culture ? `${d.culture}` : 'Autonomous Persona')) + metaStr;
 
     return `
       <div class="p-card-mini" data-proster-open="${p.id}" style="border-left: 3px solid ${esc(col)};">
