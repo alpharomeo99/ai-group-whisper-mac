@@ -128,6 +128,8 @@ td button { padding: 4px 10px; font-size: 12px; }
 .acc { display: flex; align-items: center; gap: 14px; white-space: normal; }
 .acc-info { flex: 1; }
 .avatar { width: 38px; height: 38px; border-radius: 50%; background: linear-gradient(135deg, var(--accent), var(--accent2)); display: flex; align-items: center; justify-content: center; font-weight: 700; color: #06231f; overflow: hidden; position: relative; flex-shrink: 0; }
+.avatar .av-fallback { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-weight: 700; }
+.avatar img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; border-radius: 50%; display: block; z-index: 2; }
 .avatar img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; display: block; }
 .acc select { width: auto; max-width: 170px; margin: 0; display: inline-block; }
 .wizard { max-width: 520px; white-space: normal; }

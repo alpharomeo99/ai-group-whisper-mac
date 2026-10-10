@@ -328,58 +328,76 @@ class Daemon:
     async def fetch_account_avatar(self, client, aid, me=None):
         try:
             dest = os.path.join(self.avatars_dir, f"{aid}.jpg")
-            # Method 1: Get profile photos list and download media directly (most reliable)
-            try:
-                photos = await client.get_profile_photos('me', limit=1)
-                if photos:
-                    path = await client.download_media(photos[0], file=dest)
-                    if path and os.path.exists(path):
-                        if path != dest:
-                            try:
-                                os.replace(path, dest)
-                            except Exception:
-                                pass
-                        if os.path.exists(dest) and os.path.getsize(dest) > 0:
-                            log.info("Downloaded profile photo for account %s via get_profile_photos", aid)
-                            return True
-            except Exception as e:
-                log.debug("get_profile_photos attempt failed for account %s: %s", aid, e)
-
-            # Method 2: download_profile_photo with 'me'
-            try:
-                path = await client.download_profile_photo('me', file=dest)
-                if path and os.path.exists(path):
-                    if path != dest:
-                        try:
-                            os.replace(path, dest)
-                        except Exception:
-                            pass
-                    if os.path.exists(dest) and os.path.getsize(dest) > 0:
-                        log.info("Downloaded profile photo for account %s via download_profile_photo('me')", aid)
-                        return True
-            except Exception as e:
-                log.debug("download_profile_photo('me') failed for account %s: %s", aid, e)
-
-            # Method 3: download_profile_photo with entity
-            if not me:
+            if me is None:
                 try:
                     me = await client.get_me()
-                except Exception:
-                    me = None
-            if me and getattr(me, 'photo', None):
-                try:
-                    path = await client.download_profile_photo(me, file=dest)
-                    if path and os.path.exists(path):
-                        if path != dest:
-                            try:
-                                os.replace(path, dest)
-                            except Exception:
-                                pass
-                        if os.path.exists(dest) and os.path.getsize(dest) > 0:
-                            log.info("Downloaded profile photo for account %s via download_profile_photo(me)", aid)
-                            return True
                 except Exception as e:
-                    log.debug("download_profile_photo(me) failed for account %s: %s", aid, e)
+                    log.warning("get_me failed for account %s: %s", aid, e)
+                    return False
+            if not me:
+                return False
+
+            saved = False
+
+            # Step 1: Instant local extraction from stripped_thumb (0 network roundtrips)
+            photo = getattr(me, 'photo', None)
+            if photo and getattr(photo, 'stripped_thumb', None):
+                try:
+                    from telethon import utils
+                    thumb_data = utils.stripped_photo_to_jpg(photo.stripped_thumb)
+                    if thumb_data and len(thumb_data) > 0:
+                        with open(dest, "wb") as f:
+                            f.write(thumb_data)
+                        saved = True
+                        log.info("Saved local thumbnail avatar for account %s (%d bytes)", aid, len(thumb_data))
+                except Exception as e:
+                    log.debug("stripped_thumb decoding failed for account %s: %s", aid, e)
+
+            # Step 2: High-resolution download via GetUserPhotosRequest with types.InputUserSelf
+            try:
+                from telethon.tl.functions.photos import GetUserPhotosRequest
+                from telethon import types
+                user_photos = await client(GetUserPhotosRequest(
+                    user_id=types.InputUserSelf(), offset=0, max_id=0, limit=1
+                ))
+                if user_photos and getattr(user_photos, 'photos', None):
+                    full_bytes = await client.download_media(user_photos.photos[0], file=bytes)
+                    if full_bytes and len(full_bytes) > 0:
+                        with open(dest, "wb") as f:
+                            f.write(full_bytes)
+                        log.info("Downloaded high-res photo for account %s via GetUserPhotosRequest (%d bytes)", aid, len(full_bytes))
+                        return True
+            except Exception as e:
+                log.debug("GetUserPhotosRequest attempt failed for account %s: %s", aid, e)
+
+            # Step 3: Download using the full me entity
+            try:
+                full_bytes = await client.download_profile_photo(me, file=bytes, download_big=True)
+                if full_bytes and len(full_bytes) > 0:
+                    with open(dest, "wb") as f:
+                        f.write(full_bytes)
+                    log.info("Downloaded profile photo for account %s via download_profile_photo (%d bytes)", aid, len(full_bytes))
+                    return True
+            except Exception as e:
+                log.debug("download_profile_photo big=True failed for account %s: %s", aid, e)
+
+            # Step 4: Download smaller size
+            try:
+                small_bytes = await client.download_profile_photo(me, file=bytes, download_big=False)
+                if small_bytes and len(small_bytes) > 0:
+                    with open(dest, "wb") as f:
+                        f.write(small_bytes)
+                    log.info("Downloaded small profile photo for account %s (%d bytes)", aid, len(small_bytes))
+                    return True
+            except Exception as e:
+                log.debug("download_profile_photo big=False failed for account %s: %s", aid, e)
+
+            if saved and os.path.exists(dest) and os.path.getsize(dest) > 0:
+                return True
+
+            if not photo or type(photo).__name__ == 'UserProfilePhotoEmpty':
+                log.info("Account %s has no profile photo set on Telegram", aid)
+                return False
         except Exception as e:
             log.warning("Avatar fetch failed for account %s: %s", aid, e)
         return False
@@ -1352,8 +1370,12 @@ class Daemon:
         async def acc_avatar(req):
             aid = int(req.match_info["aid"])
             avatar_path = os.path.join(self.avatars_dir, f"{aid}.jpg")
-            if os.path.exists(avatar_path):
-                return web.FileResponse(avatar_path, headers={"Cache-Control": "public, max-age=300"})
+            if os.path.exists(avatar_path) and os.path.getsize(avatar_path) > 0:
+                return web.FileResponse(avatar_path, headers={
+                    "Cache-Control": "no-cache, no-store, must-revalidate",
+                    "Pragma": "no-cache",
+                    "Expires": "0"
+                })
             return web.Response(status=404)
 
         @r.post("/accounts/sync-avatars")

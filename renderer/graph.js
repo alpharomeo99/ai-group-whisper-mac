@@ -154,9 +154,7 @@
         return aids.map(String).includes(String(o.id));
       }).length : 0;
       const initial = E((o.name || o.phone || '#')[0].toUpperCase());
-      const avMarkup = o.has_avatar
-        ? `<img src="/accounts/${o.id}/avatar?t=${Date.now()}" alt="${E(o.name || '')}" style="width:100%; height:100%; object-fit:cover; border-radius:50%; display:block;" onerror="this.onerror=null; this.parentElement.innerHTML='${initial}';" />`
-        : initial;
+      const avMarkup = `<div style="position:relative; width:100%; height:100%; border-radius:50%; overflow:hidden;"><img src="/accounts/${o.id}/avatar?t=${Date.now()}" alt="${E(o.name || '')}" style="position:absolute; inset:0; width:100%; height:100%; object-fit:cover; border-radius:50%; display:block; z-index:2;" onerror="this.onerror=null; this.remove();" /><span style="width:100%; height:100%; display:flex; align-items:center; justify-content:center; font-weight:700;">${initial}</span></div>`;
       return `<i class="gx-port in" data-port="in"></i>
         <div class="gx-head"><span class="gx-av acc" ${c ? `style="box-shadow:0 0 0 2px ${E(c)}"` : ''}>${avMarkup}</span>
         <div class="gx-ht"><b>${E(o.name || o.phone)}</b><small>${o.username ? '@' + E(o.username) : E(o.phone || '')}</small></div>

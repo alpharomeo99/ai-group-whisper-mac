@@ -540,9 +540,7 @@ async function loadOverview() {
     + stat('Proxies working', `${proxiesList.filter((p) => p.ok).length}<span class="hint"> / ${proxiesList.length}</span>`, 'Tested through Telegram & Camoufox');
   $('ov-accounts').innerHTML = accountsList.map((a) => {
     const init = esc((a.name || '?')[0].toUpperCase());
-    const av = a.has_avatar
-      ? `<div class="avatar"><img src="/accounts/${a.id}/avatar" alt="${esc(a.name || '')}" onerror="this.onerror=null; this.remove();" /><span class="av-fallback">${init}</span></div>`
-      : `<div class="avatar">${init}</div>`;
+    const av = `<div class="avatar"><img src="/accounts/${a.id}/avatar?t=${Date.now()}" alt="${esc(a.name || '')}" onerror="this.onerror=null; this.remove();" /><span class="av-fallback">${init}</span></div>`;
     return `<div class="mini">${av}<div class="grow"><b>${esc(a.name || 'Account')}</b><div class="hint">${esc(a.phone || '')}</div></div><span class="badge ${!a.active ? 'off' : a.connected ? 'ok' : 'bad'}">${!a.active ? 'Paused' : a.connected ? 'Connected' : 'Signed out'}</span></div>`;
   }).join('') || '<div class="hint">No accounts yet.</div>';
   $('ov-proxies').innerHTML = proxiesList.map((p) => `<div class="mini"><div class="grow"><b>${esc(p.label)}</b><div class="hint">${esc((p.accounts || []).join(', ') || 'Not assigned')}</div></div><span class="badge ${p.ok ? 'ok' : p.last_check ? 'bad' : 'off'}">${p.ok ? 'Working' : p.last_check ? 'Failed' : 'Not tested'}</span></div>`).join('') || '<div class="hint">No proxies yet.</div>';
@@ -566,9 +564,7 @@ async function loadAccounts() {
       const badgeClass = !a.active ? 'off' : a.is_scout ? 'ok' : a.connected ? 'ok' : 'standby';
       const badgeLabel = !a.active ? 'Paused' : a.is_scout ? 'Scout (Listening)' : a.connected ? 'Connected' : 'Standby';
       const init = esc((a.name || a.phone || '?')[0].toUpperCase());
-      const avHtml = a.has_avatar
-        ? `<div class="avatar"><img src="/accounts/${a.id}/avatar?t=${Date.now()}" alt="${esc(a.name || '')}" onerror="this.onerror=null; this.remove();" /><span class="av-fallback">${init}</span></div>`
-        : `<div class="avatar">${init}</div>`;
+      const avHtml = `<div class="avatar"><img src="/accounts/${a.id}/avatar?t=${Date.now()}" alt="${esc(a.name || '')}" onerror="this.onerror=null; this.remove();" /><span class="av-fallback">${init}</span></div>`;
       return `
       <div class="card acc">
         ${avHtml}
@@ -589,6 +585,7 @@ async function loadAccounts() {
       try {
         await api('POST', `/accounts/${btn.dataset.syncAcc}/sync`);
         await loadAccounts();
+        await loadOverview();
         await loadGroups();
         if (window.loadNetwork) window.loadNetwork();
       } catch (e) {
@@ -2538,7 +2535,9 @@ if ($('acc-sync-all-avatars')) {
         msg += `\n\n${r.errors.length} account(s) failed to connect:\n` + r.errors.map((e) => `• ${e.name}: ${e.error}`).join('\n');
       }
       alert(msg);
-      loadAccounts();
+      await loadAccounts();
+      await loadOverview();
+      if (window.loadNetwork) window.loadNetwork();
     } catch (e) {
       alert('Avatar sync failed: ' + e.message);
     } finally {
