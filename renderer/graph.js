@@ -144,7 +144,12 @@
       let dt = {};
       try { dt = JSON.parse(o.details || '{}'); } catch(e) {}
       const meta = [dt.gender, dt.location, dt.age ? `${dt.age}y` : ''].filter(Boolean).join(' • ');
-      return `<div class="gx-head"><span class="gx-av" style="background:${E(o.color)}">${E((o.name || '?')[0].toUpperCase())}</span>
+      const perInit = E((o.name || '?')[0].toUpperCase());
+      const perAvMarkup = `<span class="gx-av per" style="background:${E(o.color)}; border-radius:50%; overflow:hidden; position:relative;">
+        <img src="/personas/${o.id}/avatar?t=${Date.now()}" alt="${E(o.name || '')}" style="position:absolute; inset:0; width:100%; height:100%; object-fit:cover; border-radius:50%; display:block; z-index:2;" onerror="this.remove();" />
+        <span style="width:100%; height:100%; display:flex; align-items:center; justify-content:center; font-weight:700;">${perInit}</span>
+      </span>`;
+      return `<div class="gx-head">${perAvMarkup}
         <div class="gx-ht"><b>${E(o.name)}</b><small>${E(meta || 'Persona')}</small></div></div>
         <p class="gx-body">${E(o.bio || o.prompt || 'No instructions yet - click to write how this persona talks.')}</p>
         <div class="gx-foot"><span class="gx-chip">${used} account${used === 1 ? '' : 's'}</span>${dt.is_expert ? '<span class="gx-chip" style="background:rgba(47,196,178,.15); color:var(--accent); font-weight:600;">Expert</span>' : ''}</div>

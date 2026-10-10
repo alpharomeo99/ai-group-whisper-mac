@@ -328,6 +328,8 @@ class Daemon:
     async def fetch_account_avatar(self, client, aid, me=None):
         try:
             dest = os.path.join(self.avatars_dir, f"{aid}.jpg")
+            temp_dest = os.path.join(self.avatars_dir, f"{aid}.tmp.jpg")
+
             if me is None:
                 try:
                     me = await client.get_me()
@@ -337,70 +339,85 @@ class Daemon:
             if not me:
                 return False
 
-            saved = False
-
-            # Step 1: Instant local extraction from stripped_thumb (0 network roundtrips)
-            photo = getattr(me, 'photo', None)
-            if photo and getattr(photo, 'stripped_thumb', None):
+            if os.path.exists(temp_dest):
                 try:
-                    from telethon import utils
-                    thumb_data = utils.stripped_photo_to_jpg(photo.stripped_thumb)
-                    if thumb_data and len(thumb_data) > 0:
-                        with open(dest, "wb") as f:
-                            f.write(thumb_data)
-                        saved = True
-                        log.info("Saved local thumbnail avatar for account %s (%d bytes)", aid, len(thumb_data))
+                    os.remove(temp_dest)
+                except Exception:
+                    pass
+
+            downloaded = False
+
+            # Strategy 1: Official high-resolution download via download_profile_photo('me')
+            try:
+                res = await client.download_profile_photo('me', file=temp_dest, download_big=True)
+                if res and os.path.exists(temp_dest) and os.path.getsize(temp_dest) > 500:
+                    downloaded = True
+                    log.info("Downloaded high-res profile photo for account %s (%d bytes)", aid, os.path.getsize(temp_dest))
+            except Exception as e:
+                log.debug("Strategy 1 (download_profile_photo 'me' big) failed for account %s: %s", aid, e)
+
+            # Strategy 2: Query user photos directly via get_profile_photos
+            if not downloaded:
+                try:
+                    photos = await client.get_profile_photos('me', limit=1)
+                    if photos and len(photos) > 0:
+                        res = await client.download_media(photos[0], file=temp_dest)
+                        if res and os.path.exists(temp_dest) and os.path.getsize(temp_dest) > 500:
+                            downloaded = True
+                            log.info("Downloaded profile photo via get_profile_photos for account %s (%d bytes)", aid, os.path.getsize(temp_dest))
                 except Exception as e:
-                    log.debug("stripped_thumb decoding failed for account %s: %s", aid, e)
+                    log.debug("Strategy 2 (get_profile_photos) failed for account %s: %s", aid, e)
 
-            # Step 2: High-resolution download via GetUserPhotosRequest with types.InputUserSelf
-            try:
-                from telethon.tl.functions.photos import GetUserPhotosRequest
-                from telethon import types
-                user_photos = await client(GetUserPhotosRequest(
-                    user_id=types.InputUserSelf(), offset=0, max_id=0, limit=1
-                ))
-                if user_photos and getattr(user_photos, 'photos', None):
-                    full_bytes = await client.download_media(user_photos.photos[0], file=bytes)
-                    if full_bytes and len(full_bytes) > 0:
-                        with open(dest, "wb") as f:
-                            f.write(full_bytes)
-                        log.info("Downloaded high-res photo for account %s via GetUserPhotosRequest (%d bytes)", aid, len(full_bytes))
-                        return True
-            except Exception as e:
-                log.debug("GetUserPhotosRequest attempt failed for account %s: %s", aid, e)
+            # Strategy 3: Download using the full me entity
+            if not downloaded:
+                try:
+                    res = await client.download_profile_photo(me, file=temp_dest, download_big=True)
+                    if res and os.path.exists(temp_dest) and os.path.getsize(temp_dest) > 500:
+                        downloaded = True
+                        log.info("Downloaded profile photo using entity me for account %s (%d bytes)", aid, os.path.getsize(temp_dest))
+                except Exception as e:
+                    log.debug("Strategy 3 (download_profile_photo me) failed for account %s: %s", aid, e)
 
-            # Step 3: Download using the full me entity
-            try:
-                full_bytes = await client.download_profile_photo(me, file=bytes, download_big=True)
-                if full_bytes and len(full_bytes) > 0:
-                    with open(dest, "wb") as f:
-                        f.write(full_bytes)
-                    log.info("Downloaded profile photo for account %s via download_profile_photo (%d bytes)", aid, len(full_bytes))
-                    return True
-            except Exception as e:
-                log.debug("download_profile_photo big=True failed for account %s: %s", aid, e)
+            # Strategy 4: Standard size profile photo
+            if not downloaded:
+                try:
+                    res = await client.download_profile_photo('me', file=temp_dest, download_big=False)
+                    if res and os.path.exists(temp_dest) and os.path.getsize(temp_dest) > 500:
+                        downloaded = True
+                        log.info("Downloaded standard profile photo for account %s (%d bytes)", aid, os.path.getsize(temp_dest))
+                except Exception as e:
+                    log.debug("Strategy 4 (download_profile_photo small) failed for account %s: %s", aid, e)
 
-            # Step 4: Download smaller size
-            try:
-                small_bytes = await client.download_profile_photo(me, file=bytes, download_big=False)
-                if small_bytes and len(small_bytes) > 0:
-                    with open(dest, "wb") as f:
-                        f.write(small_bytes)
-                    log.info("Downloaded small profile photo for account %s (%d bytes)", aid, len(small_bytes))
-                    return True
-            except Exception as e:
-                log.debug("download_profile_photo big=False failed for account %s: %s", aid, e)
-
-            if saved and os.path.exists(dest) and os.path.getsize(dest) > 0:
+            if downloaded and os.path.exists(temp_dest) and os.path.getsize(temp_dest) > 500:
+                os.replace(temp_dest, dest)
                 return True
 
-            if not photo or type(photo).__name__ == 'UserProfilePhotoEmpty':
-                log.info("Account %s has no profile photo set on Telegram", aid)
-                return False
+            # Clean stale or corrupted tiny file (< 500 bytes)
+            if os.path.exists(dest) and os.path.getsize(dest) < 500:
+                try:
+                    os.remove(dest)
+                except Exception:
+                    pass
+
+            # Strategy 5: Thumbnail fallback from stripped_thumb only if dest does not exist
+            if not os.path.exists(dest):
+                photo = getattr(me, 'photo', None)
+                if photo and getattr(photo, 'stripped_thumb', None):
+                    try:
+                        from telethon import utils
+                        thumb_data = utils.stripped_photo_to_jpg(photo.stripped_thumb)
+                        if thumb_data and len(thumb_data) > 0:
+                            with open(dest, "wb") as f:
+                                f.write(thumb_data)
+                            log.info("Saved fallback thumbnail avatar for account %s (%d bytes)", aid, len(thumb_data))
+                            return True
+                    except Exception as e:
+                        log.debug("stripped_thumb decoding failed for account %s: %s", aid, e)
+
+            return os.path.exists(dest) and os.path.getsize(dest) > 0
         except Exception as e:
             log.warning("Avatar fetch failed for account %s: %s", aid, e)
-        return False
+            return False
 
     async def drop_clients(self):
         for c in list(self.clients.values()):
@@ -1368,14 +1385,45 @@ class Daemon:
 
         @r.get("/accounts/{aid}/avatar")
         async def acc_avatar(req):
-            aid = int(req.match_info["aid"])
-            avatar_path = os.path.join(self.avatars_dir, f"{aid}.jpg")
-            if os.path.exists(avatar_path) and os.path.getsize(avatar_path) > 0:
-                return web.FileResponse(avatar_path, headers={
-                    "Cache-Control": "no-cache, no-store, must-revalidate",
-                    "Pragma": "no-cache",
-                    "Expires": "0"
-                })
+            try:
+                aid = int(req.match_info["aid"])
+                avatar_path = os.path.join(self.avatars_dir, f"{aid}.jpg")
+                if os.path.exists(avatar_path) and os.path.getsize(avatar_path) > 0:
+                    return web.FileResponse(avatar_path, headers={
+                        "Content-Type": "image/jpeg",
+                        "Cache-Control": "no-cache, no-store, must-revalidate",
+                        "Pragma": "no-cache",
+                        "Expires": "0"
+                    })
+            except Exception:
+                pass
+            return web.Response(status=404)
+
+        @r.get("/personas/{pid}/avatar")
+        async def per_avatar(req):
+            try:
+                pid = int(req.match_info["pid"])
+                # Look up bound account in accounts table
+                acc = self.store.rows("SELECT id FROM accounts WHERE persona_id=? ORDER BY id LIMIT 1", (pid,))
+                aid = None
+                if acc:
+                    aid = acc[0]["id"]
+                else:
+                    gp = self.store.rows("SELECT account_id FROM group_personas WHERE persona_id=? AND account_id IS NOT NULL ORDER BY created DESC LIMIT 1", (pid,))
+                    if gp and gp[0]["account_id"]:
+                        aid = gp[0]["account_id"]
+
+                if aid is not None:
+                    avatar_path = os.path.join(self.avatars_dir, f"{aid}.jpg")
+                    if os.path.exists(avatar_path) and os.path.getsize(avatar_path) > 0:
+                        return web.FileResponse(avatar_path, headers={
+                            "Content-Type": "image/jpeg",
+                            "Cache-Control": "no-cache, no-store, must-revalidate",
+                            "Pragma": "no-cache",
+                            "Expires": "0"
+                        })
+            except Exception:
+                pass
             return web.Response(status=404)
 
         @r.post("/accounts/sync-avatars")
@@ -1384,28 +1432,29 @@ class Daemon:
             synced = 0
             no_photo = 0
             errors_list = []
+            sem = asyncio.Semaphore(3)
 
-            for a in accs:
+            async def sync_one(a):
+                nonlocal synced, no_photo
                 aid = a["id"]
                 label = a.get("name") or a.get("phone") or f"Account {aid}"
-                try:
-                    if aid in self.clients and getattr(self.clients[aid], "is_connected", lambda: False)():
-                        c = self.clients[aid]
-                        ok = await self.fetch_account_avatar(c, aid)
+                async with sem:
+                    try:
+                        if aid in self.clients and getattr(self.clients[aid], "is_connected", lambda: False)():
+                            c = self.clients[aid]
+                            ok = await self.fetch_account_avatar(c, aid)
+                        else:
+                            async with self.account_session(aid) as c:
+                                ok = await self.fetch_account_avatar(c, aid)
                         if ok:
                             synced += 1
                         else:
                             no_photo += 1
-                    else:
-                        async with self.account_session(aid) as c:
-                            ok = await self.fetch_account_avatar(c, aid)
-                            if ok:
-                                synced += 1
-                            else:
-                                no_photo += 1
-                except Exception as e:
-                    log.warning("Avatar sync failed for account %s (%s): %s", aid, label, e)
-                    errors_list.append({"id": aid, "name": label, "error": str(e)})
+                    except Exception as e:
+                        log.warning("Avatar sync failed for account %s (%s): %s", aid, label, e)
+                        errors_list.append({"id": aid, "name": label, "error": str(e)})
+
+            await asyncio.gather(*(sync_one(a) for a in accs))
 
             return J({
                 "ok": True,

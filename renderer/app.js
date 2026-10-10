@@ -904,7 +904,10 @@ function renderPersonaRoster() {
 
     return `
       <div class="p-card-mini" data-proster-open="${p.id}" style="border-left: 3px solid ${esc(col)};">
-        <div class="p-mini-avatar" style="background:${esc(col)};">${esc((p.name || 'P')[0].toUpperCase())}</div>
+        <div class="p-mini-avatar" style="background:${esc(col)};">
+          <img src="/personas/${p.id}/avatar?t=${Date.now()}" alt="${esc(p.name || '')}" onerror="this.remove();" />
+          <span>${esc((p.name || 'P')[0].toUpperCase())}</span>
+        </div>
         <div class="p-mini-body">
           <div class="p-mini-name">${esc(p.name)}</div>
           <div class="p-mini-sub">${esc(sub)}</div>
@@ -1068,7 +1071,8 @@ function openPersonaStudio(pid) {
     $('ps-color').value = col;
     $('ps-color-text').value = col;
     $('ps-avatar-preview').style.background = col;
-    $('ps-avatar-preview').textContent = (p.name || 'P')[0].toUpperCase();
+    const psInit = esc((p.name || 'P')[0].toUpperCase());
+    $('ps-avatar-preview').innerHTML = `<img src="/personas/${p.id}/avatar?t=${Date.now()}" alt="${esc(p.name || '')}" onerror="this.remove();" /><span>${psInit}</span>`;
 
     // unhinged meter removed
 
@@ -1133,7 +1137,7 @@ function openPersonaStudio(pid) {
     $('ps-color').value = col;
     $('ps-color-text').value = col;
     $('ps-avatar-preview').style.background = col;
-    $('ps-avatar-preview').textContent = '+';
+    $('ps-avatar-preview').innerHTML = '<span>+</span>';
 
     // unhinged meter removed
     $('ps-volatility').value = 85;
@@ -1329,7 +1333,7 @@ function renderPersonaMatrix() {
       return `
         <div class="p-user-row">
           <div class="p-user-info">
-            <span class="p-user-avatar">${esc((u.account_name || 'U')[0].toUpperCase())}</span>
+            <span class="p-user-avatar"><img src="/accounts/${u.account_id}/avatar?t=${Date.now()}" alt="" onerror="this.remove();" /><span>${esc((u.account_name || 'U')[0].toUpperCase())}</span></span>
             <div style="min-width:0; overflow:hidden;">
               <b style="font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; display:block;">${esc(u.account_name)}</b>
               <div class="hint" style="font-size:10.5px; white-space:nowrap;">${esc(u.account_phone || '')} · ${u.active ? '<span style="color:var(--ok)">Active</span>' : 'Paused'}</div>
