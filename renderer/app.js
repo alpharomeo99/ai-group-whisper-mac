@@ -556,8 +556,7 @@ async function loadAccounts() {
   if (!el) return;
   el.innerHTML = '<div class="hint" style="padding:16px;">Loading accounts...</div>';
   try {
-    await fetchProxies();
-    const res = await api('GET', '/accounts');
+    const [_, res] = await Promise.all([fetchProxies(), api('GET', '/accounts')]);
     const list = Array.isArray(res) ? res : [];
     if (!list.length) {
       el.innerHTML = '<div class="empty">No Telegram accounts connected yet. Click “+ Add account manually” above to connect one.</div>';

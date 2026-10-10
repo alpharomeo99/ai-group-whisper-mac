@@ -266,6 +266,17 @@ class Daemon:
             log.warning("scout account %s connect failed: %s", scout_aid, e)
         return {}
 
+    async def _safe_ensure_scout(self):
+        if getattr(self, "_ensuring_scout", False):
+            return
+        self._ensuring_scout = True
+        try:
+            await self.ensure_clients()
+        except Exception as e:
+            log.warning("background scout ensure failed: %s", e)
+        finally:
+            self._ensuring_scout = False
+
     @asynccontextmanager
     async def account_session(self, account_id):
         """Context manager that provides an active Telegram client for any account.
@@ -293,7 +304,7 @@ class Daemon:
             raise ConnectionError(f"Account {account_id} has missing API credentials")
 
         client = self._new_client(a["session"], api, a.get("proxy_id"))
-        await asyncio.wait_for(client.connect(), timeout=15)
+        await asyncio.wait_for(client.connect(), timeout=10)
         if not await client.is_user_authorized():
             try:
                 await client.disconnect()
@@ -933,8 +944,18 @@ class Daemon:
 
     async def sync_all_dialogs(self, account_ids=None, force_all=False):
         """Discover every group's membership for selected active accounts, including dormant accounts.
+        Guarded against overlapping runs so VPN and network connections are not overwhelmed."""
+        if getattr(self, "_sync_in_progress", False):
+            log.info("sync_all_dialogs is already in progress; skipping concurrent request")
+            return
+        self._sync_in_progress = True
+        try:
+            return await self._do_sync_all_dialogs(account_ids=account_ids, force_all=force_all)
+        finally:
+            self._sync_in_progress = False
 
-        Telegram dialogs require each account's own session. The persistent Scout only covers one
+    async def _do_sync_all_dialogs(self, account_ids=None, force_all=False):
+        """Telegram dialogs require each account's own session. The persistent Scout only covers one
         account, so all other active accounts are opened ephemerally and closed after discovery.
         Membership reconciliation only runs after a complete successful dialog iteration.
         """
@@ -1047,14 +1068,14 @@ class Daemon:
                         log.debug("account %s disconnect after dialog sync failed: %s", aid, e)
 
     async def auto_sync_loop(self):
-        """Continuous background dialog sync loop."""
-        await asyncio.sleep(2)
+        """Continuous background dialog sync loop with gentle cadence for VPN stability."""
+        await asyncio.sleep(15)
         while True:
             try:
                 await self.sync_all_dialogs()
             except Exception as e:
                 log.warning("auto_sync_loop error: %s", e)
-            await asyncio.sleep(45)
+            await asyncio.sleep(600)
 
     async def daily_batch_loop(self):
         """Automatically checks and generates today's daily batch for watched groups with personas."""
@@ -1097,7 +1118,15 @@ class Daemon:
 
         @r.get("/status")
         async def status(_):
-            ready = await self.ensure_clients()
+            scout_aid = self.get_scout_account_id()
+            ready = {}
+            if scout_aid and scout_aid in self.clients:
+                c = self.clients[scout_aid]
+                if c and getattr(c, "is_connected", lambda: False)():
+                    ready[scout_aid] = c
+            if scout_aid and scout_aid not in ready:
+                if not getattr(self, "_ensuring_scout", False):
+                    asyncio.create_task(self._safe_ensure_scout())
             n_acc = len(self.store.rows("SELECT id FROM accounts WHERE active=1"))
             counts = {x["status"]: x["n"] for x in self.store.rows("SELECT status, COUNT(*) n FROM queue GROUP BY status")}
             return J({"configured": n_acc > 0, "authorized": bool(ready),
@@ -1553,9 +1582,11 @@ class Daemon:
 
         @r.get("/groups")
         async def groups(_):
-            await self.sync_all_dialogs()
-            return J(self.store.rows("SELECT g.*, a.name account_name FROM groups g LEFT JOIN accounts a ON a.id=g.account_id "
-                                     "ORDER BY g.watched DESC, g.title"))
+            rows = self.store.rows("SELECT g.*, a.name account_name FROM groups g LEFT JOIN accounts a ON a.id=g.account_id "
+                                   "ORDER BY g.watched DESC, g.title")
+            if not rows and self.store.q("SELECT COUNT(*) FROM accounts WHERE active=1").fetchone()[0] > 0:
+                asyncio.create_task(self.sync_all_dialogs())
+            return J(rows)
 
         @r.post("/groups/sync")
         async def groups_sync(_):
@@ -1865,17 +1896,8 @@ class Daemon:
         # ----- network graph (personas -> accounts -> groups) -----
         @r.get("/graph")
         async def graph(_):
-            # Auto-reconcile personas and accounts so new accounts are linked with name-matched personas
-            try:
-                self.store.reconcile_personas_and_accounts()
-            except Exception as e:
-                log.warning("graph auto-reconciliation failed: %s", e)
-
             if not self.store.q("SELECT COUNT(*) FROM groups").fetchone()[0] and self.clients:
-                try:
-                    await self.sync_all_dialogs()
-                except Exception:
-                    pass
+                asyncio.create_task(self.sync_all_dialogs())
             accs = self.store.rows("SELECT a.id,a.phone,a.name,a.username,a.active,a.persona_id,a.proxy_id,p.label proxy_label "
                                    "FROM accounts a LEFT JOIN proxies p ON p.id=a.proxy_id ORDER BY a.id")
             for a in accs:
