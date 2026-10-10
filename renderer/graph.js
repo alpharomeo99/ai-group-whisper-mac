@@ -155,7 +155,7 @@
       }).length : 0;
       const initial = E((o.name || o.phone || '#')[0].toUpperCase());
       const avMarkup = o.has_avatar
-        ? `<img src="/accounts/${o.id}/avatar" alt="${E(o.name || '')}" style="width:100%; height:100%; object-fit:cover; border-radius:50%; display:block;" onerror="this.onerror=null; this.remove();" />`
+        ? `<img src="/accounts/${o.id}/avatar?t=${Date.now()}" alt="${E(o.name || '')}" style="width:100%; height:100%; object-fit:cover; border-radius:50%; display:block;" onerror="this.onerror=null; this.parentElement.innerHTML='${initial}';" />`
         : initial;
       return `<i class="gx-port in" data-port="in"></i>
         <div class="gx-head"><span class="gx-av acc" ${c ? `style="box-shadow:0 0 0 2px ${E(c)}"` : ''}>${avMarkup}</span>

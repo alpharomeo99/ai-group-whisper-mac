@@ -316,17 +316,61 @@ class Daemon:
 
     async def fetch_account_avatar(self, client, aid, me=None):
         try:
-            if not me:
-                me = await client.get_me()
-            if not me:
-                return False
             dest = os.path.join(self.avatars_dir, f"{aid}.jpg")
-            path = await client.download_profile_photo(me, file=dest)
-            if path and os.path.exists(dest):
-                log.info("Downloaded profile photo for account %s to %s", aid, dest)
-                return True
+            # Method 1: Get profile photos list and download media directly (most reliable)
+            try:
+                photos = await client.get_profile_photos('me', limit=1)
+                if photos:
+                    path = await client.download_media(photos[0], file=dest)
+                    if path and os.path.exists(path):
+                        if path != dest:
+                            try:
+                                os.replace(path, dest)
+                            except Exception:
+                                pass
+                        if os.path.exists(dest) and os.path.getsize(dest) > 0:
+                            log.info("Downloaded profile photo for account %s via get_profile_photos", aid)
+                            return True
+            except Exception as e:
+                log.debug("get_profile_photos attempt failed for account %s: %s", aid, e)
+
+            # Method 2: download_profile_photo with 'me'
+            try:
+                path = await client.download_profile_photo('me', file=dest)
+                if path and os.path.exists(path):
+                    if path != dest:
+                        try:
+                            os.replace(path, dest)
+                        except Exception:
+                            pass
+                    if os.path.exists(dest) and os.path.getsize(dest) > 0:
+                        log.info("Downloaded profile photo for account %s via download_profile_photo('me')", aid)
+                        return True
+            except Exception as e:
+                log.debug("download_profile_photo('me') failed for account %s: %s", aid, e)
+
+            # Method 3: download_profile_photo with entity
+            if not me:
+                try:
+                    me = await client.get_me()
+                except Exception:
+                    me = None
+            if me and getattr(me, 'photo', None):
+                try:
+                    path = await client.download_profile_photo(me, file=dest)
+                    if path and os.path.exists(path):
+                        if path != dest:
+                            try:
+                                os.replace(path, dest)
+                            except Exception:
+                                pass
+                        if os.path.exists(dest) and os.path.getsize(dest) > 0:
+                            log.info("Downloaded profile photo for account %s via download_profile_photo(me)", aid)
+                            return True
+                except Exception as e:
+                    log.debug("download_profile_photo(me) failed for account %s: %s", aid, e)
         except Exception as e:
-            log.debug("Avatar fetch failed for account %s: %s", aid, e)
+            log.warning("Avatar fetch failed for account %s: %s", aid, e)
         return False
 
     async def drop_clients(self):
@@ -1285,34 +1329,40 @@ class Daemon:
 
         @r.post("/accounts/sync-avatars")
         async def acc_sync_avatars(_):
-            accs = self.store.rows("SELECT id FROM accounts WHERE active=1 ORDER BY id")
+            accs = self.store.rows("SELECT id, name, phone FROM accounts ORDER BY id")
             synced = 0
+            no_photo = 0
+            errors_list = []
+
             for a in accs:
                 aid = a["id"]
-                c = self.clients.get(aid)
-                close_after = False
-                if not (c and getattr(c, "is_connected", lambda: False)()):
-                    try:
-                        manager = self.account_session(aid)
-                        c = await manager.__aenter__()
-                        close_after = True
-                    except Exception:
-                        continue
+                label = a.get("name") or a.get("phone") or f"Account {aid}"
                 try:
-                    me = await c.get_me()
-                    if me:
-                        ok = await self.fetch_account_avatar(c, aid, me)
+                    if aid in self.clients and getattr(self.clients[aid], "is_connected", lambda: False)():
+                        c = self.clients[aid]
+                        ok = await self.fetch_account_avatar(c, aid)
                         if ok:
                             synced += 1
-                except Exception:
-                    pass
-                finally:
-                    if close_after:
-                        try:
-                            await c.disconnect()
-                        except Exception:
-                            pass
-            return J({"ok": True, "synced": synced})
+                        else:
+                            no_photo += 1
+                    else:
+                        async with self.account_session(aid) as c:
+                            ok = await self.fetch_account_avatar(c, aid)
+                            if ok:
+                                synced += 1
+                            else:
+                                no_photo += 1
+                except Exception as e:
+                    log.warning("Avatar sync failed for account %s (%s): %s", aid, label, e)
+                    errors_list.append({"id": aid, "name": label, "error": str(e)})
+
+            return J({
+                "ok": True,
+                "synced": synced,
+                "no_photo": no_photo,
+                "total": len(accs),
+                "errors": errors_list
+            })
 
         @r.post("/personas/reconcile")
         async def personas_reconcile(_):
@@ -1424,6 +1474,17 @@ class Daemon:
         async def acc_sync(req):
             aid = int(req.match_info["aid"])
             try:
+                # Sync avatar as well on individual account sync
+                avatar_ok = False
+                try:
+                    if aid in self.clients and getattr(self.clients[aid], "is_connected", lambda: False)():
+                        avatar_ok = await self.fetch_account_avatar(self.clients[aid], aid)
+                    else:
+                        async with self.account_session(aid) as c:
+                            avatar_ok = await self.fetch_account_avatar(c, aid)
+                except Exception as av_err:
+                    log.warning("Individual avatar sync failed for %s: %s", aid, av_err)
+
                 await self.sync_all_dialogs(account_ids=[aid])
                 grp_count = self.store.q(
                     "SELECT COUNT(DISTINCT chat_id) FROM ("
@@ -1433,7 +1494,7 @@ class Daemon:
                     ")",
                     (aid, aid)
                 ).fetchone()[0]
-                return J({"ok": True, "groups": grp_count})
+                return J({"ok": True, "groups": grp_count, "avatar": avatar_ok})
             except Exception as e:
                 return J({"error": str(e)}, status=500)
 

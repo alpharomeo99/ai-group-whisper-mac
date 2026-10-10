@@ -2533,7 +2533,12 @@ if ($('acc-sync-all-avatars')) {
     btn.disabled = true; btn.textContent = 'Syncing photos…';
     try {
       const r = await api('POST', '/accounts/sync-avatars');
-      alert(`Profile pictures synced (${r.synced || 0} updated).`);
+      let msg = `Profile pictures: ${r.synced || 0} downloaded.`;
+      if (r.no_photo) msg += `\n${r.no_photo} account(s) have no profile photo set on Telegram.`;
+      if (r.errors && r.errors.length) {
+        msg += `\n\n${r.errors.length} account(s) failed to connect:\n` + r.errors.map((e) => `• ${e.name}: ${e.error}`).join('\n');
+      }
+      alert(msg);
       loadAccounts();
     } catch (e) {
       alert('Avatar sync failed: ' + e.message);
