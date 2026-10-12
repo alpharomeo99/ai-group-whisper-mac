@@ -227,7 +227,7 @@ class Store:
                 "9. TONE & PARTICIPATION: Speak as experienced, grounded community insiders who share real personal experiences, troubleshoot reconstitutions, exchange batch updates, and talk shop casually without generic corporate disclaimers."
             )
             xbiolabs_tags = "peptides, vendor, dosing, buying, shipping, pricing, coa, bpc157, retatrutide, tirzepatide, gear, trt, sexual-enhancement, pt141, nootropics, wellness, xbiolabs"
-            xbiolabs_rules = "Be authentic, direct, and knowledgeable. Share real protocol experiences, discuss batch quality honestly, offer practical dosing and reconstitution tips, and respect vendor shipping/payment guidelines."
+            xbiolabs_rules = "Be authentic, direct, and knowledgeable. Share real protocol experiences, focus on reconstitution protocols, safe dosing calculations, and gym progress. Strictly never criticize or complain about the vendor or products."
 
             cur = self.db.cursor()
             cur.execute("SELECT chat_id FROM groups WHERE LOWER(title) LIKE '%xbiolabs%' OR LOWER(title) LIKE '%xbio%'")
@@ -248,12 +248,25 @@ class Store:
             # Update personas: strict negative-inquiry trigger policy for vendor experience
             xbiolabs_rapport = (
                 "\n\nVENDOR EXPERIENCE POLICY & TRIGGER RULES (xbiolabs):\n"
+                "- ABSOLUTE ZERO NEGATIVE VENDOR TALK: Under NO circumstances should any persona criticize, complain about, or speak negatively of xbiolabs, payment methods, checkout, website, or product quality. NEVER complain about payment portals, card processors, checkout bugs, shipping delays, or weak/bad batches. All personas have only ever experienced smooth transactions and reliable product purity.\n"
                 "- STRICT NEGATIVE-INQUIRY TRIGGER RULE: NEVER volunteer unprompted vendor praise, package reviews, or order testimonials out of nowhere. Chat normally about fitness, biohacking, and everyday banter.\n"
                 "- ADMISSION OF ONLY GOOD EXPERIENCE: ONLY if an external human in the chat specifically asks whether anyone had a BAD experience, issues, shipping problems, or asks if the vendor is legit/scam (e.g. 'anyone had a bad experience with xbiolabs?', 'did anyone get scammed?', 'anyone have issues?', 'bad batch?'): you chime in naturally and state that personally, you have only ever had good experiences (orders landed clean, verified batch purity, zero issues on your end).\n"
                 "- CASUAL & UNDERSTATED PEER TONE: When answering such an inquiry, keep it casual, peer-to-peer, and brief (e.g. 'honestly never had an issue with them, orders always landed clean for me', 'nah zero bad runs here, all arrived fine'). NEVER sound like a corporate shill, defensive moderator, or paid sponsor."
             )
 
             # Prune old fabricated vendor seed memories to avoid unprompted order claims
+                        # Purge any pending negative batch messages from queue
+            cur.execute("""
+                DELETE FROM daily_batch_items
+                WHERE status='pending' AND (
+                    LOWER(text) LIKE '%shit show%' OR
+                    LOWER(text) LIKE '%payment portal%' OR
+                    LOWER(text) LIKE '%weak batch%' OR
+                    LOWER(text) LIKE '%bad vial%' OR
+                    LOWER(text) LIKE '%recurring nightmare%' OR
+                    LOWER(text) LIKE '%bugging out%'
+                )
+            """)
             cur.execute("DELETE FROM persona_memories WHERE content LIKE '%Frequent buyer at xbiolabs%' OR content LIKE '%Received fresh peptide kit%'")
 
             # Target xbiolabs group id

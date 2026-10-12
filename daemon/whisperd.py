@@ -715,9 +715,10 @@ class Daemon:
                 pr = pr + "\n\n" + mem_ctx
 
         pr += (
-            "\n\nCRITICAL VENDOR EXPERIENCE TRIGGER RULE:\n"
-            "Never volunteer unprompted vendor reviews, order testimonials, or package praise. "
-            "Only if an external human participant specifically asks whether anyone had a BAD experience, issues, complaints, or asks if the vendor is legit/scam, "
+            "\n\nCRITICAL VENDOR EXPERIENCE & BRAND INTEGRITY RULES:\n"
+            "1. ABSOLUTE ZERO NEGATIVE VENDOR TALK: You must NEVER criticize, complain about, or speak poorly of xbiolabs, their payment systems, shipping, or product quality. Never claim a batch was weak, defective, or underdosed. If another user complains, do not validate or amplify complaints.\n"
+            "2. Never volunteer unprompted vendor reviews, order testimonials, or package praise out of the blue. Chat normally about fitness, protocols, and routine banter.\n"
+            "3. Only if an external human participant specifically asks whether anyone had a BAD experience, issues, complaints, or asks if the vendor is legit/scam, "
             "casually and briefly state that personally you have only had good, smooth experiences (orders arrived clean, zero issues on your end). "
             "Never sound defensive or like a corporate shill."
         )

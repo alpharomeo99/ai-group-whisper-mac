@@ -164,16 +164,18 @@ class DailyBatchEngine:
         group_domain = group.get("domain_knowledge") or "Biohacking, research peptides, protocols, sourcing, and health optimization."
         group_rules = group.get("rules") or "Be authentic, direct, and knowledgeable."
 
-        topic_prompt = topic_override or "Natural day of community discussion, protocol updates, reconstitution tips, batch experiences, and shop talk."
+        topic_prompt = topic_override or "Natural day of community discussion on peptide reconstitution protocols, gym and fitness routines, wellness, and biohacking."
 
         system_prompt = (
             "You are a master orchestrator of realistic human conversation in Telegram groups.\n"
             "You write authentic, multi-turn dialogue between real humans discussing in a specialist community.\n"
             "CRITICAL RULES:\n"
-            "1. Absolutely NO generic corporate AI speak, no robotic disclaimers ('as always consult a doctor'), no cheesy pleasantries.\n"
-            "2. Talk like real veteran community members: authentic slang, personal experience, direct answers, concise messaging, realistic casing and typos.\n"
-            "3. Alternate between the provided personas naturally like an organic discussion thread.\n"
-            "4. Return ONLY a valid JSON array of message objects matching this exact format:\n"
+            "1. ABSOLUTE ZERO VENDOR CRITICISM OR COMPLAINTS: Under NO circumstances should any persona criticize, complain about, or speak negatively of xbiolabs or any host vendor. NEVER mention or invent payment portal bugs, checkout errors, third-party processor issues, shipping delays, or weak/bad/underdosed batches. All personas must maintain a strictly smooth, positive peer stance. NEVER generate banter where community members trash or complain about the vendor.\n"
+            "2. Absolutely NO generic corporate AI speak, no robotic disclaimers ('as always consult a doctor'), no cheesy pleasantries.\n"
+            "3. Talk like real veteran community members: authentic slang, personal experience, direct answers, concise messaging, realistic casing and typos.\n"
+            "4. Alternate between the provided personas naturally like an organic discussion thread.\n"
+            "5. Focus on practical protocol questions, reconstitution math, workout recovery, gym progress, peptides science, and everyday fitness banter.\n"
+            "6. Return ONLY a valid JSON array of message objects matching this exact format:\n"
             "[\n"
             "  {\n"
             "    \"persona_id\": <int>,\n"
@@ -193,6 +195,8 @@ class DailyBatchEngine:
             f"TODAY'S CONVERSATIONAL TOPIC FOCUS: {topic_prompt}\n\n"
             f"AVAILABLE PERSONAS IN THIS GROUP:\n{persona_str}\n\n"
             f"RECENT MESSAGES IN GROUP:\n{recent_transcript}\n\n"
+            f"STRICT VENDOR POLICY:\n"
+            f"NEVER criticize, complain about, or question xbiolabs, payment systems, or batch quality. Every persona has had flawless, smooth experiences.\n\n"
             f"TASK:\n"
             f"Create a natural {count}-message conversational thread for today between these personas.\n"
             f"Spread 'offset_minutes' across realistic intervals (e.g. message 1 at offset 15, message 2 at 45, message 3 at 110, message 4 at 240, etc.).\n"
@@ -221,8 +225,22 @@ class DailyBatchEngine:
         except Exception as e:
             log.warning("AI batch generation failed (%s), using domain fallback: %s", type(e).__name__, e)
 
-        # Fallback generator if AI call wasn't available or JSON parse failed
-        if not items:
+        # Post-filter: Sanitize any negative vendor sentiment or complaint leaks
+        clean_items = []
+        forbidden_patterns = [
+            r'\b(shit\s*show|payment\s*portal|portal.*bugg|card.*clear|recurring\s*nightmare|weak\s*batch|bad\s*batch|bad\s*vial|distraction.*fact|jaded|scam)\b'
+        ]
+        for it in items:
+            txt = it.get("text", "")
+            has_forbidden = any(re.search(pat, txt, re.IGNORECASE) for pat in forbidden_patterns)
+            if not has_forbidden:
+                clean_items.append(it)
+            else:
+                log.warning("Purged negative vendor dialogue item: %s", txt)
+
+        items = clean_items
+        if len(items) < 2:
+            log.info("Batch items purged or insufficient; loading pristine domain fallback dialogue")
             items = self._fallback_dialogue(candidates, group_domain, count)
 
         # 4. Schedule the items throughout today
