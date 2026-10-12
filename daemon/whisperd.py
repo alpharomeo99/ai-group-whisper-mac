@@ -565,54 +565,36 @@ class Daemon:
 
         # 4. LIVE AI ORCHESTRATION: Only triggered when an external HUMAN sends a message!
         system_enabled = bool(self.store.get("system_enabled", True))
-        if g[0]["auto_reply"] and system_enabled:
+        if system_enabled:
+            # Record last human event for live UI feedback
+            g_title = g[0].get("title") if g else f"Group {chat_id}"
+            self.store.set("last_human_event", {
+                "chat_id": chat_id,
+                "group_title": g_title,
+                "sender": name,
+                "text": event.raw_text,
+                "ts": int(time.time())
+            })
+            log.info("HUMAN DETECTED in %s from %s: %s", g_title, name, (event.raw_text or "")[:80])
+
+            # Ensure group is enrolled
+            if not g:
+                self.store.q("INSERT OR IGNORE INTO groups(chat_id, title, watched, auto_reply) VALUES(?,?,1,1)", (chat_id, f"Group {chat_id}"))
+            elif not g[0].get("auto_reply"):
+                self.store.q("UPDATE groups SET auto_reply=1, watched=1 WHERE chat_id=?", (chat_id,))
+
             me = await event.client.get_me()
-            is_direct = event.mentioned
-            if not is_direct and event.is_reply:
+            is_direct = bool(getattr(event, 'mentioned', False))
+            if not is_direct and getattr(event, 'is_reply', False):
                 try:
                     rep = await event.get_reply_message()
-                    # Check if replied to this client or any client we control
                     client_uids = {getattr(c, "_self_id", None) for c in self.clients.values() if hasattr(c, "_self_id")}
                     if rep and (rep.sender_id == me.id or rep.sender_id in client_uids):
                         is_direct = True
                 except Exception:
                     pass
 
-            # Ensure all member accounts in this group have personas assigned
-            self.ensure_group_personas_assigned(chat_id)
-
-            # Gather candidate personas for ALL accounts in this group:
-            # 1. Group matrix assignments (group_personas) with valid accounts
-            candidates = self.store.rows(
-                "SELECT p.*, gp.account_id, gp.persona_id FROM group_personas gp "
-                "JOIN personas p ON p.id=gp.persona_id WHERE gp.chat_id=? AND gp.account_id IS NOT NULL",
-                (chat_id,)
-            )
-
-            # 2. Also include any accounts in group_accounts that have account-level personas
-            all_group_accs = self.store.rows("SELECT account_id FROM group_accounts WHERE chat_id=?", (chat_id,))
-            existing_aids = {c["account_id"] for c in candidates}
-            for ga in all_group_accs:
-                ga_aid = ga.get("account_id")
-                if ga_aid and ga_aid not in existing_aids:
-                    acc_p = self.store.rows(
-                        "SELECT p.*, a.id account_id, p.id persona_id FROM accounts a "
-                        "JOIN personas p ON p.id=a.persona_id WHERE a.id=?",
-                        (ga_aid,)
-                    )
-                    if acc_p:
-                        candidates.extend(acc_p)
-                        existing_aids.add(ga_aid)
-
-            # 3. Fallback: group owner account's persona
-            if not candidates and g[0].get("account_id"):
-                acc_p = self.store.rows(
-                    "SELECT p.*, a.id account_id, p.id persona_id FROM accounts a "
-                    "JOIN personas p ON p.id=a.persona_id WHERE a.id=?",
-                    (g[0]["account_id"],)
-                )
-                if acc_p:
-                    candidates = acc_p
+            candidates = self.daily_batch.get_group_candidates(chat_id)
 
             if candidates:
                 pid, aid, delay, reason = self.orchestrator.arbiter_decision(
@@ -628,26 +610,42 @@ class Daemon:
                         dedupe_key=f"reply:{chat_id}:{event.id}",
                         delay=int(delay)
                     )
+                    log.info("Enqueued human reply in %s (Acc %s / Persona %s, delay=%ds): %s", chat_id, aid, pid, int(delay), reason)
+
+                    # Dynamic Teammate Chime-In: if 2+ candidates and question/discussion detected, schedule second persona
+                    if len(candidates) >= 2 and (is_direct or "?" in (event.raw_text or "") or random.random() < 0.40):
+                        teammates = [c for c in candidates if c["persona_id"] != pid and c["account_id"] != aid]
+                        if teammates:
+                            t_c = teammates[0]
+                            second_delay = int(delay) + random.randint(35, 75)
+                            self.store.enqueue(
+                                "draft_reply", chat_id,
+                                {"trigger": event.id, "auto_send": True, "account_id": t_c["account_id"], "persona_id": t_c["persona_id"], "reason": "Teammate natural follow-up chime-in"},
+                                dedupe_key=f"teammate_reply:{chat_id}:{event.id}",
+                                delay=second_delay
+                            )
+                            log.info("Enqueued teammate follow-up in %s (Acc %s / Persona %s, delay=%ds)", chat_id, t_c["account_id"], t_c["persona_id"], second_delay)
             elif is_direct:
                 # Direct mention fallback with no explicit persona assigned
                 self.store.enqueue("draft_reply", chat_id, {"trigger": event.id, "auto_send": True},
-                                   dedupe_key=f"reply:{chat_id}:{event.id}", delay=3)
+                                   dedupe_key=f"reply:{chat_id}:{event.id}", delay=4)
         self.wake_event.set()
 
     # ---------- Queue worker ----------
     async def worker(self):
         while True:
             try:
-                await asyncio.wait_for(self.wake_event.wait(), timeout=5)
+                await asyncio.wait_for(self.wake_event.wait(), timeout=3)
             except asyncio.TimeoutError:
                 pass
             self.wake_event.clear()
             if self.suspended or self.paused_reason or not bool(self.store.get("system_enabled", True)):
                 continue
-            if not await self.ensure_clients():
-                continue
-            for job in self.store.claim(limit=3):
-                await self.run_job(job)
+            try:
+                for job in self.store.claim(limit=4):
+                    await self.run_job(job)
+            except Exception as e:
+                log.warning("Worker run_job execution error: %s", e)
 
     def persona_for(self, g, persona_id=None, account_id=None):
         """Group override text wins; then the chosen persona; then the persona designed for this group and account; then account fallback."""
@@ -1113,24 +1111,31 @@ class Daemon:
             await asyncio.sleep(600)
 
     async def daily_batch_loop(self):
-        """Automatically checks and generates today's daily batch for watched groups with personas."""
-        await asyncio.sleep(10)
+        """Automatically checks and generates today's daily batch for active groups with personas."""
+        await asyncio.sleep(6)
         while True:
             try:
-                today = self.daily_batch.today_str()
-                watched_groups = self.store.rows("SELECT chat_id FROM groups WHERE watched=1")
-                for w in watched_groups:
-                    cid = w["chat_id"]
-                    existing = self.store.rows("SELECT id FROM daily_batches WHERE chat_id=? AND date_str=?", (cid, today))
-                    if not existing:
-                        cand_count = self.store.rows("SELECT COUNT(*) as c FROM group_personas WHERE chat_id=? AND account_id IS NOT NULL", (cid,))
-                        if cand_count and cand_count[0]["c"] >= 2:
-                            log.info("Auto-generating daily batch for group %s (%s)", cid, today)
-                            await self.daily_batch.generate_batch_for_group(cid, count=int(self.store.get("batch_messages_count", 6)))
-                            self.wake_event.set()
+                system_enabled = bool(self.store.get("system_enabled", True))
+                auto_pilot = bool(self.store.get("daily_batch_auto_pilot", True))
+                if system_enabled and auto_pilot:
+                    today = self.daily_batch.today_str()
+                    groups = self.store.rows("SELECT * FROM groups")
+                    group_cids = {g["chat_id"] for g in groups}
+                    ga_cids = {r["chat_id"] for r in self.store.rows("SELECT DISTINCT chat_id FROM group_accounts")}
+                    all_cids = list(group_cids.union(ga_cids))
+
+                    for cid in all_cids:
+                        existing = self.store.rows("SELECT id FROM daily_batches WHERE chat_id=? AND date_str=?", (cid, today))
+                        if not existing:
+                            cands = self.daily_batch.get_group_candidates(cid)
+                            if len(cands) >= 2:
+                                log.info("Auto-Pilot: Generating daily batch for group %s (%s) with %d candidates", cid, today, len(cands))
+                                count = int(self.store.get("batch_messages_count", 6))
+                                await self.daily_batch.generate_batch_for_group(cid, count=count)
+                                self.wake_event.set()
             except Exception as e:
                 log.warning("daily_batch_loop error: %s", e)
-            await asyncio.sleep(1800)
+            await asyncio.sleep(600)
 
     async def catch_up(self):
         """Fetch messages missed while the Mac slept."""
@@ -2068,9 +2073,25 @@ class Daemon:
             await self.ensure_clients()
             return J({"ok": True, "scout_account_id": self.get_scout_account_id()})
 
+        @r.post("/daily-batch/generate-all")
+        async def daily_batch_generate_all(req):
+            b = {}
+            try:
+                b = await req.json()
+            except Exception:
+                pass
+            count = b.get("count")
+            if count is not None:
+                count = int(count)
+            res = await self.daily_batch.generate_all_groups(count=count)
+            self.wake_event.set()
+            return J({"ok": True, "generated": res})
+
         @r.post("/daily-batch/settings")
         async def daily_batch_save_settings(req):
             b = await req.json()
+            if "auto_pilot" in b:
+                self.store.set("daily_batch_auto_pilot", bool(b["auto_pilot"]))
             if "human_pause_minutes" in b:
                 self.store.set("batch_human_pause_seconds", int(b["human_pause_minutes"]) * 60)
             if "batch_messages_count" in b:

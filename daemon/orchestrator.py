@@ -27,7 +27,7 @@ class PersonaCadenceOrchestrator:
         cfg = self.store.get("orchestrator_config") or {}
         return {
             "enabled": cfg.get("enabled", True),
-            "base_threshold": float(cfg.get("base_threshold", 0.52)),
+            "base_threshold": float(cfg.get("base_threshold", 0.30)),
             "circadian_enabled": cfg.get("circadian_enabled", True),
             "circadian_peak_hour": int(cfg.get("circadian_peak_hour", 15)),  # 3 PM peak
             "circadian_sigma": float(cfg.get("circadian_sigma", 5.5)),
@@ -72,10 +72,12 @@ class PersonaCadenceOrchestrator:
         u = max(random.random(), 1e-6)
         deliberation_time = -math.log(u) / max(poisson_lambda, 0.01)
 
-        # Clamp deliberation to realistic ranges [1.5s, 35.0s]
-        deliberation_time = max(1.5, min(deliberation_time, 35.0))
+        # Clamp deliberation to realistic ranges [3.0s, 22.0s]
+        deliberation_time = max(3.0, min(deliberation_time, 22.0))
         total_delay = read_time + deliberation_time
-        return max(2.5, min(total_delay, 45.0))
+        # Add random human hesitation jitter
+        total_delay += random.uniform(1.0, 3.5)
+        return max(4.0, min(total_delay, 35.0))
 
     # ---------------- 3. Fatigue & Cooldown Dynamics (Hawkes Decay) ----------------
     def compute_fatigue(self, chat_id, persona_id, tau=240.0):

@@ -27,6 +27,98 @@ class DailyBatchEngine:
     def today_str(self):
         return datetime.now().strftime("%Y-%m-%d")
 
+    def get_group_candidates(self, chat_id):
+        """Unified, robust candidate resolution for a group across group_personas, group_accounts, and account fallbacks."""
+        chat_id = int(chat_id)
+        candidates = []
+        seen = set()
+
+        # 1. group_personas with explicit account_id
+        gp_rows = self.store.rows(
+            "SELECT p.id as persona_id, p.name as persona_name, p.details, p.prompt, gp.account_id, a.name as account_name, a.phone as account_phone "
+            "FROM group_personas gp "
+            "JOIN personas p ON p.id=gp.persona_id "
+            "JOIN accounts a ON a.id=gp.account_id "
+            "WHERE gp.chat_id=? AND a.active=1",
+            (chat_id,)
+        )
+        for r in gp_rows:
+            key = (r["persona_id"], r["account_id"])
+            if key not in seen:
+                candidates.append(r)
+                seen.add(key)
+
+        # 2. group_accounts where account has persona_id assigned
+        ga_rows = self.store.rows(
+            "SELECT p.id as persona_id, p.name as persona_name, p.details, p.prompt, a.id as account_id, a.name as account_name, a.phone as account_phone "
+            "FROM group_accounts ga "
+            "JOIN accounts a ON a.id=ga.account_id "
+            "JOIN personas p ON p.id=a.persona_id "
+            "WHERE ga.chat_id=? AND a.active=1",
+            (chat_id,)
+        )
+        for r in ga_rows:
+            key = (r["persona_id"], r["account_id"])
+            if key not in seen:
+                candidates.append(r)
+                seen.add(key)
+
+        # 3. Fallback: group owner account's persona
+        g_rows = self.store.rows("SELECT account_id FROM groups WHERE chat_id=?", (chat_id,))
+        if g_rows and g_rows[0].get("account_id"):
+            g_aid = g_rows[0]["account_id"]
+            owner_rows = self.store.rows(
+                "SELECT p.id as persona_id, p.name as persona_name, p.details, p.prompt, a.id as account_id, a.name as account_name, a.phone as account_phone "
+                "FROM accounts a "
+                "JOIN personas p ON p.id=a.persona_id "
+                "WHERE a.id=? AND a.active=1",
+                (g_aid,)
+            )
+            for r in owner_rows:
+                key = (r["persona_id"], r["account_id"])
+                if key not in seen:
+                    candidates.append(r)
+                    seen.add(key)
+
+        # 4. Global fallback: active accounts with personas if group mapping wasn't populated
+        if len(candidates) < 2:
+            all_active_accs = self.store.rows(
+                "SELECT p.id as persona_id, p.name as persona_name, p.details, p.prompt, a.id as account_id, a.name as account_name, a.phone as account_phone "
+                "FROM accounts a "
+                "JOIN personas p ON p.id=a.persona_id "
+                "WHERE a.active=1"
+            )
+            for r in all_active_accs:
+                key = (r["persona_id"], r["account_id"])
+                if key not in seen:
+                    candidates.append(r)
+                    seen.add(key)
+
+        return candidates
+
+    async def generate_all_groups(self, count=None):
+        """Generates today's batch schedule for all eligible groups in one shot."""
+        if count is None:
+            count = int(self.store.get("batch_messages_count", 6))
+        today = self.today_str()
+        groups = self.store.rows("SELECT * FROM groups")
+        group_cids = {g["chat_id"] for g in groups}
+        ga_cids = {r["chat_id"] for r in self.store.rows("SELECT DISTINCT chat_id FROM group_accounts")}
+        all_cids = list(group_cids.union(ga_cids))
+
+        results = []
+        for cid in all_cids:
+            cands = self.get_group_candidates(cid)
+            if len(cands) >= 2:
+                try:
+                    res = await self.generate_batch_for_group(cid, count=count)
+                    g_match = [g for g in groups if g["chat_id"] == cid]
+                    title = g_match[0].get("title") if g_match else f"Group {cid}"
+                    results.append({"chat_id": cid, "title": title, "count": res.get("count", 0)})
+                except Exception as e:
+                    log.warning("Failed to generate batch for group %s: %s", cid, e)
+        return results
+
     async def generate_batch_for_group(self, chat_id, count=6, topic_override=None):
         """Generates today's batch schedule for a watched group."""
         chat_id = int(chat_id)
@@ -35,34 +127,11 @@ class DailyBatchEngine:
             raise ValueError(f"Group {chat_id} not found")
         group = g_rows[0]
 
-        # 1. Fetch assigned personas with accounts
-        candidates = self.store.rows(
-            "SELECT p.id as persona_id, p.name as persona_name, p.details, p.prompt, gp.account_id, a.name as account_name "
-            "FROM group_personas gp "
-            "JOIN personas p ON p.id=gp.persona_id "
-            "LEFT JOIN accounts a ON a.id=gp.account_id "
-            "WHERE gp.chat_id=? AND gp.account_id IS NOT NULL",
-            (chat_id,)
-        )
-
-        if len(candidates) < 2:
-            # Fallback: check accounts in group with personas assigned
-            acc_rows = self.store.rows(
-                "SELECT p.id as persona_id, p.name as persona_name, p.details, p.prompt, a.id as account_id, a.name as account_name "
-                "FROM group_accounts ga "
-                "JOIN accounts a ON a.id=ga.account_id "
-                "JOIN personas p ON p.id=a.persona_id "
-                "WHERE ga.chat_id=?",
-                (chat_id,)
-            )
-            existing_pids = {c["persona_id"] for c in candidates}
-            for ar in acc_rows:
-                if ar["persona_id"] not in existing_pids:
-                    candidates.append(ar)
-                    existing_pids.add(ar["persona_id"])
+        # 1. Fetch assigned personas with accounts using unified candidate resolver
+        candidates = self.get_group_candidates(chat_id)
 
         if not candidates:
-            raise ValueError("No assigned personas with accounts found for this group. Assign personas first.")
+            raise ValueError("No active accounts with personas found for this group. Link personas to accounts first.")
 
         # 2. Get recent chat context for continuity
         recent_msgs = self.store.recent(chat_id, limit=12)
@@ -168,19 +237,33 @@ class DailyBatchEngine:
             )
             batch_id = cur.lastrowid
 
-        # Calculate base time: start 5 minutes from now, or spread through the day
+        # Calculate organic clustered conversational arcs (bursts of 2-3 messages, then quiet intervals)
         now_ts = int(time.time())
         created_items = []
 
-        # Jitter and time distribution
-        accumulated_offset = 5  # start 5 mins from now
+        # Determine cluster timing
+        offsets_min = []
+        curr_min = 2.0  # Thread 1 starts 2 minutes from now
+        item_idx = 0
+        total_items = len(items)
+
+        while item_idx < total_items:
+            cluster_size = min(random.choice([2, 3]), total_items - item_idx)
+            for c in range(cluster_size):
+                if c == 0 and item_idx > 0:
+                    # Natural gap between conversational topics: 35 to 75 minutes
+                    curr_min += random.randint(35, 75)
+                elif c > 0:
+                    # Natural conversational response interval: 1.5 to 3.5 minutes
+                    curr_min += random.uniform(1.5, 3.5)
+                offsets_min.append(curr_min)
+                item_idx += 1
+
         for idx, item in enumerate(items):
             pid = item.get("persona_id")
             aid = item.get("account_id")
-            # Validate persona and account ID
             cand_match = [c for c in candidates if c["persona_id"] == pid and c["account_id"] == aid]
             if not cand_match:
-                # Fallback to cycling candidates
                 cand_match = [candidates[idx % len(candidates)]]
                 pid = cand_match[0]["persona_id"]
                 aid = cand_match[0]["account_id"]
@@ -190,17 +273,9 @@ class DailyBatchEngine:
             if not text:
                 continue
 
-            # Offset spacing: if provided in item, use with jitter, otherwise distribute naturally
-            suggested_offset = item.get("offset_minutes")
-            if suggested_offset and suggested_offset > accumulated_offset:
-                accumulated_offset = suggested_offset
-            else:
-                # Random interval between 25 and 110 minutes + Poisson jitter
-                step = random.randint(25, 85) + int(random.expovariate(0.08))
-                accumulated_offset += min(step, 140)
-
-            jitter_sec = random.randint(-180, 240)
-            scheduled_ts = now_ts + (accumulated_offset * 60) + jitter_sec
+            scheduled_min = offsets_min[idx] if idx < len(offsets_min) else (curr_min + (idx * 5))
+            jitter_sec = random.randint(-15, 25)
+            scheduled_ts = now_ts + int(scheduled_min * 60) + jitter_sec
 
             cur_item = self.store.q(
                 "INSERT INTO daily_batch_items(batch_id, chat_id, account_id, persona_id, sender_name, text, scheduled_ts, status, created_at) "
@@ -299,9 +374,18 @@ class DailyBatchEngine:
             if acc:
                 scout_info = acc[0]
 
+        auto_pilot = bool(self.store.get("daily_batch_auto_pilot", True))
+        batch_count = int(self.store.get("batch_messages_count", 6))
+        human_pause = int(self.store.get("batch_human_pause_seconds", 600)) // 60
+        last_human = self.store.get("last_human_event")
+
         return {
             "date": today,
             "batches_count": len(batches),
+            "auto_pilot": auto_pilot,
+            "batch_messages_count": batch_count,
+            "human_pause_minutes": human_pause,
+            "last_human_event": last_human,
             "stats": {
                 "total": total,
                 "pending": pending,

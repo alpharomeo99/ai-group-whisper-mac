@@ -1877,6 +1877,36 @@ async function loadDailyBatchView() {
       $('batch-scout-badge').textContent = activeScout ? `Scout: ${activeScout.name || activeScout.phone} (1 Socket)` : 'Scout: Auto-Selected';
     }
 
+    // Populate Auto-Pilot, Intensity, and Hold Settings
+    if ($('batch-autopilot-toggle')) {
+      $('batch-autopilot-toggle').checked = batch.auto_pilot !== false;
+    }
+    if ($('batch-intensity-select') && batch.batch_messages_count) {
+      $('batch-intensity-select').value = String(batch.batch_messages_count);
+    }
+    if ($('batch-hold-minutes') && batch.human_pause_minutes) {
+      $('batch-hold-minutes').value = String(batch.human_pause_minutes);
+    }
+
+    // Render Live Human Event Feed
+    const humanFeed = $('batch-human-feed');
+    if (humanFeed) {
+      if (batch.last_human_event && batch.last_human_event.text) {
+        const h = batch.last_human_event;
+        const hTime = h.ts ? new Date(h.ts * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'recently';
+        humanFeed.innerHTML = `
+          <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:4px;">
+            <b style="color:var(--text);"><span style="color:var(--accent); font-weight:700;">&#9679; External Human Detected</span> in ${esc(h.group_title || ('Group ' + h.chat_id))}</b>
+            <span class="hint" style="font-size:10.5px;">at ${hTime}</span>
+          </div>
+          <div style="color:var(--text-bright); margin-bottom:6px; font-style:italic; padding-left:8px; border-left:2px solid var(--accent); background:rgba(47,196,178,0.03); padding:4px 8px; border-radius:0 4px 4px 0;">"${esc(h.text)}"</div>
+          <div class="hint" style="font-size:10.5px;">Sender: <b>${esc(h.sender || 'Member')}</b> &middot; Dormant persona account awaken to type &amp; interact with human delay.</div>
+        `;
+      } else {
+        humanFeed.innerHTML = '<div class="hint" style="font-size:11px;">Listening for non-bot members in all active groups... When an external human speaks, the orchestrator triggers natural human-delay responses.</div>';
+      }
+    }
+
     // Watched groups dropdown
     const groupSel = $('batch-gen-group');
     if (groupSel) {
@@ -1945,6 +1975,50 @@ function renderBatchScheduleTable(items) {
 
 // Daily Batch Controls Event Listeners
 if ($('batch-btn-refresh')) $('batch-btn-refresh').onclick = () => loadDailyBatchView();
+
+if ($('batch-autopilot-toggle')) {
+  $('batch-autopilot-toggle').onchange = async (e) => {
+    try {
+      await api('POST', '/daily-batch/settings', { auto_pilot: e.target.checked });
+      const statusEl = $('batch-gen-status');
+      if (statusEl) statusEl.textContent = `Auto-Pilot is now ${e.target.checked ? 'ENABLED (daily conversations run autonomously)' : 'PAUSED'}.`;
+    } catch (err) {
+      alert('Failed to update Auto-Pilot: ' + err.message);
+    }
+  };
+}
+
+if ($('batch-intensity-select')) {
+  $('batch-intensity-select').onchange = async (e) => {
+    try {
+      await api('POST', '/daily-batch/settings', { batch_messages_count: parseInt(e.target.value, 10) });
+    } catch (err) {
+      console.warn('Failed to update intensity setting:', err);
+    }
+  };
+}
+
+if ($('batch-btn-generate-all')) {
+  $('batch-btn-generate-all').onclick = async () => {
+    const btn = $('batch-btn-generate-all');
+    const oldText = btn.innerHTML;
+    btn.innerHTML = '&#8987; Generating All...';
+    btn.disabled = true;
+    try {
+      const intensity = $('batch-intensity-select') ? parseInt($('batch-intensity-select').value, 10) : 6;
+      const res = await api('POST', '/daily-batch/generate-all', { count: intensity });
+      const genList = res.generated || [];
+      alert(`Auto-Generated conversation threads for ${genList.length} group(s)!\n` +
+            genList.map(g => `• ${g.title}: ${g.count} messages scheduled`).join('\n'));
+      await loadDailyBatchView();
+    } catch (err) {
+      alert('Failed to generate all: ' + err.message);
+    } finally {
+      btn.innerHTML = oldText;
+      btn.disabled = false;
+    }
+  };
+}
 
 if ($('batch-scout-set-btn')) {
   $('batch-scout-set-btn').onclick = async () => {
