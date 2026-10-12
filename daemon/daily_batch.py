@@ -164,18 +164,22 @@ class DailyBatchEngine:
         group_domain = group.get("domain_knowledge") or "Biohacking, research peptides, protocols, sourcing, and health optimization."
         group_rules = group.get("rules") or "Be authentic, direct, and knowledgeable."
 
-        topic_prompt = topic_override or "Natural day of community discussion on peptide reconstitution protocols, gym and fitness routines, wellness, and biohacking."
+        if topic_override:
+            topic_prompt = topic_override
+        elif transcript_lines:
+            topic_prompt = "Organic continuation of ongoing community conversation based on recent messages above, discussing recovery, workout progress, training splits, and peptide protocol math."
+        else:
+            topic_prompt = "Natural community discussion on training splits, workout recovery, reconstitution ratios, and general fitness progress."
 
         system_prompt = (
-            "You are a master orchestrator of realistic human conversation in Telegram groups.\n"
-            "You write authentic, multi-turn dialogue between real humans discussing in a specialist community.\n"
-            "CRITICAL RULES:\n"
-            "1. ABSOLUTE ZERO VENDOR CRITICISM OR COMPLAINTS: Under NO circumstances should any persona criticize, complain about, or speak negatively of xbiolabs or any host vendor. NEVER mention or invent payment portal bugs, checkout errors, third-party processor issues, shipping delays, or weak/bad/underdosed batches. All personas must maintain a strictly smooth, positive peer stance. NEVER generate banter where community members trash or complain about the vendor.\n"
-            "2. Absolutely NO generic corporate AI speak, no robotic disclaimers ('as always consult a doctor'), no cheesy pleasantries.\n"
-            "3. Talk like real veteran community members: authentic slang, personal experience, direct answers, concise messaging, realistic casing and typos.\n"
-            "4. Alternate between the provided personas naturally like an organic discussion thread.\n"
-            "5. Focus on practical protocol questions, reconstitution math, workout recovery, gym progress, peptides science, and everyday fitness banter.\n"
-            "6. Return ONLY a valid JSON array of message objects matching this exact format:\n"
+            "You orchestrate realistic, organic human conversations in specialist Telegram communities.\n"
+            "You write authentic, multi-turn dialogue between real humans.\n\n"
+            "CRITICAL GUIDELINES:\n"
+            "1. CONTEXT GROUNDING: Ground the conversation naturally in the community's subject matter (fitness, training splits, recovery, peptide protocol calculations). Do NOT hallucinate unrequested stories about placing orders, fake package tracking, website checkout glitches, or fake drama.\n"
+            "2. VENDOR POLICY: Do NOT initiate unprompted conversations about vendors, suppliers, or purchasing. If members talk about protocols, discuss dosing math and technique naturally. All personas have had smooth, positive peer experiences.\n"
+            "3. CASUAL TELEGRAM STYLE: Write like real community members: concise (1-2 short sentences per message), authentic phrasing, realistic casual casing and typos, zero corporate fluff or robotic bullet points.\n"
+            "4. ORGANIC TURN-TAKING: Distribute turns naturally across the provided personas.\n"
+            "5. OUTPUT FORMAT: Return ONLY a valid JSON array of message objects matching this exact format:\n"
             "[\n"
             "  {\n"
             "    \"persona_id\": <int>,\n"
@@ -190,24 +194,21 @@ class DailyBatchEngine:
         user_prompt = (
             f"COMMUNITY GROUP: {group_title}\n"
             f"ABOUT: {group_about}\n"
-            f"DOMAIN KNOWLEDGE & TOPICS:\n{group_domain}\n"
-            f"RULES: {group_rules}\n\n"
-            f"TODAY'S CONVERSATIONAL TOPIC FOCUS: {topic_prompt}\n\n"
-            f"AVAILABLE PERSONAS IN THIS GROUP:\n{persona_str}\n\n"
-            f"RECENT MESSAGES IN GROUP:\n{recent_transcript}\n\n"
-            f"STRICT VENDOR POLICY:\n"
-            f"NEVER criticize, complain about, or question xbiolabs, payment systems, or batch quality. Every persona has had flawless, smooth experiences.\n\n"
+            f"DOMAIN TOPICS: {group_domain}\n\n"
+            f"RECENT MESSAGES IN THIS GROUP:\n{recent_transcript}\n\n"
+            f"AVAILABLE PERSONAS:\n{persona_str}\n\n"
+            f"CONVERSATIONAL FOCUS: {topic_prompt}\n\n"
             f"TASK:\n"
             f"Create a natural {count}-message conversational thread for today between these personas.\n"
-            f"Spread 'offset_minutes' across realistic intervals (e.g. message 1 at offset 15, message 2 at 45, message 3 at 110, message 4 at 240, etc.).\n"
-            f"Output strictly the JSON array, nothing else."
+            f"Spread 'offset_minutes' across realistic intervals (e.g. 15, 45, 110, 240).\n"
+            f"Keep messages concise, grounded, and authentic. Return strictly the JSON array."
         )
 
         settings = {k: self.store.get(k) for k in ("fal_key", "ai_model")}
         items = []
 
         try:
-            raw_ai, meta = await self.ai.chat_with_meta(settings, system_prompt, user_prompt, temperature=0.88)
+            raw_ai, meta = await self.ai.chat_with_meta(settings, system_prompt, user_prompt, temperature=0.58)
             match = re.search(r"\[\s*\{.*\}\s*\]", raw_ai, re.DOTALL)
             if match:
                 items = json.loads(match.group(0))
@@ -330,21 +331,40 @@ class DailyBatchEngine:
         }
 
     def _fallback_dialogue(self, candidates, domain, count):
-        """Authentic peptide/xbiolabs domain fallback template generator."""
+        """Natural community discussion starter templates."""
         p1 = candidates[0]
         p2 = candidates[1] if len(candidates) > 1 else candidates[0]
         p3 = candidates[2] if len(candidates) > 2 else candidates[0]
 
-        templates = [
-            (p1, 15, "anyone pinned the latest xbiolabs BPC-157 batch? looking to reconstitute 5mg for my shoulder"),
-            (p2, 48, "yeah mixed with 2ml bacteriostatic water last week. smooth injection, zero post-injection pip"),
-            (p3, 115, "make sure to let the bac water drip down the inside glass slowly, don't spray straight onto the puck"),
-            (p1, 185, "good shout. keeping it chilled in the fridge. did you notice any systemic benefits or mostly localized?"),
-            (p2, 290, "mostly localized on tendon inflammation by day 5, also gut felt notably calmer with morning subQ"),
-            (p3, 380, "solid. coa checked out at 99.3% purity on janoshik anyway, reconstituted clean")
+        topics = [
+            [
+                (p1, 15, "what split is everyone running lately? thinking of switching back to push pull legs"),
+                (p2, 48, "ppl is hard to beat for consistency, especially if recovery is on point"),
+                (p3, 115, "yeah just don't neglect rear delts and rotator cuffs on push days"),
+                (p1, 185, "for sure, warming up shoulders thoroughly makes a huge difference"),
+                (p2, 290, "what's your weekly volume per muscle group looking like?"),
+                (p3, 380, "usually hover around 12-16 sets per week, beyond that fatigue catches up"),
+            ],
+            [
+                (p1, 20, "quick question on reconstitution, how much bac water do you guys prefer per 5mg vial?"),
+                (p2, 52, "2ml makes the math super straightforward, 250mcg per 10 units on 100u syringe"),
+                (p3, 120, "agreed, 2ml is ideal. just let it slide down the glass slow so it doesn't foam"),
+                (p1, 190, "perfect, appreciate the confirmation. keeping it chilled in the fridge now"),
+                (p2, 295, "smooth subQ or IM?"),
+                (p3, 385, "subQ is easiest for daily routine, virtually painless with 31g"),
+            ],
+            [
+                (p1, 25, "anyone notice recovery tanks pretty fast if sleep drops below 7 hours?"),
+                (p2, 58, "100%. magnesium glycinate and a cold room made a big difference for deep sleep"),
+                (p3, 130, "same here, consistent sleep timing does more than half the supplements out there"),
+                (p1, 200, "definitely, dialed in sleep makes every workout feel 10x better"),
+                (p2, 305, "hydration first thing in morning with pinch of salt helps too"),
+                (p3, 395, "electrolytes on point keeps energy level all day"),
+            ]
         ]
+        chosen = random.choice(topics)
         items = []
-        for cand, offset, text in templates[:count]:
+        for cand, offset, text in chosen[:count]:
             items.append({
                 "persona_id": cand["persona_id"],
                 "account_id": cand["account_id"],
@@ -427,11 +447,13 @@ class DailyBatchEngine:
             for it in items:
                 self.store.q("UPDATE daily_batch_items SET status='cancelled' WHERE id=?", (it["id"],))
                 self.store.q("UPDATE queue SET status='cancelled' WHERE dedupe_key=?", (f"batch_send:{it['id']}",))
+            self.store.q("UPDATE queue SET status='cancelled' WHERE kind='batch_scheduled_send' AND chat_id=? AND status='pending'", (int(chat_id),))
         else:
             items = self.store.rows("SELECT id FROM daily_batch_items WHERE status='pending'")
             for it in items:
                 self.store.q("UPDATE daily_batch_items SET status='cancelled' WHERE id=?", (it["id"],))
                 self.store.q("UPDATE queue SET status='cancelled' WHERE dedupe_key=?", (f"batch_send:{it['id']}",))
+            self.store.q("UPDATE queue SET status='cancelled' WHERE kind='batch_scheduled_send' AND status='pending'")
         return len(items)
 
     def trigger_next_now(self):

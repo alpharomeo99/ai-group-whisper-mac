@@ -528,7 +528,7 @@ class Daemon:
             acc_check = self.store.rows("SELECT persona_id FROM accounts WHERE id=?", (aid,))
             has_persona = bool(acc_check and acc_check[0]["persona_id"])
             self.store.q(
-                "INSERT INTO groups(chat_id,title,account_id) VALUES(?,?,?) "
+                "INSERT INTO groups(chat_id,title,account_id,watched,auto_reply) VALUES(?,?,?,1,1) "
                 "ON CONFLICT(chat_id) DO UPDATE SET title=excluded.title",
                 (chat_id, title, aid if has_persona else None)
             )
@@ -555,7 +555,7 @@ class Daemon:
             chat_id, event.id, name, event.raw_text, int(event.date.timestamp()),
             is_bot=1 if is_internal_bot else 0, sender_id=sender_id
         )
-        self.usage.log_event("msg_recv", account_id=client_acc_id, chat_id=chat_id)
+        self.usage.log_event("msg_recv", account_id=aid, chat_id=chat_id)
 
         # STRICT RULE: Bot-to-bot dialogue is governed strictly by the Daily Batch Schedule.
         # Messages sent by any bot account in our system DO NOT trigger live AI replies!
@@ -606,7 +606,15 @@ class Daemon:
                     self.orchestrator.record_activity(chat_id, pid)
                     self.store.enqueue(
                         "draft_reply", chat_id,
-                        {"trigger": event.id, "auto_send": True, "account_id": aid, "persona_id": pid, "reason": reason},
+                        {
+                            "trigger": event.id,
+                            "trigger_sender": name,
+                            "trigger_text": event.raw_text,
+                            "auto_send": True,
+                            "account_id": aid,
+                            "persona_id": pid,
+                            "reason": reason
+                        },
                         dedupe_key=f"reply:{chat_id}:{event.id}",
                         delay=int(delay)
                     )
@@ -620,14 +628,22 @@ class Daemon:
                             second_delay = int(delay) + random.randint(35, 75)
                             self.store.enqueue(
                                 "draft_reply", chat_id,
-                                {"trigger": event.id, "auto_send": True, "account_id": t_c["account_id"], "persona_id": t_c["persona_id"], "reason": "Teammate natural follow-up chime-in"},
+                                {
+                                    "trigger": event.id,
+                                    "trigger_sender": name,
+                                    "trigger_text": event.raw_text,
+                                    "auto_send": True,
+                                    "account_id": t_c["account_id"],
+                                    "persona_id": t_c["persona_id"],
+                                    "reason": "Teammate natural follow-up chime-in"
+                                },
                                 dedupe_key=f"teammate_reply:{chat_id}:{event.id}",
                                 delay=second_delay
                             )
                             log.info("Enqueued teammate follow-up in %s (Acc %s / Persona %s, delay=%ds)", chat_id, t_c["account_id"], t_c["persona_id"], second_delay)
             elif is_direct:
                 # Direct mention fallback with no explicit persona assigned
-                self.store.enqueue("draft_reply", chat_id, {"trigger": event.id, "auto_send": True},
+                self.store.enqueue("draft_reply", chat_id, {"trigger": event.id, "trigger_sender": name, "trigger_text": event.raw_text, "auto_send": True},
                                    dedupe_key=f"reply:{chat_id}:{event.id}", delay=4)
         self.wake_event.set()
 
@@ -715,12 +731,10 @@ class Daemon:
                 pr = pr + "\n\n" + mem_ctx
 
         pr += (
-            "\n\nCRITICAL VENDOR EXPERIENCE & BRAND INTEGRITY RULES:\n"
-            "1. ABSOLUTE ZERO NEGATIVE VENDOR TALK: You must NEVER criticize, complain about, or speak poorly of xbiolabs, their payment systems, shipping, or product quality. Never claim a batch was weak, defective, or underdosed. If another user complains, do not validate or amplify complaints.\n"
-            "2. Never volunteer unprompted vendor reviews, order testimonials, or package praise out of the blue. Chat normally about fitness, protocols, and routine banter.\n"
-            "3. Only if an external human participant specifically asks whether anyone had a BAD experience, issues, complaints, or asks if the vendor is legit/scam, "
-            "casually and briefly state that personally you have only had good, smooth experiences (orders arrived clean, zero issues on your end). "
-            "Never sound defensive or like a corporate shill."
+            "\n\nCRITICAL CONVERSATIONAL GUIDELINES:\n"
+            "1. Grounding: Stay naturally grounded in what members are discussing (fitness, workouts, recovery protocols, daily health). Do not invent unprompted stories about placing orders, shipping packages, or website payment issues.\n"
+            "2. Vendor Mentions: Do NOT bring up vendors, suppliers, or purchasing unprompted. If an external participant specifically asks if anyone had bad experiences or if ordering was smooth, keep it casual and positive (e.g. 'orders landed clean for me, no issues'). Never sound defensive or corporate.\n"
+            "3. Voice: Chat like an authentic community member. Keep messages concise (1-2 sentences), casual style."
         )
 
         return pr
@@ -834,8 +848,23 @@ class Daemon:
                              (job["chat_id"], body, int(time.time())))
             elif job["kind"] == "draft_reply":
                 chosen_persona = self.persona_for(g, persona_id=p.get("persona_id"), account_id=p.get("account_id"))
-                text, meta = await ai.draft_reply_with_meta(settings, g.get("title", ""), chosen_persona,
-                                                            self.store.recent(job["chat_id"], 30))
+                trigger_sender = p.get("trigger_sender") or ""
+                trigger_text = p.get("trigger_text") or ""
+                if not trigger_text and p.get("trigger"):
+                    trig_rows = self.store.rows("SELECT sender, text FROM messages WHERE chat_id=? AND msg_id=?", (job["chat_id"], p["trigger"]))
+                    if trig_rows:
+                        trigger_sender = trig_rows[0].get("sender") or ""
+                        trigger_text = trig_rows[0].get("text") or ""
+
+                text, meta = await ai.draft_reply_with_meta(
+                    settings,
+                    g.get("title", ""),
+                    chosen_persona,
+                    self.store.recent(job["chat_id"], 25),
+                    trigger_sender=trigger_sender,
+                    trigger_text=trigger_text,
+                    temperature=0.55
+                )
                 # Log AI token & latency usage
                 self.usage.log_ai("ai_chat", persona_id=p.get("persona_id"), account_id=p.get("account_id"),
                                   chat_id=job["chat_id"], tokens_prompt=meta.get("prompt_tokens"),
@@ -843,7 +872,12 @@ class Daemon:
                                   model=meta.get("model"))
                 if p.get("auto_send"):
                     self.store.enqueue("send", job["chat_id"],
-                                       {"text": text, "reply_to": p.get("trigger"), "account_id": p.get("account_id")},
+                                       {
+                                           "text": text,
+                                           "reply_to": p.get("trigger"),
+                                           "account_id": p.get("account_id"),
+                                           "persona_id": p.get("persona_id")
+                                       },
                                        dedupe_key=f"send:{job['id']}")
                 else:
                     self.store.q("INSERT INTO summaries(chat_id,body,created) VALUES(?,?,?)",

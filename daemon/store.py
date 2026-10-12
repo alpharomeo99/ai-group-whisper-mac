@@ -267,7 +267,41 @@ class Store:
                     LOWER(text) LIKE '%bugging out%'
                 )
             """)
-            cur.execute("DELETE FROM persona_memories WHERE content LIKE '%Frequent buyer at xbiolabs%' OR content LIKE '%Received fresh peptide kit%'")
+            cur.execute("""
+                DELETE FROM daily_batch_items
+                WHERE status='pending' AND (
+                    LOWER(text) LIKE '%shit show%' OR
+                    LOWER(text) LIKE '%payment portal%' OR
+                    LOWER(text) LIKE '%weak batch%' OR
+                    LOWER(text) LIKE '%bad vial%' OR
+                    LOWER(text) LIKE '%recurring nightmare%' OR
+                    LOWER(text) LIKE '%bugging out%' OR
+                    LOWER(text) LIKE '%card processor%' OR
+                    LOWER(text) LIKE '%clearing delay%'
+                )
+            """)
+            cur.execute("""
+                DELETE FROM queue
+                WHERE kind='batch_scheduled_send' AND status='pending' AND (
+                    LOWER(payload) LIKE '%shit show%' OR
+                    LOWER(payload) LIKE '%payment portal%' OR
+                    LOWER(payload) LIKE '%weak batch%' OR
+                    LOWER(payload) LIKE '%bad vial%' OR
+                    LOWER(payload) LIKE '%recurring nightmare%' OR
+                    LOWER(payload) LIKE '%bugging out%' OR
+                    LOWER(payload) LIKE '%card processor%' OR
+                    LOWER(payload) LIKE '%clearing delay%'
+                )
+            """)
+            cur.execute("""
+                DELETE FROM persona_memories
+                WHERE content LIKE '%Frequent buyer at xbiolabs%'
+                   OR content LIKE '%Received fresh peptide kit%'
+                   OR LOWER(content) LIKE '%payment portal%'
+                   OR LOWER(content) LIKE '%weak batch%'
+                   OR LOWER(content) LIKE '%card processor%'
+                   OR LOWER(content) LIKE '%recurring nightmare%'
+            """)
 
             # Target xbiolabs group id
             cur.execute("SELECT chat_id FROM groups WHERE LOWER(title) LIKE '%xbiolabs%' OR LOWER(title) LIKE '%xbio%'")

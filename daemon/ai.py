@@ -69,14 +69,33 @@ async def summarize(settings, title, msgs):
                       f"Group: {title}\n\n{transcript(msgs)}")
 
 
-async def draft_reply_with_meta(settings, title, persona, msgs):
+async def draft_reply_with_meta(settings, title, persona, msgs, trigger_sender=None, trigger_text=None, temperature=0.55):
     sep = chr(10)
-    prompt_p = (persona or "You are a regular member of this Telegram group.") + sep + sep + "You are reading the group's latest messages. Write the ONE message you would send next, exactly in your own voice and the group's style (length, casing, typos, slang). It may be a reply to someone, banter, or a short reaction. Output only the raw message text, no quotes, no name prefix."
-    return await chat_with_meta(settings,
-                                prompt_p,
-                                f"Group: {title}\n\n{transcript(msgs)}")
+    persona_prompt = persona or "You are a regular member of this Telegram group."
+    rules = [
+        "CRITICAL RULES FOR YOUR REPLY:",
+        "- Stay strictly grounded in the ongoing conversation and context. Do NOT invent fake scenarios, unrequested vendor stories, fake orders, tracking numbers, payment issues, or imaginary drama.",
+        "- Do NOT bring up vendors, suppliers, batch numbers, or purchasing unless the person explicitly asked about it in their message.",
+        "- Write naturally in your persona's voice: concise, casual Telegram chat style (typically 1 to 2 sentences, or a quick reaction).",
+        "- Avoid robotic structure: NO bullet lists, NO greeting headers, NO medical disclaimers, NO quotes around your text.",
+        "- Output ONLY the raw message text to send to the group."
+    ]
+    system = persona_prompt + sep + sep + sep.join(rules)
+
+    user_parts = [f"Group: {title}"]
+    if msgs:
+        user_parts.append(f"Recent Chat History:{sep}{transcript(msgs)}")
+    if trigger_text and trigger_sender:
+        user_parts.append(f'You are directly responding or reacting to this latest message from {trigger_sender}:{sep}"{trigger_text}"')
+    elif msgs:
+        user_parts.append("Respond naturally to the latest conversation above.")
+    else:
+        user_parts.append("Start a natural, casual conversation starter appropriate for this group.")
+
+    user = (sep + sep).join(user_parts)
+    return await chat_with_meta(settings, system, user, temperature=temperature)
 
 
-async def draft_reply(settings, title, persona, msgs):
-    content, _ = await draft_reply_with_meta(settings, title, persona, msgs)
+async def draft_reply(settings, title, persona, msgs, trigger_sender=None, trigger_text=None, temperature=0.55):
+    content, _ = await draft_reply_with_meta(settings, title, persona, msgs, trigger_sender=trigger_sender, trigger_text=trigger_text, temperature=temperature)
     return content

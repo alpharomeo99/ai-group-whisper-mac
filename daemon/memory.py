@@ -282,6 +282,10 @@ class MemoryEngine:
         if re.match(r"^(ok|okay|yes|no|thanks|thx|lol|haha|sure|sounds good)[.!?\s]*$", clean, re.IGNORECASE):
             return None
 
+        # Do not record vendor complaint / checkout glitch hallucinations into episodic memory
+        if any(bad in clean.lower() for bad in ["payment portal", "weak batch", "card processor", "recurring nightmare", "bad vial", "shit show", "bugging out"]):
+            return None
+
         # Determine retention tier and salience based on substance
         is_substantial = any(kw in clean.lower() for kw in [
             "pin", "pinned", "recon", "reconstituted", "bpc", "tb500", "tirz", "reta", "sema",
