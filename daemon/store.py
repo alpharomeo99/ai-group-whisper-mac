@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS group_accounts (
 );
 CREATE TABLE IF NOT EXISTS messages (
   chat_id INTEGER, msg_id INTEGER, sender TEXT, text TEXT, ts INTEGER,
+  is_bot INTEGER DEFAULT 0, sender_id INTEGER,
   PRIMARY KEY (chat_id, msg_id)
 );
 CREATE TABLE IF NOT EXISTS direct_chats (
@@ -73,6 +74,9 @@ CREATE TABLE IF NOT EXISTS daily_batch_items (
 CREATE INDEX IF NOT EXISTS idx_batch_items_sched ON daily_batch_items(status, scheduled_ts);
 CREATE INDEX IF NOT EXISTS idx_queue_status ON queue(status, not_before);
 CREATE INDEX IF NOT EXISTS idx_dm_chat ON direct_messages(account_id, peer_id, ts);
+CREATE INDEX IF NOT EXISTS idx_ga_acc ON group_accounts(account_id);
+CREATE INDEX IF NOT EXISTS idx_gp_acc ON group_personas(account_id);
+CREATE INDEX IF NOT EXISTS idx_msgs_chat_bot ON messages(chat_id, is_bot, ts);
 """
 
 
@@ -195,7 +199,10 @@ class Store:
             "CREATE TABLE IF NOT EXISTS usage_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp INTEGER NOT NULL, event_type TEXT NOT NULL, persona_id INTEGER, account_id INTEGER, chat_id INTEGER, tokens_prompt INTEGER DEFAULT 0, tokens_completion INTEGER DEFAULT 0, tokens_total INTEGER DEFAULT 0, latency_ms INTEGER DEFAULT 0, model TEXT DEFAULT '', cost_est REAL DEFAULT 0.0)",
             "CREATE INDEX IF NOT EXISTS idx_usage_ts ON usage_logs(timestamp)",
             "CREATE INDEX IF NOT EXISTS idx_usage_pid ON usage_logs(persona_id, timestamp)",
-            "ALTER TABLE accounts ADD COLUMN last_synced_at INTEGER DEFAULT 0"
+            "ALTER TABLE accounts ADD COLUMN last_synced_at INTEGER DEFAULT 0",
+            "CREATE INDEX IF NOT EXISTS idx_ga_acc ON group_accounts(account_id)",
+            "CREATE INDEX IF NOT EXISTS idx_gp_acc ON group_personas(account_id)",
+            "CREATE INDEX IF NOT EXISTS idx_msgs_chat_bot ON messages(chat_id, is_bot, ts)"
 ):
             try:
                 self.db.execute(ddl)
@@ -481,11 +488,15 @@ class Store:
     def q(self, sql, args=()):
         with self.lock:
             cur = self.db.execute(sql, args)
-            self.db.commit()
+            s = sql.strip().upper()
+            if not (s.startswith("SELECT") or s.startswith("PRAGMA") or s.startswith("EXPLAIN")):
+                self.db.commit()
             return cur
 
     def rows(self, sql, args=()):
-        return [dict(r) for r in self.q(sql, args).fetchall()]
+        with self.lock:
+            cur = self.db.execute(sql, args)
+            return [dict(r) for r in cur.fetchall()]
 
     # settings
     def get(self, key, default=None):

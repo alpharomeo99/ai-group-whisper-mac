@@ -488,13 +488,12 @@ class Daemon:
 
             self.store.q(
                 "INSERT INTO direct_chats(account_id, peer_id, peer_name, peer_username, peer_phone, last_msg, last_ts, unread_count) "
-                "VALUES(?,?,?,?,?,?,?,?) "
+                "VALUES(?,?,?,?,?,?,?,0) "
                 "ON CONFLICT(account_id, peer_id) DO UPDATE SET "
                 "peer_name=excluded.peer_name, peer_username=excluded.peer_username, "
                 "peer_phone=COALESCE(excluded.peer_phone, direct_chats.peer_phone), "
-                "last_msg=excluded.last_msg, last_ts=excluded.last_ts, "
-                "unread_count = CASE WHEN ?=1 THEN direct_chats.unread_count + 1 ELSE direct_chats.unread_count END",
-                (aid, peer_id, name, username, phone, event.raw_text, ts, 1 if incoming else 0, 1 if incoming else 0)
+                "last_msg=excluded.last_msg, last_ts=excluded.last_ts",
+                (aid, peer_id, name, username, phone, event.raw_text, ts)
             )
             self.store.add_direct_message(aid, peer_id, event.id, name if incoming else "Me", incoming, event.raw_text, ts)
 
@@ -650,18 +649,28 @@ class Daemon:
     # ---------- Queue worker ----------
     async def worker(self):
         while True:
+            self.wake_event.clear()
+            if self.suspended or self.paused_reason or not bool(self.store.get("system_enabled", True)):
+                try:
+                    await asyncio.wait_for(self.wake_event.wait(), timeout=3)
+                except asyncio.TimeoutError:
+                    pass
+                continue
+            try:
+                jobs = self.store.claim(limit=4)
+                if jobs:
+                    for job in jobs:
+                        await self.run_job(job)
+                    # If we processed a full batch, continue without waiting to drain backlog
+                    if len(jobs) == 4:
+                        continue
+            except Exception as e:
+                log.warning("Worker run_job execution error: %s", e)
+
             try:
                 await asyncio.wait_for(self.wake_event.wait(), timeout=3)
             except asyncio.TimeoutError:
                 pass
-            self.wake_event.clear()
-            if self.suspended or self.paused_reason or not bool(self.store.get("system_enabled", True)):
-                continue
-            try:
-                for job in self.store.claim(limit=4):
-                    await self.run_job(job)
-            except Exception as e:
-                log.warning("Worker run_job execution error: %s", e)
 
     def persona_for(self, g, persona_id=None, account_id=None):
         """Group override text wins; then the chosen persona; then the persona designed for this group and account; then account fallback."""
@@ -1086,7 +1095,7 @@ class Daemon:
                         self.store.q(
                             "INSERT INTO groups(chat_id,title,account_id) VALUES(?,?,?) "
                             "ON CONFLICT(chat_id) DO UPDATE SET title=excluded.title, "
-                            "account_id=COALESCE(groups.account_id, ?)",
+                            "account_id=COALESCE(groups.account_id, excluded.account_id)",
                             (d.id, title, aid if has_persona else None)
                         )
                         self.store.q(
@@ -1678,6 +1687,15 @@ class Daemon:
                     except Exception:
                         pass
 
+            # 2b. Delete cached avatar files
+            for av_ext in (".jpg", ".tmp.jpg"):
+                av_p = os.path.join(self.avatars_dir, f"{aid}{av_ext}")
+                try:
+                    if os.path.exists(av_p):
+                        os.remove(av_p)
+                except Exception:
+                    pass
+
             # 3. Full cascade deletion in database
             self.store.q("DELETE FROM accounts WHERE id=?", (aid,))
             self.store.q("DELETE FROM group_accounts WHERE account_id=?", (aid,))
@@ -1687,6 +1705,9 @@ class Daemon:
             self.store.q("DELETE FROM direct_chats WHERE account_id=?", (aid,))
             self.store.q("DELETE FROM direct_messages WHERE account_id=?", (aid,))
             self.store.q("DELETE FROM usage_logs WHERE account_id=?", (aid,))
+            # Cancel any pending queue jobs belonging to this account
+            self.store.q("DELETE FROM queue WHERE status='pending' AND (payload LIKE ? OR payload LIKE ?)",
+                         (f'%"account_id": {aid}%', f'%"account_id":{aid}%'))
 
             # 4. Clear scout setting if this account was scout
             try:
@@ -2550,7 +2571,6 @@ class Daemon:
         async def gp_del(req):
             cid, pid = int(req.match_info["cid"]), int(req.match_info["pid"])
             self.store.q("DELETE FROM group_personas WHERE chat_id=? AND persona_id=?", (cid, pid))
-            self.store.q("DELETE FROM personas WHERE id=?", (pid,))
             return J({"ok": True})
 
         @r.delete("/personas/{pid}")
