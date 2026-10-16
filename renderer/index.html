@@ -9,9 +9,14 @@
 <body>
   <div id="update-banner" class="banner hidden"></div>
   <div id="pause-banner" class="banner warn hidden"></div>
+  <div id="mini-live" class="mini-live hidden" aria-label="AI Group Whisper Live">
+    <span class="mini-live-dot"></span>
+    <span class="mini-live-label">Live</span>
+    <button id="mini-open-gui" type="button">Open GUI</button>
+  </div>
   <div class="app">
     <aside>
-      <div class="brand"><img src="logo.png" alt="" class="logo" /><div><div class="brand-name">AI Group Whisper</div><div id="status" class="status">Starting...</div></div></div>
+      <div class="brand"><img src="logo.png" alt="" class="logo" /><div><div class="brand-name">AI Group Whisper</div><div id="status" class="status">Starting...</div></div><button id="mini-mode" class="mini-mode-button" type="button" title="Keep running in compact Live mode">Mini</button></div>
       <nav>
         <div class="nav-label">Workspace</div>
         <button data-view="overview" class="active"><span class="ic">&#9673;</span>Overview</button>

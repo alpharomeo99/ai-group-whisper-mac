@@ -671,3 +671,94 @@ input[type="range"] { accent-color: var(--accent); cursor: pointer; height: 6px;
 .gx-av.per { width: 30px; height: 30px; border-radius: 50%; overflow: hidden; position: relative; display: flex; align-items: center; justify-content: center; }
 .gx-av.per img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; border-radius: 50%; display: block; z-index: 2; }
 .gx-av.per img + span { display: none; }
+
+
+/* Mini Live Mode widget and toggle */
+.mini-mode-button {
+  margin-left: auto;
+  align-self: center;
+  background: rgba(47, 196, 178, 0.12);
+  color: #2fc4b2;
+  border: 1px solid rgba(47, 196, 178, 0.35);
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.mini-mode-button:hover {
+  background: rgba(47, 196, 178, 0.25);
+  border-color: #2fc4b2;
+  color: #ffffff;
+}
+
+body.mini-mode .app,
+body.mini-mode #update-banner,
+body.mini-mode #pause-banner {
+  display: none !important;
+}
+
+body.mini-mode {
+  background: #0d1117 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.mini-live {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100vw;
+  height: 100vh;
+  box-sizing: border-box;
+  padding: 8px 14px;
+  background: linear-gradient(135deg, #111822 0%, #0d121a 100%);
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+.mini-live.hidden {
+  display: none !important;
+}
+
+.mini-live-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #2fc4b2;
+  box-shadow: 0 0 10px rgba(47, 196, 178, 0.85);
+  display: inline-block;
+  margin-right: 6px;
+  animation: pulse-live 2s infinite ease-in-out;
+}
+
+@keyframes pulse-live {
+  0% { transform: scale(0.95); opacity: 0.8; }
+  50% { transform: scale(1.15); opacity: 1; }
+  100% { transform: scale(0.95); opacity: 0.8; }
+}
+
+.mini-live-label {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  color: #e6edf3;
+  margin-right: auto;
+}
+
+#mini-open-gui {
+  background: #2fc4b2;
+  color: #0b1118;
+  border: none;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 5px 10px;
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+#mini-open-gui:hover {
+  opacity: 0.9;
+}

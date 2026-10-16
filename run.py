@@ -26,7 +26,7 @@ def free_port():
 
 PORT = free_port()
 BASE = f"http://127.0.0.1:{PORT}"
-state = {"proc": None, "quitting": False, "restarts": 0}
+state = {"proc": None, "quitting": False, "restarts": 0, "window": None, "mini": False}
 
 
 def start_engine():
@@ -117,13 +117,51 @@ def set_dock_icon():
         print("Dock icon unavailable:", e)
 
 
+class WindowBridge:
+    """Small UI bridge for switching between the full dashboard and a compact Live widget."""
+    def __init__(self, window):
+        self.window = window
+
+    def show_mini(self):
+        def resize():
+            state["mini"] = True
+            try:
+                self.window.resize(220, 72)
+                self.window.min_size = (220, 72)
+                self.window.max_size = (220, 72)
+            except Exception as e:
+                print("Could not resize to Live widget:", e)
+        threading.Thread(target=resize, daemon=True).start()
+        return True
+
+    def show_full(self):
+        def resize():
+            state["mini"] = False
+            try:
+                self.window.max_size = (9999, 9999)
+                self.window.resize(1180, 780)
+                self.window.min_size = (820, 560)
+            except Exception as e:
+                print("Could not restore dashboard size:", e)
+        threading.Thread(target=resize, daemon=True).start()
+        return True
+
+    def get_live_status(self):
+        proc = state.get("proc")
+        alive = bool(proc and proc.poll() is None)
+        return {"live": alive, "mini": state.get("mini", False)}
+
+
 def main():
     start_engine()
     threading.Thread(target=watch_engine, daemon=True).start()
     wait_ready()
     hook_sleep_wake()
     set_dock_icon()
-    webview.create_window("AI Group Whisper", BASE + "/", width=1180, height=780, min_size=(820, 560))
+    window = webview.create_window("AI Group Whisper", BASE + "/", width=1180, height=780, min_size=(820, 560))
+    state["window"] = window
+    bridge = WindowBridge(window)
+    window.expose(bridge.show_mini, bridge.show_full, bridge.get_live_status)
     webview.start()
     state["quitting"] = True
     try:
