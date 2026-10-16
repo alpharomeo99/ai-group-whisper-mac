@@ -331,10 +331,11 @@ class DailyBatchEngine:
         }
 
     def _fallback_dialogue(self, candidates, domain, count):
-        """Natural community discussion starter templates."""
+        """Natural community discussion starter templates supporting up to 16 turns."""
         p1 = candidates[0]
         p2 = candidates[1] if len(candidates) > 1 else candidates[0]
         p3 = candidates[2] if len(candidates) > 2 else candidates[0]
+        p4 = candidates[3] if len(candidates) > 3 else p1
 
         topics = [
             [
@@ -344,6 +345,16 @@ class DailyBatchEngine:
                 (p1, 185, "for sure, warming up shoulders thoroughly makes a huge difference"),
                 (p2, 290, "what's your weekly volume per muscle group looking like?"),
                 (p3, 380, "usually hover around 12-16 sets per week, beyond that fatigue catches up"),
+                (p4, 450, "same here, quality reps with clean eccentric control beat junk volume every time"),
+                (p1, 520, "agreed, stopped ego lifting years ago and joints thank me daily"),
+                (p2, 600, "how many rest days do you take weekly?"),
+                (p3, 680, "at least two full days off or light active recovery like walking"),
+                (p4, 760, "walking has been a game changer for keeping body fat in check effortlessly"),
+                (p1, 840, "10k steps a day is honestly underrated"),
+                (p2, 910, "super easy to hit if you break it into 15 min walks after meals"),
+                (p3, 980, "great for insulin sensitivity too"),
+                (p4, 1050, "definitely, consistency over intensity when it comes to daily habits"),
+                (p1, 1120, "spot on. slow and steady always wins")
             ],
             [
                 (p1, 20, "quick question on reconstitution, how much bac water do you guys prefer per 5mg vial?"),
@@ -352,6 +363,16 @@ class DailyBatchEngine:
                 (p1, 190, "perfect, appreciate the confirmation. keeping it chilled in the fridge now"),
                 (p2, 295, "smooth subQ or IM?"),
                 (p3, 385, "subQ is easiest for daily routine, virtually painless with 31g"),
+                (p4, 460, "pinching the skin slightly makes it completely unnoticeable"),
+                (p1, 530, "abdomen or glutes preferred for site rotation?"),
+                (p2, 610, "abdomen has plenty of spots, just keep an inch or two away from navel"),
+                (p3, 690, "and rotate sides each day so no irritation builds up"),
+                (p4, 770, "alcohol swab before and let it dry completely before injecting"),
+                (p1, 850, "letting it dry is huge, prevents that little sting"),
+                (p2, 920, "simple protocol details matter the most"),
+                (p3, 990, "storage wise keep light off the vials too"),
+                (p4, 1060, "yep, amber vial or just keep in original box in back of fridge"),
+                (p1, 1130, "good call on the dark container")
             ],
             [
                 (p1, 25, "anyone notice recovery tanks pretty fast if sleep drops below 7 hours?"),
@@ -360,6 +381,16 @@ class DailyBatchEngine:
                 (p1, 200, "definitely, dialed in sleep makes every workout feel 10x better"),
                 (p2, 305, "hydration first thing in morning with pinch of salt helps too"),
                 (p3, 395, "electrolytes on point keeps energy level all day"),
+                (p4, 470, "cutting caffeine off by 2pm made the biggest noticeable jump for sleep score"),
+                (p1, 545, "yeah caffeine half life is way longer than people realize"),
+                (p2, 620, "morning sun exposure right after waking helps lock in the circadian rhythm"),
+                (p3, 700, "even 10 mins outside with no sunglasses sets the clock"),
+                (p4, 780, "and ditching screens 30 mins before bed lets melatonin actually spike"),
+                (p1, 860, "reading a book before bed puts me right out"),
+                (p2, 930, "old school methods still work best"),
+                (p3, 1000, "simple basics done consistently"),
+                (p4, 1070, "can't out supplement bad lifestyle fundamentals"),
+                (p1, 1140, "100% facts")
             ]
         ]
         chosen = random.choice(topics)
@@ -438,33 +469,33 @@ class DailyBatchEngine:
         }
 
     def clear_today(self, chat_id=None):
-        """Cancels all pending scheduled batch messages for today."""
+        """Cancels all pending and postponed scheduled batch messages for today."""
         today = self.today_str()
         if chat_id:
             items = self.store.rows(
-                "SELECT id FROM daily_batch_items WHERE chat_id=? AND status='pending'", (int(chat_id),)
+                "SELECT id FROM daily_batch_items WHERE chat_id=? AND status IN ('pending', 'postponed')", (int(chat_id),)
             )
             for it in items:
                 self.store.q("UPDATE daily_batch_items SET status='cancelled' WHERE id=?", (it["id"],))
                 self.store.q("UPDATE queue SET status='cancelled' WHERE dedupe_key=?", (f"batch_send:{it['id']}",))
-            self.store.q("UPDATE queue SET status='cancelled' WHERE kind='batch_scheduled_send' AND chat_id=? AND status='pending'", (int(chat_id),))
+            self.store.q("UPDATE queue SET status='cancelled' WHERE kind='batch_scheduled_send' AND chat_id=? AND status IN ('pending', 'postponed')", (int(chat_id),))
         else:
-            items = self.store.rows("SELECT id FROM daily_batch_items WHERE status='pending'")
+            items = self.store.rows("SELECT id FROM daily_batch_items WHERE status IN ('pending', 'postponed')")
             for it in items:
                 self.store.q("UPDATE daily_batch_items SET status='cancelled' WHERE id=?", (it["id"],))
                 self.store.q("UPDATE queue SET status='cancelled' WHERE dedupe_key=?", (f"batch_send:{it['id']}",))
-            self.store.q("UPDATE queue SET status='cancelled' WHERE kind='batch_scheduled_send' AND status='pending'")
+            self.store.q("UPDATE queue SET status='cancelled' WHERE kind='batch_scheduled_send' AND status IN ('pending', 'postponed')")
         return len(items)
 
     def trigger_next_now(self):
-        """Forces the next pending scheduled message to send immediately."""
+        """Forces the next pending or postponed scheduled message to send immediately."""
         now_ts = int(time.time())
         pending = self.store.rows(
-            "SELECT id, chat_id FROM daily_batch_items WHERE status='pending' ORDER BY scheduled_ts ASC LIMIT 1"
+            "SELECT id, chat_id FROM daily_batch_items WHERE status IN ('pending', 'postponed') ORDER BY scheduled_ts ASC LIMIT 1"
         )
         if not pending:
             return None
         it_id = pending[0]["id"]
-        self.store.q("UPDATE daily_batch_items SET scheduled_ts=? WHERE id=?", (now_ts, it_id))
-        self.store.q("UPDATE queue SET not_before=? WHERE dedupe_key=?", (now_ts, f"batch_send:{it_id}"))
+        self.store.q("UPDATE daily_batch_items SET status='pending', scheduled_ts=? WHERE id=?", (now_ts, it_id))
+        self.store.q("UPDATE queue SET status='pending', not_before=? WHERE dedupe_key=?", (now_ts, f"batch_send:{it_id}"))
         return it_id

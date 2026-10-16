@@ -312,6 +312,14 @@ class Daemon:
                 pass
             raise ConnectionError(f"Account {account_id} ({a.get('name')}) is not authorized")
 
+        if not a.get("user_id"):
+            try:
+                me = await client.get_me()
+                if me:
+                    self._save_profile(account_id, me, me.phone and "+" + me.phone.lstrip("+"))
+            except Exception:
+                pass
+
         try:
             yield client
         finally:
@@ -900,7 +908,16 @@ class Daemon:
                             await asyncio.sleep(secs)
                     except Exception:  # noqa
                         pass
-                    await cl.send_message(job["chat_id"], p["text"], reply_to=p.get("reply_to"))
+                    sent_msg = await cl.send_message(job["chat_id"], p["text"], reply_to=p.get("reply_to"))
+                    sender_id = getattr(sent_msg, "sender_id", None)
+                    if sender_id and aid:
+                        acc_check = self.store.rows("SELECT user_id FROM accounts WHERE id=?", (aid,))
+                        if acc_check and not acc_check[0]["user_id"]:
+                            self.store.q("UPDATE accounts SET user_id=? WHERE id=?", (sender_id, aid))
+                    self.store.add_message(
+                        job["chat_id"], sent_msg.id, p.get("sender_name") or "Me",
+                        p["text"], int(time.time()), is_bot=1, sender_id=sender_id
+                    )
                     # Record memory and message sent usage
                     eff_pid = p.get("persona_id")
                     if not eff_pid and aid:
@@ -914,12 +931,13 @@ class Daemon:
                 # Check if a human recently spoke in this group:
                 last_human_ts = self.store.get_last_human_message_ts(job["chat_id"])
                 now_ts = int(time.time())
-                pause_secs = int(self.store.get("batch_human_pause_seconds", 900))
+                pause_secs = int(self.store.get("batch_human_pause_seconds", 300))
                 if last_human_ts and (now_ts - last_human_ts) < pause_secs:
                     # Defer batch message by remaining pause time + jitter so bots do not talk over human!
-                    defer_secs = (pause_secs - (now_ts - last_human_ts)) + random.randint(60, 240)
+                    defer_secs = (pause_secs - (now_ts - last_human_ts)) + random.randint(30, 90)
                     if p.get("batch_item_id"):
-                        self.store.q("UPDATE daily_batch_items SET status='postponed' WHERE id=?", (p["batch_item_id"],))
+                        self.store.q("UPDATE daily_batch_items SET status='postponed', scheduled_ts=? WHERE id=?",
+                                     (now_ts + defer_secs, p["batch_item_id"]))
                     self.store.finish(job["id"], False, "Postponed: human spoke recently in chat", retry_in=defer_secs)
                     return
 
@@ -931,7 +949,16 @@ class Daemon:
                             await asyncio.sleep(secs)
                     except Exception:  # noqa
                         pass
-                    await cl.send_message(job["chat_id"], p["text"], reply_to=p.get("reply_to"))
+                    sent_msg = await cl.send_message(job["chat_id"], p["text"], reply_to=p.get("reply_to"))
+                    sender_id = getattr(sent_msg, "sender_id", None)
+                    if sender_id and aid:
+                        acc_check = self.store.rows("SELECT user_id FROM accounts WHERE id=?", (aid,))
+                        if acc_check and not acc_check[0]["user_id"]:
+                            self.store.q("UPDATE accounts SET user_id=? WHERE id=?", (sender_id, aid))
+                    self.store.add_message(
+                        job["chat_id"], sent_msg.id, p.get("sender_name") or "Me",
+                        p["text"], int(time.time()), is_bot=1, sender_id=sender_id
+                    )
                     # Record memory and message sent usage
                     eff_pid = p.get("persona_id")
                     if not eff_pid and aid:
@@ -1155,7 +1182,7 @@ class Daemon:
             await asyncio.sleep(600)
 
     async def daily_batch_loop(self):
-        """Automatically checks and generates today's daily batch for active groups with personas."""
+        """Automatically checks and generates daily batches for active groups with personas."""
         await asyncio.sleep(6)
         while True:
             try:
@@ -1163,20 +1190,47 @@ class Daemon:
                 auto_pilot = bool(self.store.get("daily_batch_auto_pilot", True))
                 if system_enabled and auto_pilot:
                     today = self.daily_batch.today_str()
-                    groups = self.store.rows("SELECT * FROM groups")
+                    groups = self.store.rows("SELECT * FROM groups WHERE watched=1")
                     group_cids = {g["chat_id"] for g in groups}
                     ga_cids = {r["chat_id"] for r in self.store.rows("SELECT DISTINCT chat_id FROM group_accounts")}
                     all_cids = list(group_cids.union(ga_cids))
 
                     for cid in all_cids:
-                        existing = self.store.rows("SELECT id FROM daily_batches WHERE chat_id=? AND date_str=?", (cid, today))
-                        if not existing:
-                            cands = self.daily_batch.get_group_candidates(cid)
-                            if len(cands) >= 2:
-                                log.info("Auto-Pilot: Generating daily batch for group %s (%s) with %d candidates", cid, today, len(cands))
-                                count = int(self.store.get("batch_messages_count", 6))
-                                await self.daily_batch.generate_batch_for_group(cid, count=count)
-                                self.wake_event.set()
+                        try:
+                            # Auto-enroll group if missing from groups table
+                            g_exists = self.store.rows("SELECT chat_id FROM groups WHERE chat_id=?", (cid,))
+                            if not g_exists:
+                                self.store.q("INSERT OR IGNORE INTO groups(chat_id, title, watched, auto_reply) VALUES(?,?,1,1)", (cid, f"Group {cid}"))
+
+                            # Check if today has pending/scheduled batch items
+                            pending_items = self.store.rows(
+                                "SELECT id FROM daily_batch_items WHERE chat_id=? AND status IN ('pending', 'postponed') AND created_at >= ?",
+                                (cid, int(time.time()) - 86400)
+                            )
+                            existing_batches = self.store.rows("SELECT id FROM daily_batches WHERE chat_id=? AND date_str=?", (cid, today))
+
+                            should_generate = False
+                            if not existing_batches:
+                                should_generate = True
+                            elif not pending_items:
+                                # Prior batch is completely finished (all sent). If last sent message was > 3 hours ago, allow a follow-up conversation session
+                                last_sent = self.store.rows(
+                                    "SELECT MAX(sent_ts) as last_ts FROM daily_batch_items WHERE chat_id=? AND status='sent'",
+                                    (cid,)
+                                )
+                                last_ts = (last_sent[0]["last_ts"] or 0) if last_sent else 0
+                                if (int(time.time()) - last_ts) >= 10800:  # 3 hours quiet
+                                    should_generate = True
+
+                            if should_generate:
+                                cands = self.daily_batch.get_group_candidates(cid)
+                                if len(cands) >= 2:
+                                    count = int(self.store.get("batch_messages_count", 6))
+                                    log.info("Auto-Pilot: Generating batch for group %s (%d candidates, %d messages)", cid, len(cands), count)
+                                    await self.daily_batch.generate_batch_for_group(cid, count=count)
+                                    self.wake_event.set()
+                        except Exception as group_err:
+                            log.warning("daily_batch_loop error for group %s: %s", cid, group_err)
             except Exception as e:
                 log.warning("daily_batch_loop error: %s", e)
             await asyncio.sleep(600)

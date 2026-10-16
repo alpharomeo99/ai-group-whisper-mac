@@ -518,7 +518,12 @@ class Store:
         )
 
     def get_last_human_message_ts(self, chat_id):
-        r = self.q("SELECT ts FROM messages WHERE chat_id=? AND is_bot=0 ORDER BY ts DESC LIMIT 1", (chat_id,)).fetchone()
+        r = self.q("""
+            SELECT ts FROM messages
+            WHERE chat_id=? AND is_bot=0
+              AND (sender_id IS NULL OR sender_id NOT IN (SELECT user_id FROM accounts WHERE user_id IS NOT NULL))
+            ORDER BY ts DESC LIMIT 1
+        """, (chat_id,)).fetchone()
         return r[0] if r else None
 
     def mark_batch_item_sent(self, item_id, sent_ts):

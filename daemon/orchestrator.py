@@ -27,7 +27,7 @@ class PersonaCadenceOrchestrator:
         cfg = self.store.get("orchestrator_config") or {}
         return {
             "enabled": cfg.get("enabled", True),
-            "base_threshold": float(cfg.get("base_threshold", 0.30)),
+            "base_threshold": float(cfg.get("base_threshold", 0.22)),
             "circadian_enabled": cfg.get("circadian_enabled", True),
             "circadian_peak_hour": int(cfg.get("circadian_peak_hour", 15)),  # 3 PM peak
             "circadian_sigma": float(cfg.get("circadian_sigma", 5.5)),
@@ -109,7 +109,10 @@ class PersonaCadenceOrchestrator:
             return 0.0
 
         text_lower = message_text.lower()
-        score = 0.20  # baseline conversational presence
+        score = 0.25  # baseline conversational presence
+        # Conversational cues: greetings, shared reactions, casual chatter
+        if bool(re.search(r"\b(hey|hi|hello|morning|evening|yo|sup|thanks|thx|appreciate|lol|haha|lmao|damn|nice|good|great|awesome|crazy|true|facts|fr|for real|today|yesterday|weekend)\b", text_lower)):
+            score += 0.15
 
         # Check for interrogative / question cues
         is_question = "?" in text_lower or bool(re.search(r"\b(who|what|where|when|why|how|anyone|anybody|thoughts|opinion|does|is it|can we|recommend)\b", text_lower))
