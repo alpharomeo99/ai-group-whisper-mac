@@ -48,8 +48,8 @@ class Daemon:
         self.wake_event = asyncio.Event()
         self.prov = Provisioner(self)
         self.orchestrator = PersonaCadenceOrchestrator(self.store)
-        self.daily_batch = daily_batch.DailyBatchEngine(self.store, ai)
         self.memory = memory.MemoryEngine(self.store, ai)
+        self.daily_batch = daily_batch.DailyBatchEngine(self.store, ai, memory_engine=self.memory)
         self.usage = usage.UsageTracker(self.store)
         self.autoapi = {}        # token -> {"future": code future, "task": camoufox task}
         self.cfx_install = {"running": False, "log": ""}
@@ -751,7 +751,7 @@ class Daemon:
             "\n\nCRITICAL CONVERSATIONAL GUIDELINES:\n"
             "1. Grounding: Stay naturally grounded in what members are discussing (fitness, workouts, recovery protocols, daily health). Do not invent unprompted stories about placing orders, shipping packages, or website payment issues.\n"
             "2. Vendor Mentions: Do NOT bring up vendors, suppliers, or purchasing unprompted. If an external participant specifically asks if anyone had bad experiences or if ordering was smooth, keep it casual and positive (e.g. 'orders landed clean for me, no issues'). Never sound defensive or corporate.\n"
-            "3. Voice: Chat like an authentic community member. Keep messages concise (1-2 sentences), casual style."
+            "3. Voice: Chat like an authentic community member. SHORT PUNCHY TELEGRAM MESSAGES: 3 to 15 words per message MAX (under 120 characters). NO paragraphs. NO essays. NO compound multi-sentence explanations. 1 punchy sentence or short reaction is ideal."
         )
 
         return pr
@@ -1219,7 +1219,8 @@ class Daemon:
                                     (cid,)
                                 )
                                 last_ts = (last_sent[0]["last_ts"] or 0) if last_sent else 0
-                                if (int(time.time()) - last_ts) >= 10800:  # 3 hours quiet
+                                interval_secs = int(self.store.get("batch_session_interval_seconds", 3600))  # 1 hour quiet threshold by default
+                                if (int(time.time()) - last_ts) >= interval_secs:
                                     should_generate = True
 
                             if should_generate:
@@ -2206,6 +2207,8 @@ class Daemon:
                 self.store.set("batch_human_pause_seconds", int(b["human_pause_minutes"]) * 60)
             if "batch_messages_count" in b:
                 self.store.set("batch_messages_count", int(b["batch_messages_count"]))
+            if "session_interval_seconds" in b:
+                self.store.set("batch_session_interval_seconds", int(b["session_interval_seconds"]))
             return J({"ok": True})
 
         # ----- System Master Control -----
@@ -2692,8 +2695,8 @@ class Daemon:
                 persona_id=pid,
                 content=b.get("content"),
                 kind=b.get("kind", "statement"),
-                retention_tier=b.get("retention_tier", "medium"),
-                salience=float(b.get("salience", 0.7)),
+                retention_tier=b.get("retention_tier", "long"),
+                salience=float(b.get("salience", 0.9)),
                 expires_in_seconds=int(b["expires_in_seconds"]) if b.get("expires_in_seconds") else None
             )
             return J({"ok": True, "id": mid})

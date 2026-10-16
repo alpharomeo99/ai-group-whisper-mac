@@ -593,8 +593,8 @@
                 <div>
                   <label class="hint">Retention Tier</label>
                   <select id="mem-add-tier" style="width: 100%; padding: 4px 8px; font-size: 11.5px; background: #080a10; border: 1px solid var(--line2); border-radius: 5px; color: var(--text);">
-                    <option value="long">Permanent Anchor (Identity Fact / Chronic Context)</option>
-                    <option value="medium" selected>Weekly Storyline (7-Day Active Protocol / Order)</option>
+                    <option value="long" selected>Permanent Core Fact (Cycle, Protocol, Health, Background - Never Expires)</option>
+                    <option value="medium">Extended Context (30-Day Active Discussion)</option>
                     <option value="short">Transient Banter (48-Hour Ephemeral)</option>
                   </select>
                 </div>
@@ -831,11 +831,24 @@
             <div style="display:flex; align-items:center; gap:6px;">
               <span class="hint" style="font-size:11px;">Pacing / Intensity:</span>
               <select id="batch-intensity-select" style="height:24px; font-size:11px; padding:2px 6px; width:auto;">
-                <option value="4">Casual (4 msgs/day)</option>
-                <option value="6" selected>Natural (6 msgs/day)</option>
-                <option value="8">Active (8 msgs/day)</option>
-                <option value="12">High (12 msgs/day)</option>
-                <option value="16">Intense (16 msgs/day)</option>
+                <option value="4">Casual (4 msgs/session)</option>
+                <option value="6">Natural (6 msgs/session)</option>
+                <option value="8" selected>Active (8 msgs/session)</option>
+                <option value="12">High (12 msgs/session)</option>
+                <option value="16">Intense (16 msgs/session)</option>
+                <option value="24">Busy Community (24 msgs/session)</option>
+                <option value="32">Rapid Flow (32 msgs/session)</option>
+              </select>
+            </div>
+
+            <div style="display:flex; align-items:center; gap:6px;">
+              <span class="hint" style="font-size:11px;">Session Frequency:</span>
+              <select id="batch-session-interval-select" style="height:24px; font-size:11px; padding:2px 6px; width:auto;">
+                <option value="3600" selected>Every 1 hour quiet</option>
+                <option value="7200">Every 2 hours quiet</option>
+                <option value="10800">Every 3 hours quiet</option>
+                <option value="21600">Every 6 hours</option>
+                <option value="86400">Once per day</option>
               </select>
             </div>
 

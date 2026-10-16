@@ -20,9 +20,10 @@ log = logging.getLogger("whisper.batch")
 
 
 class DailyBatchEngine:
-    def __init__(self, store, ai_module):
+    def __init__(self, store, ai_module, memory_engine=None):
         self.store = store
         self.ai = ai_module
+        self.memory = memory_engine
 
     def today_str(self):
         return datetime.now().strftime("%Y-%m-%d")
@@ -151,11 +152,27 @@ class DailyBatchEngine:
                 dt = {}
             role = dt.get("role_in_group") or "Experienced regular"
             slang = dt.get("slang_and_vocabulary") or "Authentic telegram slang"
+
+            mem_lines = []
+            if self.memory:
+                mem_ctx = self.memory.get_prompt_memory_context(c["persona_id"], chat_id=chat_id, limit=4)
+                if mem_ctx:
+                    mem_lines.append(mem_ctx)
+            elif hasattr(self.store, "rows"):
+                m_rows = self.store.rows(
+                    "SELECT content FROM persona_memories WHERE persona_id=? AND (expires_at IS NULL OR expires_at > ?) "
+                    "ORDER BY CASE retention_tier WHEN 'long' THEN 1 ELSE 2 END, salience DESC LIMIT 4",
+                    (c["persona_id"], int(time.time()))
+                )
+                if m_rows:
+                    mem_lines.append("Core Established Facts:\n" + "\n".join(f"  * {mr['content']}" for mr in m_rows))
+            mem_str = ("\n  " + "\n  ".join(mem_lines)) if mem_lines else ""
+
             persona_summaries.append(
                 f"- ID: {c['persona_id']}, AccountID: {c['account_id']}, Name: {c['persona_name']}\n"
                 f"  Role: {role}\n"
                 f"  Style/Slang: {slang}\n"
-                f"  Brief: {c.get('prompt', '')[:180]}..."
+                f"  Brief: {c.get('prompt', '')[:160]}...{mem_str}"
             )
         persona_str = "\n\n".join(persona_summaries)
 
@@ -177,7 +194,7 @@ class DailyBatchEngine:
             "CRITICAL GUIDELINES:\n"
             "1. CONTEXT GROUNDING: Ground the conversation naturally in the community's subject matter (fitness, training splits, recovery, peptide protocol calculations). Do NOT hallucinate unrequested stories about placing orders, fake package tracking, website checkout glitches, or fake drama.\n"
             "2. VENDOR POLICY: Do NOT initiate unprompted conversations about vendors, suppliers, or purchasing. If members talk about protocols, discuss dosing math and technique naturally. All personas have had smooth, positive peer experiences.\n"
-            "3. CASUAL TELEGRAM STYLE: Write like real community members: concise (1-2 short sentences per message), authentic phrasing, realistic casual casing and typos, zero corporate fluff or robotic bullet points.\n"
+            "3. SHORT PUNCHY TELEGRAM STYLE: Write like real Telegram users texting from a phone: 3 to 15 words per message MAX (under 120 characters). NO paragraphs. NO essays. NO compound multi-sentence explanations. Single short punchy reactions or observations.\n"
             "4. ORGANIC TURN-TAKING: Distribute turns naturally across the provided personas.\n"
             "5. OUTPUT FORMAT: Return ONLY a valid JSON array of message objects matching this exact format:\n"
             "[\n"
@@ -243,6 +260,15 @@ class DailyBatchEngine:
         if len(items) < 2:
             log.info("Batch items purged or insufficient; loading pristine domain fallback dialogue")
             items = self._fallback_dialogue(candidates, group_domain, count)
+
+        # Enforce strict Telegram punchiness on all items
+        try:
+            from daemon.ai import format_short_telegram_text
+            for it in items:
+                if it.get("text"):
+                    it["text"] = format_short_telegram_text(it["text"], max_chars=140)
+        except Exception:
+            pass
 
         # 4. Schedule the items throughout today
         today = self.today_str()
@@ -454,6 +480,7 @@ class DailyBatchEngine:
             "auto_pilot": auto_pilot,
             "batch_messages_count": batch_count,
             "human_pause_minutes": human_pause,
+            "session_interval_seconds": int(self.store.get("batch_session_interval_seconds", 3600)),
             "last_human_event": last_human,
             "stats": {
                 "total": total,

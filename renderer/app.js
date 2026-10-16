@@ -1884,6 +1884,9 @@ async function loadDailyBatchView() {
     if ($('batch-intensity-select') && batch.batch_messages_count) {
       $('batch-intensity-select').value = String(batch.batch_messages_count);
     }
+    if ($('batch-session-interval-select') && batch.session_interval_seconds) {
+      $('batch-session-interval-select').value = String(batch.session_interval_seconds);
+    }
     if ($('batch-hold-minutes') && batch.human_pause_minutes) {
       $('batch-hold-minutes').value = String(batch.human_pause_minutes);
     }
@@ -1994,6 +1997,16 @@ if ($('batch-intensity-select')) {
       await api('POST', '/daily-batch/settings', { batch_messages_count: parseInt(e.target.value, 10) });
     } catch (err) {
       console.warn('Failed to update intensity setting:', err);
+    }
+  };
+}
+
+if ($('batch-session-interval-select')) {
+  $('batch-session-interval-select').onchange = async (e) => {
+    try {
+      await api('POST', '/daily-batch/settings', { session_interval_seconds: parseInt(e.target.value, 10) });
+    } catch (err) {
+      console.warn('Failed to update session interval setting:', err);
     }
   };
 }
@@ -2214,7 +2227,9 @@ function renderMemoryTree(data) {
     }
     return items.map(m => {
       let expiryLabel = '';
-      if (m.remaining_hours !== null && m.remaining_hours !== undefined) {
+      if (isLong || m.retention_tier === 'long') {
+        expiryLabel = '<span class="badge" style="background:rgba(47,196,178,0.18);color:var(--accent);font-weight:600;">Permanent Core Fact</span>';
+      } else if (m.remaining_hours !== null && m.remaining_hours !== undefined) {
         if (m.remaining_hours <= 0) {
           expiryLabel = '<span class="badge bad">Expired</span>';
         } else if (m.remaining_hours < 24) {
@@ -2310,7 +2325,7 @@ if ($('mem-add-submit')) {
       alert('Please enter memory statement content');
       return;
     }
-    const tier = $('mem-add-tier') ? $('mem-add-tier').value : 'medium';
+    const tier = $('mem-add-tier') ? $('mem-add-tier').value : 'long';
     const salience = $('mem-add-salience') ? parseFloat($('mem-add-salience').value) : 0.8;
 
     try {

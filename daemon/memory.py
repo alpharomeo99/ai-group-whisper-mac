@@ -17,9 +17,9 @@ import re
 log = logging.getLogger("memory")
 
 DEFAULT_EXPIRIES = {
-    "short": 48 * 3600,       # 48 hours
-    "medium": 7 * 24 * 3600,  # 7 days
-    "long": None              # Permanent anchor (no automatic expiry)
+    "short": 48 * 3600,        # 48 hours
+    "medium": 30 * 24 * 3600,  # 30 days (extended so ongoing threads do not prematurely vanish)
+    "long": None               # Permanent anchor (NEVER expires)
 }
 
 
@@ -52,6 +52,22 @@ class MemoryEngine:
             """)
             cur.execute("CREATE INDEX IF NOT EXISTS idx_mem_pid_tier ON persona_memories(persona_id, retention_tier, expires_at)")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_mem_chat ON persona_memories(chat_id, created_at)")
+            # Upgrade existing protocol, cycle, health, or biographical memories to permanent anchors (long)
+            cur.execute("""
+                UPDATE persona_memories
+                SET retention_tier='long', expires_at=NULL, salience=0.95
+                WHERE retention_tier != 'long' AND (
+                    lower(content) LIKE '%running%' OR lower(content) LIKE '%cycle%' OR
+                    lower(content) LIKE '%bpc%' OR lower(content) LIKE '%tb500%' OR
+                    lower(content) LIKE '%tirz%' OR lower(content) LIKE '%reta%' OR
+                    lower(content) LIKE '%sema%' OR lower(content) LIKE '%trt%' OR
+                    lower(content) LIKE '%test%' OR lower(content) LIKE '%dose%' OR
+                    lower(content) LIKE '%pin%' OR lower(content) LIKE '%mg%' OR
+                    lower(content) LIKE '%mcg%' OR lower(content) LIKE '%split%' OR
+                    lower(content) LIKE '%injury%' OR lower(content) LIKE '%protocol%' OR
+                    lower(content) LIKE '%stack%'
+                )
+            """)
             self.store.db.commit()
 
     def add_memory(self, persona_id, content, account_id=None, chat_id=None, kind="statement",
@@ -60,7 +76,9 @@ class MemoryEngine:
         now_ts = int(time.time())
         tier = retention_tier if retention_tier in ("short", "medium", "long") else "medium"
         
-        if expires_in_seconds is not None:
+        if tier == "long":
+            expires_at = None
+        elif expires_in_seconds is not None:
             expires_at = now_ts + int(expires_in_seconds) if expires_in_seconds > 0 else None
         else:
             default_dur = DEFAULT_EXPIRIES.get(tier)
@@ -293,14 +311,26 @@ class MemoryEngine:
             "cycle", "trt", "test", "taking", "started", "running", "shoulder", "knee", "gut"
         ])
 
-        if is_substantial:
-            tier = "medium"  # retain for 7 days
-            salience = 0.85
-            summary = f"Shared in chat: {clean[:240]}"
+        is_protocol_or_fact = any(kw in clean.lower() for kw in [
+            "run", "running", "cycle", "stack", "protocol", "dose", "dosing", "pin", "pinned",
+            "recon", "reconstituted", "bpc", "tb500", "tirz", "reta", "sema", "trt", "test",
+            "bloodwork", "labs", "injury", "shoulder", "knee", "elbow", "tendon", "gut",
+            "diet", "routine", "split", "surgery", "allergic", "mg", "mcg", "iu"
+        ])
+
+        if is_protocol_or_fact:
+            # Crucial facts, protocols, cycles, and personal background are permanent anchors and never expire!
+            tier = "long"
+            salience = 0.95
+            summary = f"Core Protocol/Fact: {clean[:240]}"
+        elif is_substantial:
+            tier = "medium"  # retain for 30 days
+            salience = 0.80
+            summary = f"Shared in chat: {clean[:200]}"
         else:
             tier = "short"   # ephemeral banter, auto-expire in 48 hours
             salience = 0.5
-            summary = f"Recent comment: {clean[:160]}"
+            summary = f"Recent comment: {clean[:120]}"
 
         return self.add_memory(
             persona_id=persona_id,

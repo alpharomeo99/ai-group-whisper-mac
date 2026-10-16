@@ -1,3 +1,4 @@
+import re
 """AI client: fal.ai OpenAI-compatible router (Claude, GPT, Gemini, Llama, DeepSeek... via one fal key)."""
 import time
 import aiohttp
@@ -69,14 +70,41 @@ async def summarize(settings, title, msgs):
                       f"Group: {title}\n\n{transcript(msgs)}")
 
 
+def format_short_telegram_text(text, max_chars=140):
+    """Enforces authentic, punchy Telegram message length (3 to 15 words, capped cleanly)."""
+    text = (text or "").strip().strip("'\"")
+    lines = [l.strip() for l in text.splitlines() if l.strip()]
+    if lines:
+        text = lines[0]
+    if len(text) > max_chars:
+        sentences = re.split(r'(?<=[.!?])\s+', text)
+        combined = ""
+        for s in sentences:
+            if not s:
+                continue
+            cand = (combined + " " + s).strip() if combined else s
+            if len(cand) <= max_chars:
+                combined = cand
+            else:
+                break
+        if combined and len(combined) >= 10:
+            text = combined
+        else:
+            truncated = text[:max_chars]
+            last_space = truncated.rfind(' ')
+            text = truncated[:last_space] if last_space > 20 else truncated
+    return text.strip()
+
+
 async def draft_reply_with_meta(settings, title, persona, msgs, trigger_sender=None, trigger_text=None, temperature=0.55):
     sep = chr(10)
     persona_prompt = persona or "You are a regular member of this Telegram group."
     rules = [
         "CRITICAL RULES FOR YOUR REPLY:",
+        "- SHORT PUNCHY TELEGRAM MESSAGES: Real users text quickly on phones. Write 3 to 15 words per message MAX (under 120 characters). NO paragraphs. NO essays. NO compound multi-sentence explanations. 1 punchy sentence or short reaction is ideal.",
         "- Stay strictly grounded in the ongoing conversation and context. Do NOT invent fake scenarios, unrequested vendor stories, fake orders, tracking numbers, payment issues, or imaginary drama.",
         "- Do NOT bring up vendors, suppliers, batch numbers, or purchasing unless the person explicitly asked about it in their message.",
-        "- Write naturally in your persona's voice: concise, casual Telegram chat style (typically 1 to 2 sentences, or a quick reaction).",
+        "- Write naturally in your persona's voice: casual lowercase or light casing, authentic gym/telegram slang, zero corporate fluff.",
         "- Avoid robotic structure: NO bullet lists, NO greeting headers, NO medical disclaimers, NO quotes around your text.",
         "- Output ONLY the raw message text to send to the group."
     ]
@@ -93,7 +121,8 @@ async def draft_reply_with_meta(settings, title, persona, msgs, trigger_sender=N
         user_parts.append("Start a natural, casual conversation starter appropriate for this group.")
 
     user = (sep + sep).join(user_parts)
-    return await chat_with_meta(settings, system, user, temperature=temperature)
+    raw_text, meta = await chat_with_meta(settings, system, user, temperature=temperature)
+    return format_short_telegram_text(raw_text, max_chars=140), meta
 
 
 async def draft_reply(settings, title, persona, msgs, trigger_sender=None, trigger_text=None, temperature=0.55):
