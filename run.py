@@ -119,16 +119,18 @@ def set_dock_icon():
 
 class WindowBridge:
     """Small UI bridge for switching between the full dashboard and a compact Live widget."""
-    def __init__(self, window):
+    def __init__(self, window=None):
         self.window = window
 
     def show_mini(self):
         def resize():
             state["mini"] = True
             try:
-                self.window.resize(220, 72)
-                self.window.min_size = (220, 72)
-                self.window.max_size = (220, 72)
+                win = self.window or state.get("window")
+                if win:
+                    win.resize(220, 72)
+                    win.min_size = (220, 72)
+                    win.max_size = (220, 72)
             except Exception as e:
                 print("Could not resize to Live widget:", e)
         threading.Thread(target=resize, daemon=True).start()
@@ -138,9 +140,11 @@ class WindowBridge:
         def resize():
             state["mini"] = False
             try:
-                self.window.max_size = (9999, 9999)
-                self.window.resize(1180, 780)
-                self.window.min_size = (820, 560)
+                win = self.window or state.get("window")
+                if win:
+                    win.max_size = (9999, 9999)
+                    win.resize(1180, 780)
+                    win.min_size = (820, 560)
             except Exception as e:
                 print("Could not restore dashboard size:", e)
         threading.Thread(target=resize, daemon=True).start()
@@ -158,10 +162,14 @@ def main():
     wait_ready()
     hook_sleep_wake()
     set_dock_icon()
-    window = webview.create_window("AI Group Whisper", BASE + "/", width=1180, height=780, min_size=(820, 560))
+    bridge = WindowBridge()
+    window = webview.create_window("AI Group Whisper", BASE + "/", width=1180, height=780, min_size=(820, 560), js_api=bridge)
+    bridge.window = window
     state["window"] = window
-    bridge = WindowBridge(window)
-    window.expose(bridge.show_mini, bridge.show_full, bridge.get_live_status)
+    try:
+        window.expose(bridge.show_mini, bridge.show_full, bridge.get_live_status)
+    except Exception:
+        pass
     webview.start()
     state["quitting"] = True
     try:

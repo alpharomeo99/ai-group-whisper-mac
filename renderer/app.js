@@ -2632,32 +2632,32 @@ if ($('acc-sync-all-avatars')) {
 
 // ---------- Mini Mode / Live Widget Control ----------
 function setupMiniMode() {
-  const miniBtn = document.getElementById(mini-mode);
-  const openGuiBtn = document.getElementById(mini-open-gui);
-  const miniLiveEl = document.getElementById(mini-live);
+  const miniBtn = document.getElementById('mini-mode');
+  const openGuiBtn = document.getElementById('mini-open-gui');
+  const miniLiveEl = document.getElementById('mini-live');
 
   function enterMini() {
-    document.body.classList.add(mini-mode);
-    if (miniLiveEl) miniLiveEl.classList.remove(hidden);
-    if (window.pywebview && window.pywebview.api && typeof window.pywebview.api.show_mini === function) {
+    document.body.classList.add('mini-mode');
+    if (miniLiveEl) miniLiveEl.classList.remove('hidden');
+    if (window.pywebview && window.pywebview.api && typeof window.pywebview.api.show_mini === 'function') {
       window.pywebview.api.show_mini().catch(() => {});
     }
   }
 
   function exitMini() {
-    document.body.classList.remove(mini-mode);
-    if (miniLiveEl) miniLiveEl.classList.add(hidden);
-    if (window.pywebview && window.pywebview.api && typeof window.pywebview.api.show_full === function) {
+    document.body.classList.remove('mini-mode');
+    if (miniLiveEl) miniLiveEl.classList.add('hidden');
+    if (window.pywebview && window.pywebview.api && typeof window.pywebview.api.show_full === 'function') {
       window.pywebview.api.show_full().catch(() => {});
     }
   }
 
-  if (miniBtn) miniBtn.addEventListener(click, enterMini);
-  if (openGuiBtn) openGuiBtn.addEventListener(click, exitMini);
+  if (miniBtn) miniBtn.addEventListener('click', enterMini);
+  if (openGuiBtn) openGuiBtn.addEventListener('click', exitMini);
 }
 
-if (document.readyState === loading) {
-  document.addEventListener(DOMContentLoaded, setupMiniMode);
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', setupMiniMode);
 } else {
   setupMiniMode();
 }

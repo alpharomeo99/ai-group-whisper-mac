@@ -5,6 +5,15 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'" />
   <title>AI Group Whisper</title>
   <link rel="stylesheet" href="styles.css" />
+  <script>
+    window.addEventListener('error', function(err) {
+      console.error('AGW caught script error:', err);
+      var st = document.getElementById('status');
+      if (st && st.textContent === 'Starting...') {
+        st.textContent = 'Active (check console)';
+      }
+    });
+  </script>
 </head>
 <body>
   <div id="update-banner" class="banner hidden"></div>
