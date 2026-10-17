@@ -210,6 +210,77 @@ class Store:
                 pass  # already migrated
         self.db.commit()
         self.seed_xbiolabs_and_personas()
+        self._sanitize_name_calling_on_startup()
+
+
+    def _sanitize_name_calling_on_startup(self):
+        """Scrubs robotic name-addressing patterns from existing persona prompts, pending daily batch items, and queued messages."""
+        try:
+            cand_rows = self.rows("SELECT name FROM personas UNION SELECT name FROM accounts")
+            cand_names = [r["name"] for r in cand_rows if r.get("name")]
+
+            cur = self.db.cursor()
+            # 1. Persona prompts: replace old habit example or instructions encouraging name-calling
+            cur.execute("SELECT id, prompt FROM personas")
+            for pid, p_prompt in cur.fetchall():
+                if not p_prompt:
+                    continue
+                updated = p_prompt
+                if "replies to people by name" in updated:
+                    updated = updated.replace("replies to people by name", "speaks directly without using names")
+                if "replies by name" in updated:
+                    updated = updated.replace("replies by name", "speaks directly without using names")
+                if updated != p_prompt:
+                    cur.execute("UPDATE personas SET prompt=? WHERE id=?", (updated, pid))
+
+            def _clean(t):
+                if not t:
+                    return ""
+                t = t.strip()
+                t = re.sub(r"^@[\w.-]+[:,]?\s*", "", t)
+                for nm in cand_names:
+                    if not nm or len(nm.strip()) < 2:
+                        continue
+                    esc = re.escape(nm.strip())
+                    pat = rf"^(?:(?:hey|hi|hello|yo|thanks|thank you|yeah|yes|nah|agreed|true|good point|spot on|same here)\s+)?@?{esc}[,:]\s*"
+                    t = re.sub(pat, "", t, flags=re.IGNORECASE)
+                    t = re.sub(rf"^@?{esc}[,:]\s*", "", t, flags=re.IGNORECASE)
+                    t = re.sub(rf",\s*@?{esc}([\.!?]|\s*$)", r"\1", t, flags=re.IGNORECASE)
+                    t = re.sub(rf"\b(?:thanks|thank you)\s+@?{esc}\b", "thanks", t, flags=re.IGNORECASE)
+                    t = re.sub(rf"\b(?:good point|spot on)\s+@?{esc}\b", "good point", t, flags=re.IGNORECASE)
+                    t = re.sub(rf"\b(?:hey|hi)\s+@?{esc}\b", "", t, flags=re.IGNORECASE)
+                t = re.sub(r"^\s*[,:;-]\s*", "", t)
+                t = re.sub(r"\s{2,}", " ", t).strip()
+                return t
+
+            # 2. Pending daily batch items
+            cur.execute("SELECT id, text FROM daily_batch_items WHERE status='pending'")
+            for item_id, txt in cur.fetchall():
+                if not txt:
+                    continue
+                clean_txt = _clean(txt)
+                if clean_txt != txt and clean_txt:
+                    cur.execute("UPDATE daily_batch_items SET text=? WHERE id=?", (clean_txt, item_id))
+
+            # 3. Pending queue send jobs
+            cur.execute("SELECT id, payload FROM queue WHERE kind='send' AND status='pending'")
+            for qid, payload_str in cur.fetchall():
+                if not payload_str:
+                    continue
+                try:
+                    p_data = json.loads(payload_str)
+                    old_txt = p_data.get("text")
+                    if old_txt:
+                        new_txt = _clean(old_txt)
+                        if new_txt != old_txt and new_txt:
+                            p_data["text"] = new_txt
+                            cur.execute("UPDATE queue SET payload=? WHERE id=?", (json.dumps(p_data), qid))
+                except Exception:
+                    pass
+
+            self.db.commit()
+        except Exception as e:
+            log.warning("Failed to sanitize name-calling on startup: %s", e)
 
     def seed_xbiolabs_and_personas(self):
         return self.reconcile_personas_and_accounts()
@@ -396,6 +467,7 @@ class Store:
                     f"How you write: {typing_style}",
                     "- Message length: varies naturally from 2-4 words ('same here', 'what volume?') to 1-2 punchy sentences. Never write long essay paragraphs.",
                     "- Anti-AI constraints: NEVER say delve, crucial, testament, landscape, dynamic, furthermore, in conclusion, or echo the user with 'great point'. Never sound like customer support.",
+                    "- No robotic name-calling: Real people in Telegram group chats almost NEVER address people by name ('Hey John,', 'Thanks Alice,', 'David, what do you think?'). Chat messages are direct and context is already clear. NEVER start messages with someone's name, greeting + name, or @mention people in routine replies.",
                     "- Community: You are an authentic peer and active member of the community.",
                     xbiolabs_rapport
                 ]

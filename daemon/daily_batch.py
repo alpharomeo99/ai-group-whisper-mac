@@ -195,8 +195,9 @@ class DailyBatchEngine:
             "1. CONTEXT GROUNDING: Ground the conversation naturally in the community's subject matter (fitness, training splits, recovery, peptide protocol calculations). Do NOT hallucinate unrequested stories about placing orders, fake package tracking, website checkout glitches, or fake drama.\n"
             "2. VENDOR POLICY: Do NOT initiate unprompted conversations about vendors, suppliers, or purchasing. If members talk about protocols, discuss dosing math and technique naturally. All personas have had smooth, positive peer experiences.\n"
             "3. NATURAL CONVERSATIONAL DYNAMICS: Write like real community members texting from their phones with natural variety: quick punchy reactions or banter (3 to 10 words), typical casual comments (10 to 25 words), and occasional detailed personal experience or routine shares (2 to 3 sentences, under 60 words). Never write multi-paragraph walls of text, formal essays, or robotic bullet lists.\n"
-            "4. ORGANIC TURN-TAKING: Distribute turns naturally across the provided personas.\n"
-            "5. OUTPUT FORMAT: Return ONLY a valid JSON array of message objects matching this exact format:\n"
+            "4. NO SCRIPT-LIKE NAME-DROPPING: In real Telegram groups, friends and peers almost NEVER address each other by name (DO NOT write 'Hey Leila,', 'Mark, what do you think?', 'Thanks Dave,'). Real group chatter is casual, direct, and unscripted. Personas must NEVER call each other by name or use @mentions in dialogue turns.\n"
+            "5. ORGANIC TURN-TAKING: Distribute turns naturally across the provided personas.\n"
+            "6. OUTPUT FORMAT: Return ONLY a valid JSON array of message objects matching this exact format:\n"
             "[\n"
             "  {\n"
             "    \"persona_id\": <int>,\n"
@@ -218,7 +219,7 @@ class DailyBatchEngine:
             f"TASK:\n"
             f"Create a natural {count}-message conversational thread for today between these personas.\n"
             f"Spread 'offset_minutes' across realistic intervals (e.g. 15, 45, 110, 240).\n"
-            f"Keep messages concise, grounded, and authentic. Return strictly the JSON array."
+            f"Keep messages concise, grounded, and authentic without addressing each other by name. Return strictly the JSON array."
         )
 
         settings = {k: self.store.get(k) for k in ("fal_key", "ai_model")}
@@ -261,14 +262,14 @@ class DailyBatchEngine:
             log.info("Batch items purged or insufficient; loading pristine domain fallback dialogue")
             items = self._fallback_dialogue(candidates, group_domain, count)
 
-        # Enforce strict Telegram punchiness on all items
+        # Enforce natural Telegram dynamics and strip any robotic name-calling across all items
         try:
-            from daemon.ai import format_short_telegram_text
+            cand_names = [c.get("persona_name") or c.get("account_name") for c in candidates if c.get("persona_name") or c.get("account_name")]
             for it in items:
                 if it.get("text"):
-                    it["text"] = format_short_telegram_text(it["text"], max_chars=360)
-        except Exception:
-            pass
+                    it["text"] = self.ai.format_telegram_message(it["text"], names=cand_names, max_chars=360)
+        except Exception as e:
+            log.warning("Error formatting batch items: %s", e)
 
         # 4. Schedule the items throughout today
         today = self.today_str()

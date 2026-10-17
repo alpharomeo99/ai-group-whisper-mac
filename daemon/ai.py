@@ -1,10 +1,19 @@
-import re
 """AI client: fal.ai OpenAI-compatible router (Claude, GPT, Gemini, Llama, DeepSeek... via one fal key)."""
+import re
 import time
 import aiohttp
 
 FAL_BASE = "https://fal.run/openrouter/router/openai/v1"
 DEFAULT_MODEL = "google/gemini-2.5-flash"
+
+SAFE_INTERJECTIONS = {
+    'honestly', 'actually', 'personally', 'basically', 'definitely', 'certainly',
+    'absolutely', 'frankly', 'bro', 'man', 'mate', 'dude', 'guys', 'everyone',
+    'team', 'folks', 'yeah', 'yes', 'nope', 'nah', 'wait', 'look', 'listen',
+    'true', 'agreed', 'right', 'well', 'okay', 'ok', 'sure', 'anyway', 'anyways',
+    'also', 'meanwhile', 'first', 'second', 'third', 'lastly', 'finally',
+    'today', 'yesterday', 'tomorrow', 'morning', 'night', 'tonight'
+}
 
 
 class AIError(Exception):
@@ -70,15 +79,80 @@ async def summarize(settings, title, msgs):
                       f"Group: {title}\n\n{transcript(msgs)}")
 
 
-def format_telegram_message(text, max_chars=360):
-    """Enforces natural Telegram message dynamics (casual, authentic phrasing without robotic walls of text).
-    Allows natural variation from quick punchy quips (3-10 words) up to detailed 2-3 sentence explanations (under 360 chars).
-    Preserves multiple short lines when appropriate, cleans quotes/artifacts, and prevents mid-word truncation.
+def strip_addressing_names(text, names=None):
+    """Strips robotic name addressing, greeting prefixes, and @mentions from group chat messages.
+    Preserves authentic casual interjections like 'Bro, ', 'Honestly, ', 'Yeah, '.
     """
     if not text:
         return ""
     text = text.strip()
+
+    # 1. Strip leading @mentions: '@john what do you think?' -> 'what do you think?'
+    text = re.sub(r'^@[\w.-]+[:,]?\s*', '', text)
+
+    # 2. Targeted name stripping if names are provided
+    target_names = set()
+    if names:
+        for n in names:
+            if not n:
+                continue
+            raw = str(n).strip()
+            if len(raw) >= 2:
+                target_names.add(raw.lower())
+                first = raw.split()[0].lower()
+                if len(first) >= 2:
+                    target_names.add(first)
+
+    for name in target_names:
+        esc = re.escape(name)
+        # Leading greetings or acknowledgements followed by name: 'Hey Alice, ', 'Thanks Bob, '
+        pat_leading = rf'^(?:(?:hey|hi|hello|yo|thanks|thank you|yeah|yes|nah|agreed|true|good point|spot on|same here)\s+)?@?{esc}[,:]\s*'
+        text = re.sub(pat_leading, '', text, flags=re.IGNORECASE)
+        # Leading bare name: 'Alice, ' or 'Alice: '
+        text = re.sub(rf'^@?{esc}[,:]\s*', '', text, flags=re.IGNORECASE)
+        # Mid-sentence / end-of-sentence name addressing: 'what do you think, Alice?' -> 'what do you think?'
+        text = re.sub(rf',\s*@?{esc}([\.!?]|\s*$)', r'\1', text, flags=re.IGNORECASE)
+        # 'Good point Alice' / 'Thanks Alice'
+        text = re.sub(rf'\b(?:thanks|thank you)\s+@?{esc}\b', 'thanks', text, flags=re.IGNORECASE)
+        text = re.sub(rf'\b(?:good point|spot on)\s+@?{esc}\b', 'good point', text, flags=re.IGNORECASE)
+        text = re.sub(rf'\b(?:hey|hi)\s+@?{esc}\b', '', text, flags=re.IGNORECASE)
+
+    # 3. Generic untargeted greeting + name cleaner
+    # 'Hey/Hi/Yo/Hello <Word>[,:] <rest>' e.g. 'Hey David, how is it going?'
+    m = re.match(r'^(?:hey|hi|hello|yo)\s+@?([a-zA-Z]{2,15})[,:]\s*(.*)$', text, flags=re.IGNORECASE)
+    if m:
+        target = m.group(1).lower()
+        rest = m.group(2).strip()
+        if target not in SAFE_INTERJECTIONS and rest:
+            text = rest
+
+    # '<Word>[,:] <rest>' where Word is capitalized and not an interjection
+    m = re.match(r'^@?([a-zA-Z]{2,15})[,:]\s+(.*)$', text)
+    if m:
+        target = m.group(1).lower()
+        rest = m.group(2).strip()
+        if target not in SAFE_INTERJECTIONS and rest:
+            text = rest
+
+    # Clean leftover punctuation or double spaces
+    text = re.sub(r'^\s*[,:;-]\s*', '', text)
+    text = re.sub(r'\s{2,}', ' ', text).strip()
+    return text
+
+
+def format_telegram_message(text, names=None, max_chars=360):
+    """Enforces natural Telegram message dynamics (casual, authentic phrasing without robotic walls of text).
+    Allows natural variation from quick punchy quips (3-10 words) up to detailed 2-3 sentence explanations (under 360 chars).
+    Strips robotic name-calling, preserves multi-line quips, cleans quotes/artifacts, and prevents mid-word truncation.
+    """
+    if not text:
+        return ""
+    text = text.strip()
+    # Strip LLM sender labels like '[Dave]: ' or 'Alice: '
     text = re.sub(r'^(?:\[[^\]]+\]:?|\w+:\s*)\s*', '', text).strip().strip("'\"")
+
+    # Clean out robotic name-calling / salutations
+    text = strip_addressing_names(text, names=names)
 
     raw_lines = [l.strip() for l in text.splitlines() if l.strip()]
     if not raw_lines:
@@ -113,17 +187,17 @@ def format_telegram_message(text, max_chars=360):
     return text.strip()
 
 
-def format_short_telegram_text(text, max_chars=360):
+def format_short_telegram_text(text, names=None, max_chars=360):
     """Backward-compatible wrapper for format_telegram_message with natural dynamic length."""
-    return format_telegram_message(text, max_chars=max_chars)
+    return format_telegram_message(text, names=names, max_chars=max_chars)
 
 
-
-async def draft_reply_with_meta(settings, title, persona, msgs, trigger_sender=None, trigger_text=None, temperature=0.55):
+async def draft_reply_with_meta(settings, title, persona, msgs, trigger_sender=None, trigger_text=None, known_names=None, temperature=0.55):
     sep = chr(10)
     persona_prompt = persona or "You are a regular member of this Telegram group."
     rules = [
         "CRITICAL RULES FOR YOUR REPLY:",
+        "- NO CALLING PEOPLE BY NAME: Do NOT address the sender or group members by name (NO 'Hey John,', 'John, ...', '@john', or 'Thanks Dave,'). Real people in Telegram group chats almost never use names in routine replies because the message is already visually linked by Telegram's reply bubble. Speak directly to the topic or question without addressing anyone by name.",
         "- NATURAL CONVERSATIONAL DYNAMICS: Chat like a real person in a Telegram community. Vary your message length naturally based on the conversation:",
         "  * Quick banter, reactions, or short check-ins: 3 to 10 words.",
         "  * Typical comments, chiming in, or answering: 1 to 2 casual sentences (10 to 25 words).",
@@ -140,18 +214,25 @@ async def draft_reply_with_meta(settings, title, persona, msgs, trigger_sender=N
     user_parts = [f"Group: {title}"]
     if msgs:
         user_parts.append(f"Recent Chat History:{sep}{transcript(msgs)}")
-    if trigger_text and trigger_sender:
-        user_parts.append(f'You are directly responding or reacting to this latest message from {trigger_sender}:{sep}"{trigger_text}"')
+    if trigger_text:
+        user_parts.append(f'You are reacting or replying directly to this message in the chat (do NOT address the sender by name):{sep}"{trigger_text}"')
     elif msgs:
-        user_parts.append("Respond naturally to the latest conversation above.")
+        user_parts.append("Respond naturally to the latest conversation above (do NOT address anyone by name).")
     else:
         user_parts.append("Start a natural, casual conversation starter appropriate for this group.")
 
     user = (sep + sep).join(user_parts)
     raw_text, meta = await chat_with_meta(settings, system, user, temperature=temperature)
-    return format_telegram_message(raw_text, max_chars=360), meta
+    names_to_clean = list(known_names or [])
+    if trigger_sender and trigger_sender not in names_to_clean:
+        names_to_clean.append(trigger_sender)
+    return format_telegram_message(raw_text, names=names_to_clean, max_chars=360), meta
 
 
-async def draft_reply(settings, title, persona, msgs, trigger_sender=None, trigger_text=None, temperature=0.55):
-    content, _ = await draft_reply_with_meta(settings, title, persona, msgs, trigger_sender=trigger_sender, trigger_text=trigger_text, temperature=temperature)
+async def draft_reply(settings, title, persona, msgs, trigger_sender=None, trigger_text=None, known_names=None, temperature=0.55):
+    content, _ = await draft_reply_with_meta(
+        settings, title, persona, msgs,
+        trigger_sender=trigger_sender, trigger_text=trigger_text,
+        known_names=known_names, temperature=temperature
+    )
     return content

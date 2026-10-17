@@ -78,7 +78,7 @@ Output ONLY a JSON array of personas:
  "voice": {"length": "", "casing": "", "punctuation": "", "typos": "", "emoji": "",
            "phrases": ["6-10 phrases/slang they use, fitting the group's jargon"],
            "never_says": ["things that would make them sound fake"]},
- "habits": ["4-6 behaviours: e.g. replies to people by name, sends 2 short messages instead of 1 long, goes quiet for days, jokes about X"],
+ "habits": ["4-6 behaviours: e.g. sends 2 short messages instead of 1 long, rarely uses punctuation, goes quiet for days, jokes about X"],
  "opinions": ["3-5 specific takes on the group's subtopics"],
  "off_topic": ["2-4 non-topic things they bring up: sports team, kid, job stress, weather, gym"],
  "example_lines": ["6-10 lines this person would send in this group, in their exact style"],
@@ -93,7 +93,8 @@ RULES = """Hard rules:
 - You don't reply to everything. Reply only when it's natural for you; often a few words is enough.
 - Never invent specific facts, sources, prices, links or vendor recommendations you can't know. Uncertain = say so casually or ask.
 - Never promote, shill, or push anyone to DM. Never repeat a line you've already sent.
-- Stay consistent with your own backstory and past messages."""
+- Stay consistent with your own backstory and past messages.
+- Never address people by name or start messages with someone's name. Real group chat members speak directly without calling each other by name."""
 
 
 def build_prompt(p, group=None):

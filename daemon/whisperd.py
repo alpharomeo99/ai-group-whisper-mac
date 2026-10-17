@@ -873,6 +873,10 @@ class Daemon:
                         trigger_sender = trig_rows[0].get("sender") or ""
                         trigger_text = trig_rows[0].get("text") or ""
 
+                cand_names = [r["name"] for r in self.store.rows("SELECT name FROM personas UNION SELECT name FROM accounts") if r.get("name")]
+                if trigger_sender and trigger_sender not in cand_names:
+                    cand_names.append(trigger_sender)
+
                 text, meta = await ai.draft_reply_with_meta(
                     settings,
                     g.get("title", ""),
@@ -880,6 +884,7 @@ class Daemon:
                     self.store.recent(job["chat_id"], 25),
                     trigger_sender=trigger_sender,
                     trigger_text=trigger_text,
+                    known_names=cand_names,
                     temperature=0.55
                 )
                 # Log AI token & latency usage
@@ -901,6 +906,10 @@ class Daemon:
                                  (job["chat_id"], "Draft reply:\n" + text, int(time.time())))
             elif job["kind"] == "send":
                 aid = p.get("account_id") or g.get("account_id")
+                cand_names = [r["name"] for r in self.store.rows("SELECT name FROM personas UNION SELECT name FROM accounts") if r.get("name")]
+                clean_txt = ai.format_telegram_message(p.get("text", ""), names=cand_names, max_chars=360)
+                if clean_txt:
+                    p["text"] = clean_txt
                 async with self.account_session(aid) as cl:
                     secs = self.typing_secs(g, p["text"])
                     try:
@@ -942,6 +951,10 @@ class Daemon:
                     return
 
                 aid = p.get("account_id") or g.get("account_id")
+                cand_names = [r["name"] for r in self.store.rows("SELECT name FROM personas UNION SELECT name FROM accounts") if r.get("name")]
+                clean_txt = ai.format_telegram_message(p.get("text", ""), names=cand_names, max_chars=360)
+                if clean_txt:
+                    p["text"] = clean_txt
                 async with self.account_session(aid) as cl:
                     secs = self.typing_secs(g, p["text"])
                     try:
