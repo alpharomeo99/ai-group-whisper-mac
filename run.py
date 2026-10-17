@@ -128,9 +128,26 @@ class WindowBridge:
             try:
                 win = self.window or state.get("window")
                 if win:
-                    win.resize(220, 72)
-                    win.min_size = (220, 72)
-                    win.max_size = (220, 72)
+                    try:
+                        win.set_title("Live")
+                    except Exception:
+                        pass
+                    native = getattr(win, "native", None)
+                    if native:
+                        try:
+                            from AppKit import NSSize
+                            from PyObjCTools import AppHelper
+                            AppHelper.callAfter(lambda: (
+                                native.setMinSize_(NSSize(160, 42)),
+                                native.setMaxSize_(NSSize(220, 52))
+                            ))
+                        except Exception:
+                            pass
+                    try:
+                        win.on_top = True
+                    except Exception:
+                        pass
+                    win.resize(180, 48)
             except Exception as e:
                 print("Could not resize to Live widget:", e)
         threading.Thread(target=resize, daemon=True).start()
@@ -142,9 +159,26 @@ class WindowBridge:
             try:
                 win = self.window or state.get("window")
                 if win:
-                    win.max_size = (9999, 9999)
+                    try:
+                        win.set_title("AI Group Whisper")
+                    except Exception:
+                        pass
+                    try:
+                        win.on_top = False
+                    except Exception:
+                        pass
+                    native = getattr(win, "native", None)
+                    if native:
+                        try:
+                            from AppKit import NSSize
+                            from PyObjCTools import AppHelper
+                            AppHelper.callAfter(lambda: (
+                                native.setMaxSize_(NSSize(10000, 10000)),
+                                native.setMinSize_(NSSize(720, 500))
+                            ))
+                        except Exception:
+                            pass
                     win.resize(1180, 780)
-                    win.min_size = (820, 560)
             except Exception as e:
                 print("Could not restore dashboard size:", e)
         threading.Thread(target=resize, daemon=True).start()
@@ -163,7 +197,7 @@ def main():
     hook_sleep_wake()
     set_dock_icon()
     bridge = WindowBridge()
-    window = webview.create_window("AI Group Whisper", BASE + "/", width=1180, height=780, min_size=(820, 560), js_api=bridge)
+    window = webview.create_window("AI Group Whisper", BASE + "/", width=1180, height=780, min_size=(160, 42), js_api=bridge)
     bridge.window = window
     state["window"] = window
     try:
