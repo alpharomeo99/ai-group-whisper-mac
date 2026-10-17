@@ -680,7 +680,7 @@ class Daemon:
             except asyncio.TimeoutError:
                 pass
 
-    def persona_for(self, g, persona_id=None, account_id=None):
+    def persona_for(self, g, persona_id=None, account_id=None, topic_context=None):
         """Group override text wins; then the chosen persona; then the persona designed for this group and account; then account fallback."""
         pr = ""
         if (g.get("persona") or "").strip():
@@ -743,7 +743,7 @@ class Daemon:
 
         if effective_pid:
             cid = g.get("chat_id") if isinstance(g, dict) else None
-            mem_ctx = self.memory.get_prompt_memory_context(effective_pid, chat_id=cid)
+            mem_ctx = self.memory.get_prompt_memory_context(effective_pid, chat_id=cid, limit=10, query_text=topic_context)
             if mem_ctx:
                 pr = pr + "\n\n" + mem_ctx
 
@@ -864,7 +864,6 @@ class Daemon:
                 self.store.q("INSERT INTO summaries(chat_id,body,created) VALUES(?,?,?)",
                              (job["chat_id"], body, int(time.time())))
             elif job["kind"] == "draft_reply":
-                chosen_persona = self.persona_for(g, persona_id=p.get("persona_id"), account_id=p.get("account_id"))
                 trigger_sender = p.get("trigger_sender") or ""
                 trigger_text = p.get("trigger_text") or ""
                 if not trigger_text and p.get("trigger"):
@@ -872,6 +871,13 @@ class Daemon:
                     if trig_rows:
                         trigger_sender = trig_rows[0].get("sender") or ""
                         trigger_text = trig_rows[0].get("text") or ""
+
+                chosen_persona = self.persona_for(
+                    g,
+                    persona_id=p.get("persona_id"),
+                    account_id=p.get("account_id"),
+                    topic_context=trigger_text
+                )
 
                 cand_names = [r["name"] for r in self.store.rows("SELECT name FROM personas UNION SELECT name FROM accounts") if r.get("name")]
                 if trigger_sender and trigger_sender not in cand_names:
@@ -885,7 +891,7 @@ class Daemon:
                     trigger_sender=trigger_sender,
                     trigger_text=trigger_text,
                     known_names=cand_names,
-                    temperature=0.55
+                    temperature=0.78
                 )
                 # Log AI token & latency usage
                 self.usage.log_ai("ai_chat", persona_id=p.get("persona_id"), account_id=p.get("account_id"),
@@ -2809,7 +2815,7 @@ async def main():
     await runner.setup()
     await web.TCPSite(runner, "127.0.0.1", a.port).start()
     log.info("listening on 127.0.0.1:%d", a.port)
-    asyncio.create_task(d.ensure_camoufox())
+    # Camoufox auto-download disabled on startup for lean, low-overhead system operation
     asyncio.create_task(d.auto_sync_loop())
     asyncio.create_task(d.daily_batch_loop())
     asyncio.create_task(d.memory_pruner_loop())

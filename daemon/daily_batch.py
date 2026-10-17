@@ -155,7 +155,7 @@ class DailyBatchEngine:
 
             mem_lines = []
             if self.memory:
-                mem_ctx = self.memory.get_prompt_memory_context(c["persona_id"], chat_id=chat_id, limit=4)
+                mem_ctx = self.memory.get_prompt_memory_context(c["persona_id"], chat_id=chat_id, limit=8, query_text=topic)
                 if mem_ctx:
                     mem_lines.append(mem_ctx)
             elif hasattr(self.store, "rows"):

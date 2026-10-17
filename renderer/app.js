@@ -458,7 +458,7 @@ function cfxText(st) {
 }
 async function cfxNav() {
   try { const st = await api('GET', '/camoufox/status');
-    $('nav-cfx').className = 'dot-s ' + (st.ready ? 'ok' : st.running ? 'busy' : 'bad'); return st; } catch { return {}; }
+    if ($('nav-cfx')) $('nav-cfx').className = 'dot-s ' + (st.ready ? 'ok' : st.running ? 'busy' : 'bad'); return st; } catch { return {}; }
 }
 async function loadCfx() {
   const [st, s] = await Promise.all([cfxNav(), api('GET', '/settings'), fetchProxies()]);
@@ -2260,7 +2260,7 @@ function renderMemoryTree(data) {
               <button type="button" class="ghost btn-xs mem-act-del" data-mid="${m.id}" style="color:#ff6b6b;" title="Delete memory node">Delete</button>
             </div>
           </div>
-          <div class="mem-node-text">${esc(m.content)}</div>
+          <div class="mem-node-text">${esc((m.content || '').replace(/^(Core Protocol\/Fact:|Established Fact:|Shared in chat:|Core Established Facts:)\s*/gi, '').trim() || m.content)}</div>
         </div>
       `;
     }).join('');
@@ -2273,6 +2273,23 @@ function renderMemoryTree(data) {
   if (listLong) listLong.innerHTML = renderNodes(data.tree.anchors, true, false);
   if (listMed) listMed.innerHTML = renderNodes(data.tree.weekly, false, true);
   if (listShort) listShort.innerHTML = renderNodes(data.tree.short_term, false, false);
+
+  // Real-time memory filter
+  const filterInput = $('mem-filter-nodes');
+  const applyMemFilter = () => {
+    const q = (filterInput?.value || '').trim().toLowerCase();
+    document.querySelectorAll('.mem-node-card').forEach(card => {
+      const txt = (card.querySelector('.mem-node-text')?.textContent || '').toLowerCase();
+      card.style.display = (!q || txt.includes(q)) ? '' : 'none';
+    });
+  };
+  if (filterInput && !filterInput._bound) {
+    filterInput._bound = true;
+    filterInput.addEventListener('input', applyMemFilter);
+  }
+  if (filterInput && filterInput.value.trim()) {
+    applyMemFilter();
+  }
 
   // Wire node action listeners
   document.querySelectorAll('.mem-act-del').forEach(btn => {

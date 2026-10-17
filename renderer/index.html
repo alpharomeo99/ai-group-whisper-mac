@@ -32,13 +32,11 @@
         <button data-view="network"><span class="ic">&#10070;</span>Network</button>
         <button data-view="personas"><span class="ic">&#9813;</span>Personas</button>
         <button data-view="memory"><span class="ic">&#9778;</span>Memory</button>
-        <button data-view="usage"><span class="ic">&#9680;</span>Usage</button>
         <button data-view="batch"><span class="ic">&#9200;</span>Batch Maker</button>
         <button data-view="messages"><span class="ic">&#9993;</span>Messages &amp; DMs</button>
         <button data-view="groups"><span class="ic">&#9776;</span>Groups</button>
         <div class="nav-label">Accounts</div>
         <button data-view="accounts"><span class="ic">&#9786;</span>Telegram accounts</button>
-        <button data-view="automation"><span class="ic">&#9881;</span>Automation <span id="nav-cfx" class="dot-s"></span></button>
         <div class="nav-label">App</div>
         <button data-view="settings"><span class="ic">&#9881;</span>Settings</button>
       </nav>
@@ -65,7 +63,7 @@
         <div class="stats" id="ov-stats"></div>
         <div class="grid2">
           <div class="panel"><div class="panel-head"><h3>Accounts</h3><button data-go="accounts" class="ghost">Manage</button></div><div id="ov-accounts"></div></div>
-          <div class="panel"><div class="panel-head"><h3>Proxies</h3><button data-go="automation" class="ghost">Manage</button></div><div id="ov-proxies"></div></div>
+          <div class="panel"><div class="panel-head"><h3>Proxies</h3><button data-go="accounts" class="ghost">Manage</button></div><div id="ov-proxies"></div></div>
         </div>
       </section>
       <section id="view-network" class="hidden flush"><div id="gx" class="gx"></div></section>
@@ -80,8 +78,6 @@
           <div class="row">
             <button type="button" class="primary" id="p-btn-new">+ New Persona</button>
             <button type="button" class="ghost" id="p-btn-reconcile" title="Verify all personas match xbiolabs requirements and auto-link unassigned accounts">⚡ Auto-link &amp; Verify</button>
-            <button type="button" class="ghost" id="p-btn-gen">Study Group</button>
-            <button type="button" class="ghost" id="p-btn-test-chat">Test Chat</button>
           </div>
         </div>
 
@@ -120,7 +116,7 @@
             <div class="p-roster-count-wrap">
               <span id="p-roster-count" class="hint">0 personas</span>
             </div>
-            <button type="button" class="ghost" id="p-btn-new-roster">+ Create Persona</button>
+            
           </div>
 
           <!-- Personas Roster Grid -->
@@ -250,7 +246,7 @@
 
 
               <!-- Card 3: Psychometrics & Cognitive Stance -->
-              <div class="card ps-card">
+              <div class="card ps-card" style="display:none;">
                 <div class="ps-card-title">2. Psychometrics &amp; Cognitive Stance</div>
                 <div class="ps-grid-2">
                   <div class="ps-slider-group">
@@ -571,7 +567,7 @@
               </div>
               <div class="mem-stat-chip">
                 <span class="mem-stat-val" id="mem-stat-weekly">0</span>
-                <span class="mem-stat-lbl">Weekly Protocols (7d)</span>
+                <span class="mem-stat-lbl">Extended Context (30d)</span>
               </div>
               <div class="mem-stat-chip">
                 <span class="mem-stat-val" id="mem-stat-short">0</span>
@@ -612,6 +608,10 @@
               </div>
             </div>
 
+            <!-- Memory Filter Bar -->
+            <div style="margin-bottom: 12px;">
+              <input type="text" id="mem-filter-nodes" placeholder="Search memories (e.g. BPC, cycle, split, dose, Janoshik)..." style="width: 100%; padding: 7px 12px; font-size: 12px; background: #080a10; border: 1px solid var(--line2); border-radius: 6px; color: var(--text);" />
+            </div>
             <!-- Memory Tree Nodes Container -->
             <div id="mem-tree-content">
               <!-- Tier 1: Permanent Anchors -->

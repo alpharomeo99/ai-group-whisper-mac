@@ -1,12 +1,12 @@
 """Episodic and Semantic Memory Engine for AI Personas.
 
 Manages multi-tier persona memory retention:
-- 'long': Permanent anchors, personal biographical facts, chronic health/rehab history.
-- 'medium': 7-day thread storylines, active orders, weekly protocols, commitments.
-- 'short': 24-48h ephemeral context, short-term banter, transient reactions.
+- 'long': Permanent anchors, personal biographical facts, chronic health/rehab history, cycle/protocol specifics (NEVER expires).
+- 'medium': 30-day extended storylines, active orders, monthly protocols, ongoing discussions.
+- 'short': 48h ephemeral context, short-term banter, transient reactions.
 
-Includes an autonomous Memory Pruning Agent that regularly purges expired,
-useless, and overextended memories while preserving key factual anchors.
+Includes dynamic topic relevance scoring, prefix-clean storage, autonomous pruning,
+and prompt injection that guarantees persona memory consistency.
 """
 
 import time
@@ -18,9 +18,42 @@ log = logging.getLogger("memory")
 
 DEFAULT_EXPIRIES = {
     "short": 48 * 3600,        # 48 hours
-    "medium": 30 * 24 * 3600,  # 30 days (extended so ongoing threads do not prematurely vanish)
+    "medium": 30 * 24 * 3600,  # 30 days
     "long": None               # Permanent anchor (NEVER expires)
 }
+
+STOP_WORDS = {
+    'a', 'about', 'above', 'after', 'again', 'against', 'all', 'am', 'an', 'and', 'any', 'are', 'aren',
+    'as', 'at', 'be', 'because', 'been', 'before', 'being', 'below', 'between', 'both', 'but', 'by',
+    'can', 'could', 'did', 'do', 'does', 'doing', 'down', 'during', 'each', 'few', 'for', 'from',
+    'further', 'had', 'has', 'have', 'having', 'he', 'her', 'here', 'hers', 'herself', 'him', 'himself',
+    'his', 'how', 'i', 'if', 'in', 'into', 'is', 'it', 'its', 'itself', 'just', 'me', 'more', 'most',
+    'my', 'myself', 'no', 'nor', 'not', 'now', 'of', 'off', 'on', 'once', 'only', 'or', 'other', 'our',
+    'ours', 'ourselves', 'out', 'over', 'own', 'same', 'she', 'should', 'so', 'some', 'such', 'than',
+    'that', 'the', 'their', 'theirs', 'them', 'themselves', 'then', 'there', 'these', 'they', 'this',
+    'those', 'through', 'to', 'too', 'under', 'until', 'up', 'very', 'was', 'we', 'were', 'what', 'when',
+    'where', 'which', 'while', 'who', 'whom', 'why', 'with', 'you', 'your', 'yours', 'yourself'
+}
+
+def extract_keywords(text):
+    """Extracts non-stopword alphanumeric tokens (3+ chars) in lowercase."""
+    if not text:
+        return set()
+    return {w for w in re.findall(r'[a-zA-Z0-9_-]{3,}', text.lower()) if w not in STOP_WORDS}
+
+def clean_memory_text(text):
+    """Strips repetitive nested label prefixes from memory content."""
+    if not text:
+        return ""
+    pattern = re.compile(
+        r'^(?:Core Protocol/Fact|Established Fact|Shared in chat|Recent comment|Personal Fact|Key Fact|Core Established Facts)[:\s\-]+',
+        flags=re.IGNORECASE
+    )
+    prev = None
+    while prev != text:
+        prev = text
+        text = pattern.sub('', text).strip()
+    return text
 
 
 class MemoryEngine:
@@ -30,7 +63,7 @@ class MemoryEngine:
         self.ensure_tables()
 
     def ensure_tables(self):
-        """Creates persona_memories and indices if they do not exist."""
+        """Creates persona_memories, indices, and sanitizes existing stored records."""
         with self.store.lock:
             cur = self.store.db.cursor()
             cur.execute("""
@@ -52,7 +85,8 @@ class MemoryEngine:
             """)
             cur.execute("CREATE INDEX IF NOT EXISTS idx_mem_pid_tier ON persona_memories(persona_id, retention_tier, expires_at)")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_mem_chat ON persona_memories(chat_id, created_at)")
-            # Upgrade existing protocol, cycle, health, or biographical memories to permanent anchors (long)
+
+            # Upgrade all protocol, cycle, health, or biographical memories to permanent anchors (long)
             cur.execute("""
                 UPDATE persona_memories
                 SET retention_tier='long', expires_at=NULL, salience=0.95
@@ -68,6 +102,17 @@ class MemoryEngine:
                     lower(content) LIKE '%stack%'
                 )
             """)
+
+            # Clean up nested prefix artifacts from stored memory contents
+            cur.execute("SELECT id, content FROM persona_memories WHERE content LIKE '%:%'")
+            rows = cur.fetchall()
+            for r in rows:
+                mid = r[0] if isinstance(r, (tuple, list)) else r["id"]
+                orig_c = r[1] if isinstance(r, (tuple, list)) else r["content"]
+                cleaned = clean_memory_text(orig_c)
+                if cleaned and cleaned != orig_c:
+                    cur.execute("UPDATE persona_memories SET content=? WHERE id=?", (cleaned, mid))
+
             self.store.db.commit()
 
     def add_memory(self, persona_id, content, account_id=None, chat_id=None, kind="statement",
@@ -75,7 +120,7 @@ class MemoryEngine:
         """Adds a new memory node for a persona."""
         now_ts = int(time.time())
         tier = retention_tier if retention_tier in ("short", "medium", "long") else "medium"
-        
+
         if tier == "long":
             expires_at = None
         elif expires_in_seconds is not None:
@@ -84,7 +129,7 @@ class MemoryEngine:
             default_dur = DEFAULT_EXPIRIES.get(tier)
             expires_at = now_ts + default_dur if default_dur else None
 
-        clean_content = str(content or "").strip()
+        clean_content = clean_memory_text(str(content or "").strip())
         if not clean_content:
             return None
 
@@ -129,6 +174,7 @@ class MemoryEngine:
         now_ts = int(time.time())
         for m in all_memories:
             item = dict(m)
+            item["content"] = clean_memory_text(item.get("content", ""))
             # Add relative status
             if item.get("expires_at"):
                 remaining = item["expires_at"] - now_ts
@@ -181,14 +227,7 @@ class MemoryEngine:
             return True
 
     def prune_memories(self, persona_id=None):
-        """Autonomous Memory Pruning Agent.
-        
-        1. Identifies expired records (expires_at <= now).
-        2. Deletes expired short-term transient memories and low-salience (<0.35) items.
-        3. For medium-term items: if high salience (>=0.85) and accessed >= 2 times,
-           promotes to a permanent anchor; otherwise prunes.
-        4. Removes duplicate statements within the same persona.
-        """
+        """Autonomous Memory Pruning Agent."""
         now_ts = int(time.time())
         scanned = 0
         pruned = 0
@@ -212,12 +251,10 @@ class MemoryEngine:
                 accesses = int(r.get("access_count") or 0)
 
                 if tier == "short" or salience < 0.4:
-                    # Prune ephemeral chatter
                     cur.execute("DELETE FROM persona_memories WHERE id=?", (mid,))
                     pruned += 1
                 elif tier == "medium":
                     if salience >= 0.85 and accesses >= 2:
-                        # Meaningful ongoing storyline promoted to permanent anchor
                         cur.execute(
                             "UPDATE persona_memories SET retention_tier='long', expires_at=NULL, salience=0.9 WHERE id=?",
                             (mid,)
@@ -245,28 +282,43 @@ class MemoryEngine:
             "retained": max(0, scanned - pruned)
         }
 
-    def get_prompt_memory_context(self, persona_id, chat_id=None, limit=7):
-        """Compiles active memories into an organic, bulleted memory context for AI injection.
-        Updates access_count and last_accessed_at for retrieved nodes.
+    def get_prompt_memory_context(self, persona_id, chat_id=None, limit=10, query_text=None):
+        """Retrieves and ranks persona memories by topic relevance, tier anchor status, and salience.
+        Compiles them into clean, bulleted facts for seamless AI prompt injection.
         """
         if not persona_id:
             return ""
 
         now_ts = int(time.time())
-        # Retrieve valid, non-expired memories: prioritize anchors, then high salience
+        # Fetch candidate active memories (permanent anchors and non-expired records)
         sql = """
-            SELECT id, kind, content, retention_tier, salience
+            SELECT id, kind, content, retention_tier, salience, created_at
             FROM persona_memories
             WHERE persona_id=? AND (expires_at IS NULL OR expires_at > ?)
-            ORDER BY CASE retention_tier WHEN 'long' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END, salience DESC, created_at DESC
-            LIMIT ?
+            ORDER BY CASE retention_tier WHEN 'long' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END, created_at DESC
+            LIMIT 40
         """
-        rows = self.store.rows(sql, (persona_id, now_ts, limit))
-        if not rows:
+        candidates = self.store.rows(sql, (persona_id, now_ts))
+        if not candidates:
             return ""
 
+        query_keywords = extract_keywords(query_text) if query_text else set()
+
+        def score_cand(cand):
+            c_text = clean_memory_text(cand.get("content", ""))
+            mem_words = extract_keywords(c_text)
+            overlap = len(query_keywords.intersection(mem_words)) if query_keywords else 0
+            tier = cand.get("retention_tier")
+            tier_score = 4.0 if tier == "long" else (2.0 if tier == "medium" else 0.8)
+            salience = float(cand.get("salience") or 0.7)
+            return (overlap * 5.0) + tier_score + (salience * 2.0)
+
+        # Rank candidates by relevance
+        ranked = sorted(candidates, key=score_cand, reverse=True)
+        selected = ranked[:limit]
+
         # Update access stats
-        ids = [r["id"] for r in rows]
+        ids = [r["id"] for r in selected]
         with self.store.lock:
             cur = self.store.db.cursor()
             placeholders = ",".join("?" * len(ids))
@@ -277,23 +329,25 @@ class MemoryEngine:
             self.store.db.commit()
 
         lines = [
-            "--- YOUR ESTABLISHED MEMORIES & PAST STATEMENTS (STAY ACCURATELY CONSISTENT) ---"
+            "--- YOUR ESTABLISHED MEMORIES & BACKGROUND FACTS (STAY 100% CONSISTENT) ---"
         ]
-        for r in rows:
+        for r in selected:
+            clean_c = clean_memory_text(r["content"])
+            if not clean_c:
+                continue
             tier_label = (
                 "[Permanent Fact]" if r["retention_tier"] == "long"
-                else "[Recent Storyline]" if r["retention_tier"] == "medium"
-                else "[Recent Note]"
+                else "[Recent Context]"
             )
-            lines.append(f"{tier_label} {r['content']}")
+            lines.append(f"{tier_label} {clean_c}")
 
-        lines.append("Never contradict any of your past statements or established facts above.")
+        lines.append("ACCURACY & MEMORY CONSISTENCY: These facts represent your established history and past statements. Never contradict them or invent conflicting claims.")
         return "\n".join(lines)
 
     def auto_record_statement(self, persona_id, account_id, chat_id, text, is_reply_to=None):
         """Parses outgoing message text and autonomously stores key statements as episodic memories."""
-        clean = (text or "").strip()
-        if not clean or len(clean) < 10:
+        clean = clean_memory_text((text or "").strip())
+        if not clean or len(clean) < 8:
             return None
 
         # Filter out purely generic noise
@@ -304,37 +358,32 @@ class MemoryEngine:
         if any(bad in clean.lower() for bad in ["payment portal", "weak batch", "card processor", "recurring nightmare", "bad vial", "shit show", "bugging out"]):
             return None
 
-        # Determine retention tier and salience based on substance
-        is_substantial = any(kw in clean.lower() for kw in [
-            "pin", "pinned", "recon", "reconstituted", "bpc", "tb500", "tirz", "reta", "sema",
-            "batch", "order", "shipping", "xbiolabs", "janoshik", "bloodwork", "dose", "mg", "mcg",
-            "cycle", "trt", "test", "taking", "started", "running", "shoulder", "knee", "gut"
-        ])
-
+        # Check for first-person protocol, cycle, health, or biographical claims
         is_protocol_or_fact = any(kw in clean.lower() for kw in [
             "run", "running", "cycle", "stack", "protocol", "dose", "dosing", "pin", "pinned",
             "recon", "reconstituted", "bpc", "tb500", "tirz", "reta", "sema", "trt", "test",
             "bloodwork", "labs", "injury", "shoulder", "knee", "elbow", "tendon", "gut",
-            "diet", "routine", "split", "surgery", "allergic", "mg", "mcg", "iu"
+            "diet", "routine", "split", "surgery", "allergic", "mg", "mcg", "iu", "taking", "started"
+        ])
+
+        is_substantial = any(kw in clean.lower() for kw in [
+            "workout", "gym", "squat", "bench", "deadlift", "sets", "reps", "sleep", "recovery",
+            "batch", "order", "shipping", "xbiolabs", "janoshik", "experience", "felt", "works"
         ])
 
         if is_protocol_or_fact:
-            # Crucial facts, protocols, cycles, and personal background are permanent anchors and never expire!
             tier = "long"
             salience = 0.95
-            summary = f"Core Protocol/Fact: {clean[:240]}"
         elif is_substantial:
-            tier = "medium"  # retain for 30 days
+            tier = "medium"
             salience = 0.80
-            summary = f"Shared in chat: {clean[:200]}"
         else:
-            tier = "short"   # ephemeral banter, auto-expire in 48 hours
-            salience = 0.5
-            summary = f"Recent comment: {clean[:120]}"
+            tier = "short"
+            salience = 0.50
 
         return self.add_memory(
             persona_id=persona_id,
-            content=summary,
+            content=clean[:280],
             account_id=account_id,
             chat_id=chat_id,
             kind="statement",
