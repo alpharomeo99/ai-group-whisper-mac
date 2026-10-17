@@ -95,42 +95,6 @@ class DailyBatchEngine:
                     candidates.append(r)
                     seen.add(key)
 
-        # 5. Extended fallback: pair active accounts that lack a persona with unassigned available personas
-        if len(candidates) < 2:
-            unassigned_accs = self.store.rows(
-                "SELECT a.id as account_id, a.name as account_name, a.phone as account_phone "
-                "FROM accounts a "
-                "WHERE a.active=1 AND a.persona_id IS NULL"
-            )
-            used_pids = {c["persona_id"] for c in candidates}
-            avail_personas = self.store.rows(
-                "SELECT p.id as persona_id, p.name as persona_name, p.details, p.prompt "
-                "FROM personas p "
-                "ORDER BY p.id ASC"
-            )
-            unassigned_personas = [p for p in avail_personas if p["persona_id"] not in used_pids]
-            for i, acc in enumerate(unassigned_accs):
-                if i < len(unassigned_personas):
-                    p = unassigned_personas[i]
-                    key = (p["persona_id"], acc["account_id"])
-                    if key not in seen:
-                        candidates.append({
-                            "persona_id": p["persona_id"],
-                            "persona_name": p["persona_name"],
-                            "details": p["details"],
-                            "prompt": p["prompt"],
-                            "account_id": acc["account_id"],
-                            "account_name": acc["account_name"],
-                            "account_phone": acc["account_phone"]
-                        })
-                        seen.add(key)
-                        try:
-                            self.store.q("UPDATE accounts SET persona_id=? WHERE id=? AND persona_id IS NULL",
-                                         (p["persona_id"], acc["account_id"]))
-                            self.store.q("INSERT OR IGNORE INTO group_personas(chat_id, persona_id, account_id, created) VALUES(?,?,?,?)",
-                                         (chat_id, p["persona_id"], acc["account_id"], int(time.time())))
-                        except Exception:
-                            pass
 
         return candidates
 
