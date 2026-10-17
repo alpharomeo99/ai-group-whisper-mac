@@ -110,14 +110,23 @@ class PersonaCadenceOrchestrator:
 
         text_lower = message_text.lower()
         score = 0.25  # baseline conversational presence
-        # Conversational cues: greetings, shared reactions, casual chatter
-        if bool(re.search(r"\b(hey|hi|hello|morning|evening|yo|sup|thanks|thx|appreciate|lol|haha|lmao|damn|nice|good|great|awesome|crazy|true|facts|fr|for real|today|yesterday|weekend)\b", text_lower)):
+        # Conversational cues: greetings, shared reactions, casual chatter, humor and banter
+        if bool(re.search(r"\b(hey|hi|hello|morning|evening|yo|sup|thanks|thx|appreciate|lol|haha|lmao|rofl|dead|bruh|bro|clown|joke|joking|funny|unserious|damn|nice|good|great|awesome|crazy|true|facts|fr|for real|today|yesterday|weekend)\b", text_lower)):
             score += 0.15
 
         # Check for interrogative / question cues
         is_question = "?" in text_lower or bool(re.search(r"\b(who|what|where|when|why|how|anyone|anybody|thoughts|opinion|does|is it|can we|recommend)\b", text_lower))
         if is_question:
             score += 0.25
+
+        # Check for explicit help / guidance requests
+        is_help = bool(re.search(r"\b(help|assist|advice|advise|confused|stuck|newbie|beginner|wondering|guide|how do i|how to|can someone|could someone|question|anyone know|check my)\b", text_lower))
+        if is_help:
+            score += 0.25
+
+        # Broad domain relevance boost: nootropics, wellness, fitness, peptides
+        if bool(re.search(r"\b(nootropic|nootropics|semax|selank|bromantane|modafinil|tyrosine|alpha-gpc|focus|wellness|sleep|sauna|plunge|magnesium|electrolytes|fitness|gym|split|ppl|hypertrophy|workout|bench|squat|deadlift|bpc|tb500|tirz|reta|peptides|dosing|recon|bac)\b", text_lower)):
+            score += 0.15
 
         # Check persona details: interests, role, backstory, topics
         details = {}

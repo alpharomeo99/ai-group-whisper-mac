@@ -323,14 +323,14 @@ $('g-save-btn').onclick = async () => {
 // Load xbiolabs Preset Button
 $('g-load-xbiolabs-btn').onclick = async () => {
   if (!current) return;
-  if (!confirm('Load comprehensive xbiolabs vendor and peptide community domain knowledge into this group?')) return;
+  if (!confirm('Load comprehensive xbiolabs community domain knowledge (peptides, nootropics, fitness, wellness, helping out, and banter) into this group?')) return;
   try {
     const res = await api('POST', `/groups/${current}/load-xbiolabs-preset`);
     $('g-about').value = res.about || '';
     $('g-domain-knowledge').value = res.domain_knowledge || '';
     $('g-tags').value = res.tags || '';
     $('g-rules').value = res.rules || '';
-    alert('xbiolabs / peptide domain knowledge loaded successfully!');
+    alert('xbiolabs community domain knowledge (peptides, nootropics, fitness, wellness & banter) loaded successfully!');
     loadGroups();
   } catch (err) {
     alert('Could not load preset: ' + err.message);

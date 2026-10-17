@@ -149,11 +149,24 @@ class DailyBatchEngine:
             topic_query = topic_override
         elif transcript_lines:
             recent_snippet = " ".join(m.get("text", "") for m in recent_msgs[-4:] if m.get("text"))[:180]
-            topic_prompt = "Organic continuation of ongoing community conversation based on recent messages above, discussing recovery, workout progress, training splits, and peptide protocol math."
-            topic_query = recent_snippet or "fitness protocols recovery"
+            topic_prompt = (
+                "Organic continuation of ongoing community conversation based on recent messages above. "
+                "Freely touch upon nootropics (Semax, Selank, Bromantane), general fitness & training splits, "
+                "wellness (sleep, sauna, recovery), helping out a peer with questions or dosing math, "
+                "or lighthearted unserious gym banter and joking around."
+            )
+            topic_query = recent_snippet or "fitness nootropics wellness recovery banter"
         else:
-            topic_prompt = "Natural community discussion on training splits, workout recovery, reconstitution ratios, and general fitness progress."
-            topic_query = "fitness protocols recovery"
+            default_themes = [
+                ("Natural community discussion on training splits, workout recovery, and general fitness progress.", "fitness training recovery"),
+                ("Casual chat about nootropics, morning focus stacks (Semax, Bromantane, L-Tyrosine), and clean energy without brain fog.", "nootropics semax focus energy"),
+                ("Everyday wellness discussion on sleep quality, sauna, magnesium glycinate, and staying healthy.", "wellness sleep recovery magnesium"),
+                ("Community peer helping another member with quick reconstitution math, insulin syringe units, or routine advice.", "peptides dosing reconstitution help"),
+                ("Completely relaxed, unserious gym banter, joking about tired mornings, meme supplements, and daily laughs.", "banter gym jokes funny")
+            ]
+            chosen_theme, chosen_query = random.choice(default_themes)
+            topic_prompt = chosen_theme
+            topic_query = chosen_query
 
         # 3. Format persona summaries for the AI prompt
         persona_summaries = []
@@ -202,7 +215,12 @@ class DailyBatchEngine:
             "2. STOP CONSTANTLY AGREEING OR VALIDATING: Real people DO NOT echo each other with 'Makes sense', 'For sure', 'Definitely', 'Agreed', 'Spot on', 'Good point', or '100%'. Avoid the fake podcast/seminar dynamic where everyone compliments and validates each other's points. Real members banter, joke, have differing takes, share quick personal updates, or ask short questions.\n"
             "3. NO SCRIPT-LIKE NAME-DROPPING: Real people in Telegram group chats NEVER address each other by name (DO NOT write 'Hey Leila,', 'Mark, what do you think?', 'Thanks Dave,'). Real group chatter is casual, direct, and unscripted. Personas must NEVER call each other by name or use @mentions in dialogue turns.\n"
             "4. NATURAL TOPIC SCATTER: Mix quick 2-message banter exchanges with occasional single check-ins or quick casual questions spread throughout the day.\n"
-            "5. NO PREACHY WELLNESS ADVICE: Do NOT give self-help lectures on sleep scores, circadian rhythms, morning sunlight, or mindfulness. Ground conversation in real lifter habits, gym splits, real peptide reconstitution math, and daily banter.\n"
+            "5. TOPIC BREADTH (FITNESS, NOOTROPICS, WELLNESS, HELPING OUT & BANTER): Cover a realistic spectrum of community life:\n"
+            "   - General fitness: PPL, lifting splits, PRs, squat/bench/deadlift form, volume management, deloads, cutting/bulking, nutrition.\n"
+            "   - Nootropics & focus: Semax, Selank, Bromantane, L-Tyrosine, Alpha-GPC, clean drive, avoiding caffeine crashes.\n"
+            "   - Wellness & longevity: Sleep quality, magnesium, sauna, cold plunges, joint recovery, hydration.\n"
+            "   - Helping out: Welcoming peers who ask questions, giving clear, casual reconstitution math or tips.\n"
+            "   - Unserious banter & jokes: Cracking jokes, playful teasing, gym humor, meme moments, and laughing off tough days.\n"
             "6. VENDOR POLICY: Do NOT initiate unprompted conversations about vendors, suppliers, or purchasing. If members talk about protocols, discuss dosing math and technique naturally. All personas have had smooth, positive peer experiences.\n"
             "7. OUTPUT FORMAT: Return ONLY a valid JSON array of message objects matching this exact format:\n"
             "[\n"
@@ -439,6 +457,50 @@ class DailyBatchEngine:
                 (p3, 1000, "classic, never gets old"),
                 (p4, 1070, "simple fuel works"),
                 (p1, 1140, "fr, keep it simple")
+            ],
+            [
+                (p1, 18, "anyone running semax or bromantane for work focus lately?"),
+                (p2, 45, "na-semax-amidate is top tier for cognitive clarity honestly"),
+                (p3, 110, "how does it compare to regular caffeine?"),
+                (p2, 175, "zero jitters or afternoon crash, just clean quiet focus"),
+                (p1, 260, "bromantane paired with l-tyrosine is great for daily drive too"),
+                (p4, 340, "sublingual or nasal spray?"),
+                (p1, 415, "nasal spray for semax, sublingual oil for bromantane"),
+                (p3, 490, "good to know, might test it during this busy sprint"),
+                (p2, 570, "start low to find your sweet spot"),
+                (p4, 650, "yeah keep it simple at first")
+            ],
+            [
+                (p1, 22, "sleep has been terrible this week, wake up feeling like a zombie"),
+                (p2, 50, "magnesium glycinate before bed helped my deep sleep a ton"),
+                (p3, 125, "how much you taking?"),
+                (p2, 195, "about 300mg elemental mag with some water 45 mins before sleep"),
+                (p4, 280, "sauna in the evening knocks me out cold too"),
+                (p1, 360, "need to hit the sauna more often fr"),
+                (p3, 430, "20 mins at 80c then cool shower, sleep like a rock"),
+                (p1, 510, "grabbing magnesium on the way home today haha"),
+                (p2, 580, "makes a noticeable difference in morning recovery")
+            ],
+            [
+                (p1, 15, "quick question, measuring 500mcg on a 30 unit syringe with a 5mg vial... is that 10 ticks?"),
+                (p2, 40, "depends on how much bac water you reconstituted with"),
+                (p1, 80, "mixed with 2ml bac water"),
+                (p2, 130, "gotcha, 5mg in 2ml means 2.5mg per ml. so 500mcg is 0.2ml, which is 20 units"),
+                (p3, 190, "yeah 20 units exactly on any u-100 scale pin"),
+                (p1, 260, "ahhh that makes so much sense, appreciate the help man!"),
+                (p2, 320, "anytime brother, always double check the math first"),
+                (p4, 390, "glad you asked before pinning haha"),
+                (p1, 450, "saved me a headache lol")
+            ],
+            [
+                (p1, 30, "forgot my shaker bottle in my gym bag for 4 days... opened it today and almost passed out"),
+                (p2, 60, "bro that bottle is a biohazard now just throw it away lmao"),
+                (p3, 140, "nothing on earth smells worse than old whey protein residue"),
+                (p4, 210, "dish soap won't save it, straight to the bin haha"),
+                (p1, 280, "already in the trash, buying a 3 pack of shakers right now"),
+                (p2, 350, "rite of passage for every lifter honestly"),
+                (p3, 420, "100% facts"),
+                (p1, 490, "never leaving it in the trunk again lol")
             ]
         ]
         chosen = random.choice(topics)

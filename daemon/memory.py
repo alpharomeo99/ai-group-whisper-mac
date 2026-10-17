@@ -374,7 +374,9 @@ class MemoryEngine:
         is_substantial = any(kw in clean.lower() for kw in [
             "workout", "gym", "squat", "bench", "deadlift", "sets", "reps", "sleep", "recovery",
             "batch", "order", "shipping", "xbiolabs", "janoshik", "experience", "felt", "works",
-            "bpc", "tb500", "tirz", "reta", "sema", "trt", "bac", "reconstitution"
+            "bpc", "tb500", "tirz", "reta", "sema", "trt", "bac", "reconstitution",
+            "nootropics", "semax", "selank", "bromantane", "modafinil", "tyrosine", "alpha-gpc",
+            "magnesium", "sauna", "cold plunge", "electrolytes", "hypertrophy", "bulk", "cut", "diet"
         ])
 
         if is_first_person_fact:
