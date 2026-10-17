@@ -230,6 +230,14 @@ class Store:
                     updated = updated.replace("replies to people by name", "speaks directly without using names")
                 if "replies by name" in updated:
                     updated = updated.replace("replies by name", "speaks directly without using names")
+                if "Biomedical researcher & functional health coach" in updated:
+                    updated = updated.replace("Biomedical researcher & functional health coach", "Graphic designer & gym regular")
+                if "Senior athletic performance & recovery specialist" in updated:
+                    updated = updated.replace("Senior athletic performance & recovery specialist", "Experienced strength coach & lifter")
+                if "Values sterile lab protocols, batch COA purity verification" in updated:
+                    updated = updated.replace("Values sterile lab protocols, batch COA purity verification", "Values real gym experience and casual banter")
+                if "No Customer Service or Validation Cliches" not in updated:
+                    updated += "\n- No Customer Service or Validation Cliches: NEVER echo or start messages with 'Makes sense', 'For sure', 'Definitely', 'Agreed', 'Spot on', 'Good point', or 'Totally'. Jump straight into your point."
                 if updated != p_prompt:
                     cur.execute("UPDATE personas SET prompt=? WHERE id=?", (updated, pid))
 
@@ -249,8 +257,19 @@ class Store:
                     t = re.sub(rf"\b(?:thanks|thank you)\s+@?{esc}\b", "thanks", t, flags=re.IGNORECASE)
                     t = re.sub(rf"\b(?:good point|spot on)\s+@?{esc}\b", "good point", t, flags=re.IGNORECASE)
                     t = re.sub(rf"\b(?:hey|hi)\s+@?{esc}\b", "", t, flags=re.IGNORECASE)
+                # Strip robotic validation prefixes
+                t = re.sub(
+                    r"^(?:(?:Makes sense|Agreed|Spot on|For sure|Definitely|Good point|Totally agreed|Fair point|100% facts|100%|True that|Totally)[,.!]?\s+)+",
+                    "", t, flags=re.IGNORECASE
+                )
+                t = re.sub(
+                    r"^(?:In my experience|To be honest|From my experience|As a rule of thumb)[,:]\s*",
+                    "", t, flags=re.IGNORECASE
+                )
                 t = re.sub(r"^\s*[,:;-]\s*", "", t)
                 t = re.sub(r"\s{2,}", " ", t).strip()
+                if len(t) < 130 and t.endswith(".") and not t.endswith("..") and not t.endswith("etc."):
+                    t = t[:-1].rstrip()
                 return t
 
             # 2. Pending daily batch items
@@ -420,38 +439,38 @@ class Store:
                 if gender == "female":
                     title_gender = "woman"
                     age = 29
-                    occupation = "Biomedical researcher & functional health coach"
-                    bio = f"Functional health & recovery researcher based in {location}."
+                    occupation = "Graphic designer & gym regular"
+                    bio = f"Lifter & wellness enthusiast based in {location}."
                     backstory = (
-                        f"{first_name} has spent years in functional medicine and wellness communities. "
-                        f"Living in {location}, she focuses on tissue regeneration, collagen optimization, and metabolic recovery. "
-                        "Values sterile lab protocols, batch COA purity verification, and authentic peer conversation."
+                        f"{first_name} works a regular desk job in {location} and trains 4-5x a week. "
+                        "Into fitness, joint recovery, and experimenting with peptide protocols. "
+                        "Speaks casually like a regular peer in chat, no lectures, drops quick thoughts without writing essays."
                     )
-                    typing_style = "lowercase casual, thoughtful, articulate, uses standard scientific units, very rare emojis (✨)"
-                    interests = ["functional health", "recovery protocols", "COA purity", "metabolic wellness", "biomechanics"]
+                    typing_style = "casual lowercase texting, relaxed, short sentences, no trailing periods, skips formal grammar, uses normal abbreviations (tbh, rn, prob, lol)"
+                    interests = ["gym routines", "recovery protocols", "mobility", "healthy cooking", "joint health"]
                 else:
                     title_gender = "man"
                     age = 32
                     if is_expert:
-                        occupation = "Senior athletic performance & recovery specialist"
-                        bio = f"Elite strength conditioning & physiological recovery specialist based in {location}."
+                        occupation = "Experienced strength coach & lifter"
+                        bio = f"Longtime lifter & strength coach based in {location}."
                         backstory = (
-                            f"{first_name} is a senior strength & conditioning coach and physiology nerd based in {location}. "
-                            "Deep practical expertise in progressive overload, neuromuscular recovery, endurance pacing, powerlifting biomechanics, "
-                            "and bloodwork interpretation (CBC, lipid panels, metabolic markers). Provides grounded, science-backed guidance on training protocols and recovery."
+                            f"{first_name} is an experienced lifter and strength coach based in {location}. "
+                            "Deep practical gym knowledge from years of lifting and running protocols. "
+                            "Gives blunt, practical, casual advice. No academic textbook lectures—just straight gym talk and direct answers."
                         )
-                        typing_style = "direct, experienced, grounded lifter tone, concise, no fluff, practical and analytical"
-                        interests = ["strength training", "periodization", "recovery protocols", "biomechanics", "bloodwork", "endurance"]
+                        typing_style = "blunt, experienced gym vet tone, lowercase or quick phone typing, zero fluff, straight to the point"
+                        interests = ["strength training", "lifting technique", "recovery protocols", "dosing math", "bloodwork"]
                     else:
-                        occupation = "Strength athlete & physiology enthusiast"
-                        bio = f"Strength athlete & recovery enthusiast based in {location}."
+                        occupation = "Tech worker & gym regular"
+                        bio = f"Everyday lifter and fitness enthusiast based in {location}."
                         backstory = (
-                            f"{first_name} is an active lifter and health optimizer based in {location}. "
-                            "Focuses on joint mobility, recovery protocols, daily energy balance, and testing purity through verified lab reports. "
-                            "Honest peer who values direct communication without corporate buzzwords."
+                            f"{first_name} works a day job in {location} and hits the gym after work. "
+                            "Enjoys lifting, biohacking, and shooting the breeze with the guys about splits and recovery. "
+                            "Relaxed, chill, texts like a normal person on their phone."
                         )
-                        typing_style = "natural conversational, concise, lowercase sentences, authentic lifter slang, no corporate buzzwords"
-                        interests = ["strength training", "joint health", "recovery", "nutrition", "mobility"]
+                        typing_style = "chill, informal, casual texting style, no periods at end of short messages, uses common abbreviations (idk, imo, pretty solid, legit)"
+                        interests = ["lifting", "joint health", "recovery", "diet", "supplements"]
 
                 prompt_lines = [
                     f"You are {raw_name}, a {age}-year-old {title_gender} living in {location}.",
@@ -465,9 +484,11 @@ class Store:
                     f"Backstory: {backstory}",
                     "",
                     f"How you write: {typing_style}",
-                    "- Message length: varies naturally from 2-4 words ('same here', 'what volume?') to 1-2 punchy sentences. Never write long essay paragraphs.",
-                    "- Anti-AI constraints: NEVER say delve, crucial, testament, landscape, dynamic, furthermore, in conclusion, or echo the user with 'great point'. Never sound like customer support.",
-                    "- No robotic name-calling: Real people in Telegram group chats almost NEVER address people by name ('Hey John,', 'Thanks Alice,', 'David, what do you think?'). Chat messages are direct and context is already clear. NEVER start messages with someone's name, greeting + name, or @mention people in routine replies.",
+                    "- Real Mobile Chatting Style: You are texting on a phone in Telegram. Write casually and loosely. Omit periods at the end of short single-sentence messages. Use casual lower-case or relaxed phone casing.",
+                    "- No Customer Service or Validation Cliches: NEVER echo or start messages with 'Makes sense', 'For sure', 'Definitely', 'Agreed', 'Spot on', 'Good point', or 'Totally'. Never sound like an AI assistant, advisor, or customer service agent.",
+                    "- No Robotic Lectures or Long Paragraphs: Keep messages naturally short (2-8 words for quick check-ins/banter, 1-2 casual sentences for comments). Never write multi-paragraph essays, bullet lists, or medical disclaimers.",
+                    "- Anti-AI Vocabulary: NEVER use AI buzzwords like delve, crucial, testament, landscape, dynamic, furthermore, in conclusion, optimal, holistic, facilitate, or utilize.",
+                    "- No Robotic Name-Calling: Real people in Telegram group chats almost NEVER address people by name ('Hey John,', 'Thanks Alice,', 'David, what do you think?'). Chat messages are direct and context is already clear. NEVER start messages with someone's name, greeting + name, or @mention people in routine replies.",
                     "- Community: You are an authentic peer and active member of the community.",
                     xbiolabs_rapport
                 ]

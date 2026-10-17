@@ -154,6 +154,17 @@ def format_telegram_message(text, names=None, max_chars=360):
     # Clean out robotic name-calling / salutations
     text = strip_addressing_names(text, names=names)
 
+    # Strip robotic validation prefixes and agreement cliches
+    text = re.sub(
+        r'^(?:(?:Makes sense|Agreed|Spot on|For sure|Definitely|Good point|Totally agreed|Fair point|100% facts|100%|True that|Totally)[,.!]?\s+)+',
+        '', text, flags=re.IGNORECASE
+    )
+    # Strip formal conversation starter phrases
+    text = re.sub(
+        r'^(?:In my experience|To be honest|From my experience|As a rule of thumb)[,:]\s*',
+        '', text, flags=re.IGNORECASE
+    )
+
     raw_lines = [l.strip() for l in text.splitlines() if l.strip()]
     if not raw_lines:
         return ""
@@ -184,7 +195,11 @@ def format_telegram_message(text, names=None, max_chars=360):
             last_space = truncated.rfind(' ')
             text = truncated[:last_space] if last_space > 20 else truncated
 
-    return text.strip()
+    text = text.strip()
+    # Real people texting on mobile rarely end short casual messages with a single period
+    if len(text) < 130 and text.endswith('.') and not text.endswith('..') and not text.endswith('etc.'):
+        text = text[:-1].rstrip()
+    return text
 
 
 def format_short_telegram_text(text, names=None, max_chars=360):
@@ -192,22 +207,19 @@ def format_short_telegram_text(text, names=None, max_chars=360):
     return format_telegram_message(text, names=names, max_chars=max_chars)
 
 
-async def draft_reply_with_meta(settings, title, persona, msgs, trigger_sender=None, trigger_text=None, known_names=None, temperature=0.55):
+async def draft_reply_with_meta(settings, title, persona, msgs, trigger_sender=None, trigger_text=None, known_names=None, temperature=0.76):
     sep = chr(10)
     persona_prompt = persona or "You are a regular member of this Telegram group."
     rules = [
-        "CRITICAL RULES FOR YOUR REPLY:",
-        "- NO CALLING PEOPLE BY NAME: Do NOT address the sender or group members by name (NO 'Hey John,', 'John, ...', '@john', or 'Thanks Dave,'). Real people in Telegram group chats almost never use names in routine replies because the message is already visually linked by Telegram's reply bubble. Speak directly to the topic or question without addressing anyone by name.",
-        "- NATURAL CONVERSATIONAL DYNAMICS: Chat like a real person in a Telegram community. Vary your message length naturally based on the conversation:",
-        "  * Quick banter, reactions, or short check-ins: 3 to 10 words.",
-        "  * Typical comments, chiming in, or answering: 1 to 2 casual sentences (10 to 25 words).",
-        "  * Sharing personal experience, routine details, or explaining a protocol: 2 to 3 sentences (under 60 words).",
-        "  * NEVER write multi-paragraph walls of text, formal essays, or robotic bulleted lists.",
-        "- Stay strictly grounded in the ongoing conversation and context. Do NOT invent fake scenarios, unrequested vendor stories, fake orders, tracking numbers, payment issues, or imaginary drama.",
-        "- Do NOT bring up vendors, suppliers, batch numbers, or purchasing unless the person explicitly asked about it in their message.",
-        "- Write naturally in your persona's voice: casual lowercase or light casing, authentic gym/telegram slang, zero corporate fluff.",
-        "- Avoid robotic structure: NO bullet lists, NO greeting headers, NO medical disclaimers, NO quotes around your text.",
-        "- Output ONLY the raw message text to send to the group."
+        "CRITICAL RULES - TEXT LIKE A REAL HUMAN IN TELEGRAM, NEVER AN AI:",
+        "- NEVER START WITH BOT-LIKE AGREEMENT OR VALIDATION: Do NOT start messages with 'Makes sense', 'For sure', 'Definitely', 'Agreed', 'Spot on', 'Good point', 'Totally', '100%', or 'Fair point'. Real group members don't validate each other like customer support agents. Jump straight into your thought or question.",
+        "- NO SCRIPTED NAME-DROPPING: NEVER address anyone by name (no 'Hey John', 'Dave, ...', or 'Thanks mate'). Telegram's reply bubble visually links the message.",
+        "- WRITE CASUALLY IN MOBILE TEXTING STYLE: Write like you're typing quickly with your thumbs on a phone. Use lowercase or relaxed casing, skip periods at the end of short single-sentence messages, use natural abbreviations (tbh, rn, idk, prob, imo, lol), and speak in casual fragments rather than complete academic paragraphs.",
+        "- NOT AN ASSISTANT OR LECTURER: You are NOT an AI assistant, advisor, or instructor. Do NOT provide comprehensive lectures, unsolicited safety warnings, disclaimers, or multi-step guides. Give brief personal opinions, reactions, or casual personal experiences.",
+        "- NATURAL LENGTH VARIATION: Keep it concise and natural. Quick banter/reactions: 2-8 words ('same here honestly', 'what dose though?'). Typical comments: 1 casual sentence (10-20 words). Occasional experience: 2 short sentences. NEVER write essay paragraphs or structured lists.",
+        "- ZERO CORPORATE OR AI JARGON: Never say 'delve', 'crucial', 'testament', 'landscape', 'dynamic', 'furthermore', 'optimal', 'holistic', 'facilitate', 'utilize', 'ensure'.",
+        "- STAY CASUALLY GROUNDED: Do NOT invent unrequested stories about vendors, orders, shipping, or drama unless someone directly asked.",
+        "- Output ONLY the raw telegram message text."
     ]
     system = persona_prompt + sep + sep + sep.join(rules)
 
@@ -229,7 +241,7 @@ async def draft_reply_with_meta(settings, title, persona, msgs, trigger_sender=N
     return format_telegram_message(raw_text, names=names_to_clean, max_chars=360), meta
 
 
-async def draft_reply(settings, title, persona, msgs, trigger_sender=None, trigger_text=None, known_names=None, temperature=0.55):
+async def draft_reply(settings, title, persona, msgs, trigger_sender=None, trigger_text=None, known_names=None, temperature=0.76):
     content, _ = await draft_reply_with_meta(
         settings, title, persona, msgs,
         trigger_sender=trigger_sender, trigger_text=trigger_text,

@@ -190,14 +190,15 @@ class DailyBatchEngine:
 
         system_prompt = (
             "You orchestrate realistic, organic human conversations in specialist Telegram communities.\n"
-            "You write authentic, multi-turn dialogue between real humans.\n\n"
+            "You write authentic, casual group chat exchanges between real people texting from their phones.\n\n"
             "CRITICAL GUIDELINES:\n"
-            "1. CONTEXT GROUNDING: Ground the conversation naturally in the community's subject matter (fitness, training splits, recovery, peptide protocol calculations). Do NOT hallucinate unrequested stories about placing orders, fake package tracking, website checkout glitches, or fake drama.\n"
-            "2. VENDOR POLICY: Do NOT initiate unprompted conversations about vendors, suppliers, or purchasing. If members talk about protocols, discuss dosing math and technique naturally. All personas have had smooth, positive peer experiences.\n"
-            "3. NATURAL CONVERSATIONAL DYNAMICS: Write like real community members texting from their phones with natural variety: quick punchy reactions or banter (3 to 10 words), typical casual comments (10 to 25 words), and occasional detailed personal experience or routine shares (2 to 3 sentences, under 60 words). Never write multi-paragraph walls of text, formal essays, or robotic bullet lists.\n"
-            "4. NO SCRIPT-LIKE NAME-DROPPING: In real Telegram groups, friends and peers almost NEVER address each other by name (DO NOT write 'Hey Leila,', 'Mark, what do you think?', 'Thanks Dave,'). Real group chatter is casual, direct, and unscripted. Personas must NEVER call each other by name or use @mentions in dialogue turns.\n"
-            "5. ORGANIC TURN-TAKING: Distribute turns naturally across the provided personas.\n"
-            "6. OUTPUT FORMAT: Return ONLY a valid JSON array of message objects matching this exact format:\n"
+            "1. CASUAL MOBILE TEXTING (NO ESSAYS OR LECTURES): Members are typing on their phones between workouts or at work. Use casual phrasing, natural abbreviations (tbh, rn, imo, prob, idk, lol), fragments, and relaxed casing. DO NOT write complete academic paragraphs or sound like an AI assistant.\n"
+            "2. STOP CONSTANTLY AGREEING OR VALIDATING: Real people DO NOT echo each other with 'Makes sense', 'For sure', 'Definitely', 'Agreed', 'Spot on', 'Good point', or '100%'. Avoid the fake podcast/seminar dynamic where everyone compliments and validates each other's points. Real members banter, joke, have differing takes, share quick personal updates, or ask short questions.\n"
+            "3. NO SCRIPT-LIKE NAME-DROPPING: Real people in Telegram group chats NEVER address each other by name (DO NOT write 'Hey Leila,', 'Mark, what do you think?', 'Thanks Dave,'). Real group chatter is casual, direct, and unscripted. Personas must NEVER call each other by name or use @mentions in dialogue turns.\n"
+            "4. NATURAL TOPIC SCATTER: Mix quick 2-message banter exchanges with occasional single check-ins or quick casual questions spread throughout the day.\n"
+            "5. NO PREACHY WELLNESS ADVICE: Do NOT give self-help lectures on sleep scores, circadian rhythms, morning sunlight, or mindfulness. Ground conversation in real lifter habits, gym splits, real peptide reconstitution math, and daily banter.\n"
+            "6. VENDOR POLICY: Do NOT initiate unprompted conversations about vendors, suppliers, or purchasing. If members talk about protocols, discuss dosing math and technique naturally. All personas have had smooth, positive peer experiences.\n"
+            "7. OUTPUT FORMAT: Return ONLY a valid JSON array of message objects matching this exact format:\n"
             "[\n"
             "  {\n"
             "    \"persona_id\": <int>,\n"
@@ -226,7 +227,7 @@ class DailyBatchEngine:
         items = []
 
         try:
-            raw_ai, meta = await self.ai.chat_with_meta(settings, system_prompt, user_prompt, temperature=0.58)
+            raw_ai, meta = await self.ai.chat_with_meta(settings, system_prompt, user_prompt, temperature=0.78)
             match = re.search(r"\[\s*\{.*\}\s*\]", raw_ai, re.DOTALL)
             if match:
                 items = json.loads(match.group(0))
@@ -358,7 +359,7 @@ class DailyBatchEngine:
         }
 
     def _fallback_dialogue(self, candidates, domain, count):
-        """Natural community discussion starter templates supporting up to 16 turns."""
+        """Natural community discussion starter templates with realistic casual gym chatter."""
         p1 = candidates[0]
         p2 = candidates[1] if len(candidates) > 1 else candidates[0]
         p3 = candidates[2] if len(candidates) > 2 else candidates[0]
@@ -366,58 +367,58 @@ class DailyBatchEngine:
 
         topics = [
             [
-                (p1, 15, "what split is everyone running lately? thinking of switching back to push pull legs"),
-                (p2, 48, "ppl is hard to beat for consistency, especially if recovery is on point"),
-                (p3, 115, "yeah just don't neglect rear delts and rotator cuffs on push days"),
-                (p1, 185, "for sure, warming up shoulders thoroughly makes a huge difference"),
-                (p2, 290, "what's your weekly volume per muscle group looking like?"),
-                (p3, 380, "usually hover around 12-16 sets per week, beyond that fatigue catches up"),
-                (p4, 450, "same here, quality reps with clean eccentric control beat junk volume every time"),
-                (p1, 520, "agreed, stopped ego lifting years ago and joints thank me daily"),
-                (p2, 600, "how many rest days do you take weekly?"),
-                (p3, 680, "at least two full days off or light active recovery like walking"),
-                (p4, 760, "walking has been a game changer for keeping body fat in check effortlessly"),
-                (p1, 840, "10k steps a day is honestly underrated"),
-                (p2, 910, "super easy to hit if you break it into 15 min walks after meals"),
-                (p3, 980, "great for insulin sensitivity too"),
-                (p4, 1050, "definitely, consistency over intensity when it comes to daily habits"),
-                (p1, 1120, "spot on. slow and steady always wins")
+                (p1, 15, "switched back to ppl this week, leg day was brutal haha"),
+                (p2, 48, "leg day fatigue hits different fr"),
+                (p3, 115, "what split were you running before?"),
+                (p1, 185, "upper lower, was solid but felt like i was in the gym forever"),
+                (p2, 290, "yeah upper lower volume creeps up fast if you don't cap sets"),
+                (p3, 380, "like 2 heavy sets per exercise is plenty tbh"),
+                (p4, 450, "high volume just fries the joints anyway"),
+                (p1, 520, "bench feeling any better on elbows?"),
+                (p2, 600, "way better since tucking elbows in more"),
+                (p3, 680, "small form tweaks make all the difference"),
+                (p4, 760, "wrist wraps helped a ton too for heavy presses"),
+                (p1, 840, "hitting shoulders tomorrow or rest day?"),
+                (p2, 910, "rest day prob, need the recovery"),
+                (p3, 980, "smart move, rest days are underrated"),
+                (p4, 1050, "heading to grab food now catch you guys later"),
+                (p1, 1120, "enjoy the feast")
             ],
             [
-                (p1, 20, "quick question on reconstitution, how much bac water do you guys prefer per 5mg vial?"),
-                (p2, 52, "2ml makes the math super straightforward, 250mcg per 10 units on 100u syringe"),
-                (p3, 120, "agreed, 2ml is ideal. just let it slide down the glass slow so it doesn't foam"),
-                (p1, 190, "perfect, appreciate the confirmation. keeping it chilled in the fridge now"),
-                (p2, 295, "smooth subQ or IM?"),
-                (p3, 385, "subQ is easiest for daily routine, virtually painless with 31g"),
-                (p4, 460, "pinching the skin slightly makes it completely unnoticeable"),
-                (p1, 530, "abdomen or glutes preferred for site rotation?"),
-                (p2, 610, "abdomen has plenty of spots, just keep an inch or two away from navel"),
-                (p3, 690, "and rotate sides each day so no irritation builds up"),
-                (p4, 770, "alcohol swab before and let it dry completely before injecting"),
-                (p1, 850, "letting it dry is huge, prevents that little sting"),
-                (p2, 920, "simple protocol details matter the most"),
-                (p3, 990, "storage wise keep light off the vials too"),
-                (p4, 1060, "yep, amber vial or just keep in original box in back of fridge"),
-                (p1, 1130, "good call on the dark container")
+                (p1, 20, "quick math check, 2ml bac water in a 5mg vial is 250mcg per 10 units right?"),
+                (p2, 52, "yeah 10 units on a standard 100u pin is 250mcg"),
+                (p3, 120, "just trickle the bac water down the glass slow so it doesn't foam up"),
+                (p1, 190, "got it, keeping it chilled in the fridge now"),
+                (p2, 295, "running subq or im?"),
+                (p3, 385, "subq with a 31g, barely feel anything tbh"),
+                (p4, 460, "31g is the way to go"),
+                (p1, 530, "where you pinning, belly or love handles?"),
+                (p2, 610, "love handles mostly, way less sensitive than belly for me"),
+                (p3, 690, "same here, just rotate sides each day"),
+                (p4, 770, "let the alcohol swab dry fully too, prevents that little sting"),
+                (p1, 850, "yeah learned that the hard way lol"),
+                (p2, 920, "simple stuff makes it smooth"),
+                (p3, 990, "appreciate the sanity check guys"),
+                (p4, 1060, "anytime, ping if you need anything"),
+                (p1, 1130, "will do")
             ],
             [
-                (p1, 25, "anyone notice recovery tanks pretty fast if sleep drops below 7 hours?"),
-                (p2, 58, "100%. magnesium glycinate and a cold room made a big difference for deep sleep"),
-                (p3, 130, "same here, consistent sleep timing does more than half the supplements out there"),
-                (p1, 200, "definitely, dialed in sleep makes every workout feel 10x better"),
-                (p2, 305, "hydration first thing in morning with pinch of salt helps too"),
-                (p3, 395, "electrolytes on point keeps energy level all day"),
-                (p4, 470, "cutting caffeine off by 2pm made the biggest noticeable jump for sleep score"),
-                (p1, 545, "yeah caffeine half life is way longer than people realize"),
-                (p2, 620, "morning sun exposure right after waking helps lock in the circadian rhythm"),
-                (p3, 700, "even 10 mins outside with no sunglasses sets the clock"),
-                (p4, 780, "and ditching screens 30 mins before bed lets melatonin actually spike"),
-                (p1, 860, "reading a book before bed puts me right out"),
-                (p2, 930, "old school methods still work best"),
-                (p3, 1000, "simple basics done consistently"),
-                (p4, 1070, "can't out supplement bad lifestyle fundamentals"),
-                (p1, 1140, "100% facts")
+                (p1, 25, "gym was packed today, had to wait 20 mins for a squat rack"),
+                (p2, 58, "hate peak hours fr, 6am crew is where it's at"),
+                (p3, 130, "wish i was a morning person lol, brain doesn't work before 8"),
+                (p1, 200, "takes like 2 weeks to adjust then it's way better, empty gym hits different"),
+                (p2, 305, "what time do you usually train?"),
+                (p3, 395, "usually lunch break or right after work"),
+                (p4, 470, "lunch workouts are clutch if you can sneak away"),
+                (p1, 545, "yeah quick 45 mins in and out"),
+                (p2, 620, "short sessions keep intensity higher anyway"),
+                (p3, 700, "anything past an hour and my energy drops off a cliff"),
+                (p4, 780, "same tbh, warm up, 3-4 exercises heavy, then bounce"),
+                (p1, 860, "post workout meal ready to go?"),
+                (p2, 930, "chicken rice and avocado as always haha"),
+                (p3, 1000, "classic, never gets old"),
+                (p4, 1070, "simple fuel works"),
+                (p1, 1140, "fr, keep it simple")
             ]
         ]
         chosen = random.choice(topics)

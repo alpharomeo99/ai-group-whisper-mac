@@ -627,12 +627,12 @@ class Daemon:
                     )
                     log.info("Enqueued human reply in %s (Acc %s / Persona %s, delay=%ds): %s", chat_id, aid, pid, int(delay), reason)
 
-                    # Dynamic Teammate Chime-In: if 2+ candidates and question/discussion detected, schedule second persona
-                    if len(candidates) >= 2 and (is_direct or "?" in (event.raw_text or "") or random.random() < 0.40):
+                    # Dynamic Teammate Chime-In: occasionally (15% chance, if 2+ candidates) allow a second persona to chime in later
+                    if len(candidates) >= 2 and random.random() < 0.15 and not is_direct:
                         teammates = [c for c in candidates if c["persona_id"] != pid and c["account_id"] != aid]
                         if teammates:
-                            t_c = teammates[0]
-                            second_delay = int(delay) + random.randint(35, 75)
+                            t_c = random.choice(teammates)
+                            second_delay = int(delay) + random.randint(90, 240)
                             self.store.enqueue(
                                 "draft_reply", chat_id,
                                 {
