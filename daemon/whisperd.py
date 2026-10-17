@@ -770,6 +770,13 @@ class Daemon:
                     continue
                 acc = self.store.rows("SELECT persona_id FROM accounts WHERE id=?", (aid,))
                 pid = acc[0].get("persona_id") if acc else None
+                if not pid:
+                    avail = self.store.rows(
+                        "SELECT id FROM personas WHERE id NOT IN (SELECT persona_id FROM accounts WHERE persona_id IS NOT NULL) ORDER BY id ASC LIMIT 1"
+                    )
+                    if avail:
+                        pid = avail[0]["id"]
+                        self.store.q("UPDATE accounts SET persona_id=? WHERE id=?", (pid, aid))
                 if pid:
                     gp = self.store.rows("SELECT persona_id FROM group_personas WHERE chat_id=? AND account_id=?", (chat_id, aid))
                     if not gp:
@@ -786,6 +793,13 @@ class Daemon:
         try:
             acc = self.store.rows("SELECT persona_id FROM accounts WHERE id=?", (aid,))
             pid = acc[0].get("persona_id") if acc else None
+            if not pid:
+                avail = self.store.rows(
+                    "SELECT id FROM personas WHERE id NOT IN (SELECT persona_id FROM accounts WHERE persona_id IS NOT NULL) ORDER BY id ASC LIMIT 1"
+                )
+                if avail:
+                    pid = avail[0]["id"]
+                    self.store.q("UPDATE accounts SET persona_id=? WHERE id=?", (pid, aid))
             if not pid:
                 return
             groups = self.store.rows("SELECT chat_id FROM group_accounts WHERE account_id=?", (aid,))
@@ -955,6 +969,18 @@ class Daemon:
                                      (now_ts + defer_secs, p["batch_item_id"]))
                     self.store.finish(job["id"], False, "Postponed: human spoke recently in chat", retry_in=defer_secs)
                     return
+
+                # Enforce natural spacing so overdue batch messages from sleep/startup don't burst simultaneously
+                last_msg = self.store.rows("SELECT ts FROM messages WHERE chat_id=? ORDER BY ts DESC LIMIT 1", (job["chat_id"],))
+                last_msg_ts = last_msg[0]["ts"] if last_msg and last_msg[0].get("ts") else None
+                if last_msg_ts and (now_ts - last_msg_ts) < 90:
+                    stagger_delay = random.randint(90, 240) - (now_ts - last_msg_ts)
+                    if stagger_delay > 0:
+                        if p.get("batch_item_id"):
+                            self.store.q("UPDATE daily_batch_items SET status='postponed', scheduled_ts=? WHERE id=?",
+                                         (now_ts + stagger_delay, p["batch_item_id"]))
+                        self.store.finish(job["id"], False, "Spacing out batch delivery", retry_in=stagger_delay)
+                        return
 
                 aid = p.get("account_id") or g.get("account_id")
                 cand_names = [r["name"] for r in self.store.rows("SELECT name FROM personas UNION SELECT name FROM accounts") if r.get("name")]
@@ -2816,6 +2842,13 @@ async def main():
     await web.TCPSite(runner, "127.0.0.1", a.port).start()
     log.info("listening on 127.0.0.1:%d", a.port)
     # Camoufox auto-download disabled on startup for lean, low-overhead system operation
+    try:
+        active_accs = d.store.rows("SELECT id FROM accounts WHERE active=1")
+        for ar in active_accs:
+            d.ensure_group_personas_assigned_for_account(ar["id"])
+    except Exception as e:
+        log.warning("startup auto-assign personas check: %s", e)
+
     asyncio.create_task(d.auto_sync_loop())
     asyncio.create_task(d.daily_batch_loop())
     asyncio.create_task(d.memory_pruner_loop())

@@ -358,28 +358,34 @@ class MemoryEngine:
         if any(bad in clean.lower() for bad in ["payment portal", "weak batch", "card processor", "recurring nightmare", "bad vial", "shit show", "bugging out"]):
             return None
 
-        # Check for first-person protocol, cycle, health, or biographical claims
-        is_protocol_or_fact = any(kw in clean.lower() for kw in [
-            "run", "running", "cycle", "stack", "protocol", "dose", "dosing", "pin", "pinned",
-            "recon", "reconstituted", "bpc", "tb500", "tirz", "reta", "sema", "trt", "test",
-            "bloodwork", "labs", "injury", "shoulder", "knee", "elbow", "tendon", "gut",
-            "diet", "routine", "split", "surgery", "allergic", "mg", "mcg", "iu", "taking", "started"
-        ])
+        # Questions and inquiries are not biographical statements of fact
+        if clean.endswith("?") or re.match(r"^(what|why|how|where|when|who|is|are|does|can|could|did|anyone|anybody)\b", clean.lower()):
+            return None
+
+        # Identify explicit first-person protocol, health, or biographical commitments for long-term memory
+        first_person_patterns = [
+            r'\b(?:i am|i\'m|im|i have been|i\'ve been)\s+(?:running|taking|pinning|dosing|on)\b',
+            r'\b(?:my|my current)\s+(?:cycle|stack|protocol|dose|split|routine)\b',
+            r'\bi\s+(?:run|take|pin|dose|reconstituted|started)\s+\d+',
+            r'\b(?:my bloodwork|my labs|my injury|my tendon|my shoulder|my knee)\b'
+        ]
+        is_first_person_fact = any(re.search(pat, clean.lower()) for pat in first_person_patterns)
 
         is_substantial = any(kw in clean.lower() for kw in [
             "workout", "gym", "squat", "bench", "deadlift", "sets", "reps", "sleep", "recovery",
-            "batch", "order", "shipping", "xbiolabs", "janoshik", "experience", "felt", "works"
+            "batch", "order", "shipping", "xbiolabs", "janoshik", "experience", "felt", "works",
+            "bpc", "tb500", "tirz", "reta", "sema", "trt", "bac", "reconstitution"
         ])
 
-        if is_protocol_or_fact:
+        if is_first_person_fact:
             tier = "long"
             salience = 0.95
         elif is_substantial:
             tier = "medium"
-            salience = 0.80
+            salience = 0.75
         else:
             tier = "short"
-            salience = 0.50
+            salience = 0.45
 
         return self.add_memory(
             persona_id=persona_id,

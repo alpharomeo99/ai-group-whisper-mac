@@ -155,15 +155,22 @@ def format_telegram_message(text, names=None, max_chars=360):
     text = strip_addressing_names(text, names=names)
 
     # Strip robotic validation prefixes and agreement cliches
-    text = re.sub(
-        r'^(?:(?:Makes sense|Agreed|Spot on|For sure|Definitely|Good point|Totally agreed|Fair point|100% facts|100%|True that|Totally)[,.!]?\s+)+',
+    cleaned_prefix = re.sub(
+        r'^(?:(?:Makes sense|Agreed|Spot on|For sure|Definitely|Good point|Totally agreed|Fair point|100% facts|100%|True that|Totally)(?:\s+(?:mate|man|bro|dude))?[,.!]?\s+)+',
         '', text, flags=re.IGNORECASE
     )
+    # If stripping left a dangling vocative like 'mate. ' or 'bro, '
+    cleaned_prefix = re.sub(r'^(?:mate|man|bro|dude)[,.!]?\s*', '', cleaned_prefix, flags=re.IGNORECASE).strip()
+    if cleaned_prefix:
+        text = cleaned_prefix
+
     # Strip formal conversation starter phrases
-    text = re.sub(
+    cleaned_formal = re.sub(
         r'^(?:In my experience|To be honest|From my experience|As a rule of thumb)[,:]\s*',
         '', text, flags=re.IGNORECASE
-    )
+    ).strip()
+    if cleaned_formal:
+        text = cleaned_formal
 
     raw_lines = [l.strip() for l in text.splitlines() if l.strip()]
     if not raw_lines:
@@ -171,7 +178,8 @@ def format_telegram_message(text, names=None, max_chars=360):
 
     clean_lines = []
     for l in raw_lines[:3]:
-        l = re.sub(r'^[-*•#\d.]+\s+', '', l).strip()
+        # Only strip list markers like '1. ', '1) ', '-', '*', '•', '#' - DO NOT strip bare numbers like '10 units' or '2.5ml'
+        l = re.sub(r'^(?:[-*•#]|\d+[\.\)])\s+', '', l).strip()
         if l:
             clean_lines.append(l)
 

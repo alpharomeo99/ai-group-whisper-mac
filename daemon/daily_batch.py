@@ -95,6 +95,43 @@ class DailyBatchEngine:
                     candidates.append(r)
                     seen.add(key)
 
+        # 5. Extended fallback: pair active accounts that lack a persona with unassigned available personas
+        if len(candidates) < 2:
+            unassigned_accs = self.store.rows(
+                "SELECT a.id as account_id, a.name as account_name, a.phone as account_phone "
+                "FROM accounts a "
+                "WHERE a.active=1 AND a.persona_id IS NULL"
+            )
+            used_pids = {c["persona_id"] for c in candidates}
+            avail_personas = self.store.rows(
+                "SELECT p.id as persona_id, p.name as persona_name, p.details, p.prompt "
+                "FROM personas p "
+                "ORDER BY p.id ASC"
+            )
+            unassigned_personas = [p for p in avail_personas if p["persona_id"] not in used_pids]
+            for i, acc in enumerate(unassigned_accs):
+                if i < len(unassigned_personas):
+                    p = unassigned_personas[i]
+                    key = (p["persona_id"], acc["account_id"])
+                    if key not in seen:
+                        candidates.append({
+                            "persona_id": p["persona_id"],
+                            "persona_name": p["persona_name"],
+                            "details": p["details"],
+                            "prompt": p["prompt"],
+                            "account_id": acc["account_id"],
+                            "account_name": acc["account_name"],
+                            "account_phone": acc["account_phone"]
+                        })
+                        seen.add(key)
+                        try:
+                            self.store.q("UPDATE accounts SET persona_id=? WHERE id=? AND persona_id IS NULL",
+                                         (p["persona_id"], acc["account_id"]))
+                            self.store.q("INSERT OR IGNORE INTO group_personas(chat_id, persona_id, account_id, created) VALUES(?,?,?,?)",
+                                         (chat_id, p["persona_id"], acc["account_id"], int(time.time())))
+                        except Exception:
+                            pass
+
         return candidates
 
     async def generate_all_groups(self, count=None):
@@ -142,6 +179,18 @@ class DailyBatchEngine:
                 transcript_lines.append(f"[{m.get('sender', 'Member')}]: {m.get('text')}")
         recent_transcript = "\n".join(transcript_lines) or "(Group chat is fresh / quiet)"
 
+        # Determine topic context before formatting persona summaries so query_text is grounded
+        if topic_override:
+            topic_prompt = topic_override
+            topic_query = topic_override
+        elif transcript_lines:
+            recent_snippet = " ".join(m.get("text", "") for m in recent_msgs[-4:] if m.get("text"))[:180]
+            topic_prompt = "Organic continuation of ongoing community conversation based on recent messages above, discussing recovery, workout progress, training splits, and peptide protocol math."
+            topic_query = recent_snippet or "fitness protocols recovery"
+        else:
+            topic_prompt = "Natural community discussion on training splits, workout recovery, reconstitution ratios, and general fitness progress."
+            topic_query = "fitness protocols recovery"
+
         # 3. Format persona summaries for the AI prompt
         persona_summaries = []
         for c in candidates:
@@ -155,7 +204,7 @@ class DailyBatchEngine:
 
             mem_lines = []
             if self.memory:
-                mem_ctx = self.memory.get_prompt_memory_context(c["persona_id"], chat_id=chat_id, limit=8, query_text=topic)
+                mem_ctx = self.memory.get_prompt_memory_context(c["persona_id"], chat_id=chat_id, limit=8, query_text=topic_query)
                 if mem_ctx:
                     mem_lines.append(mem_ctx)
             elif hasattr(self.store, "rows"):
@@ -180,13 +229,6 @@ class DailyBatchEngine:
         group_about = group.get("about") or "Telegram community discussion"
         group_domain = group.get("domain_knowledge") or "Biohacking, research peptides, protocols, sourcing, and health optimization."
         group_rules = group.get("rules") or "Be authentic, direct, and knowledgeable."
-
-        if topic_override:
-            topic_prompt = topic_override
-        elif transcript_lines:
-            topic_prompt = "Organic continuation of ongoing community conversation based on recent messages above, discussing recovery, workout progress, training splits, and peptide protocol math."
-        else:
-            topic_prompt = "Natural community discussion on training splits, workout recovery, reconstitution ratios, and general fitness progress."
 
         system_prompt = (
             "You orchestrate realistic, organic human conversations in specialist Telegram communities.\n"
@@ -228,9 +270,23 @@ class DailyBatchEngine:
 
         try:
             raw_ai, meta = await self.ai.chat_with_meta(settings, system_prompt, user_prompt, temperature=0.78)
-            match = re.search(r"\[\s*\{.*\}\s*\]", raw_ai, re.DOTALL)
+            raw = raw_ai.strip()
+            raw = re.sub(r"^```(?:json)?", "", raw).strip()
+            raw = re.sub(r"```$", "", raw).strip()
+            match = re.search(r"\[\s*\{.*\}\s*\]", raw, re.DOTALL)
             if match:
-                items = json.loads(match.group(0))
+                clean_text = re.sub(r",\s*([\]\}])", r"\1", match.group(0))
+                try:
+                    items = json.loads(clean_text)
+                except Exception:
+                    pass
+            if not items:
+                for m_obj in re.finditer(r"\{[^{}]*\}", raw):
+                    try:
+                        clean_obj = re.sub(r",\s*([\]\}])", r"\1", m_obj.group(0))
+                        items.append(json.loads(clean_obj))
+                    except Exception:
+                        pass
             now_ts = int(time.time())
             p_tok = meta.get("prompt_tokens", 0)
             c_tok = meta.get("completion_tokens", 0)
