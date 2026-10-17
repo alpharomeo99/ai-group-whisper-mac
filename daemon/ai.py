@@ -70,12 +70,28 @@ async def summarize(settings, title, msgs):
                       f"Group: {title}\n\n{transcript(msgs)}")
 
 
-def format_short_telegram_text(text, max_chars=140):
-    """Enforces authentic, punchy Telegram message length (3 to 15 words, capped cleanly)."""
-    text = (text or "").strip().strip("'\"")
-    lines = [l.strip() for l in text.splitlines() if l.strip()]
-    if lines:
-        text = lines[0]
+def format_telegram_message(text, max_chars=360):
+    """Enforces natural Telegram message dynamics (casual, authentic phrasing without robotic walls of text).
+    Allows natural variation from quick punchy quips (3-10 words) up to detailed 2-3 sentence explanations (under 360 chars).
+    Preserves multiple short lines when appropriate, cleans quotes/artifacts, and prevents mid-word truncation.
+    """
+    if not text:
+        return ""
+    text = text.strip()
+    text = re.sub(r'^(?:\[[^\]]+\]:?|\w+:\s*)\s*', '', text).strip().strip("'\"")
+
+    raw_lines = [l.strip() for l in text.splitlines() if l.strip()]
+    if not raw_lines:
+        return ""
+
+    clean_lines = []
+    for l in raw_lines[:3]:
+        l = re.sub(r'^[-*•#\d.]+\s+', '', l).strip()
+        if l:
+            clean_lines.append(l)
+
+    text = " ".join(clean_lines) if len(clean_lines) <= 2 else "\n".join(clean_lines)
+
     if len(text) > max_chars:
         sentences = re.split(r'(?<=[.!?])\s+', text)
         combined = ""
@@ -87,13 +103,20 @@ def format_short_telegram_text(text, max_chars=140):
                 combined = cand
             else:
                 break
-        if combined and len(combined) >= 10:
+        if combined and len(combined) >= 20:
             text = combined
         else:
             truncated = text[:max_chars]
             last_space = truncated.rfind(' ')
             text = truncated[:last_space] if last_space > 20 else truncated
+
     return text.strip()
+
+
+def format_short_telegram_text(text, max_chars=360):
+    """Backward-compatible wrapper for format_telegram_message with natural dynamic length."""
+    return format_telegram_message(text, max_chars=max_chars)
+
 
 
 async def draft_reply_with_meta(settings, title, persona, msgs, trigger_sender=None, trigger_text=None, temperature=0.55):
@@ -101,7 +124,11 @@ async def draft_reply_with_meta(settings, title, persona, msgs, trigger_sender=N
     persona_prompt = persona or "You are a regular member of this Telegram group."
     rules = [
         "CRITICAL RULES FOR YOUR REPLY:",
-        "- SHORT PUNCHY TELEGRAM MESSAGES: Real users text quickly on phones. Write 3 to 15 words per message MAX (under 120 characters). NO paragraphs. NO essays. NO compound multi-sentence explanations. 1 punchy sentence or short reaction is ideal.",
+        "- NATURAL CONVERSATIONAL DYNAMICS: Chat like a real person in a Telegram community. Vary your message length naturally based on the conversation:",
+        "  * Quick banter, reactions, or short check-ins: 3 to 10 words.",
+        "  * Typical comments, chiming in, or answering: 1 to 2 casual sentences (10 to 25 words).",
+        "  * Sharing personal experience, routine details, or explaining a protocol: 2 to 3 sentences (under 60 words).",
+        "  * NEVER write multi-paragraph walls of text, formal essays, or robotic bulleted lists.",
         "- Stay strictly grounded in the ongoing conversation and context. Do NOT invent fake scenarios, unrequested vendor stories, fake orders, tracking numbers, payment issues, or imaginary drama.",
         "- Do NOT bring up vendors, suppliers, batch numbers, or purchasing unless the person explicitly asked about it in their message.",
         "- Write naturally in your persona's voice: casual lowercase or light casing, authentic gym/telegram slang, zero corporate fluff.",
@@ -122,7 +149,7 @@ async def draft_reply_with_meta(settings, title, persona, msgs, trigger_sender=N
 
     user = (sep + sep).join(user_parts)
     raw_text, meta = await chat_with_meta(settings, system, user, temperature=temperature)
-    return format_short_telegram_text(raw_text, max_chars=140), meta
+    return format_telegram_message(raw_text, max_chars=360), meta
 
 
 async def draft_reply(settings, title, persona, msgs, trigger_sender=None, trigger_text=None, temperature=0.55):

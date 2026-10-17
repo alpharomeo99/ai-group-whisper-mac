@@ -194,7 +194,7 @@ class DailyBatchEngine:
             "CRITICAL GUIDELINES:\n"
             "1. CONTEXT GROUNDING: Ground the conversation naturally in the community's subject matter (fitness, training splits, recovery, peptide protocol calculations). Do NOT hallucinate unrequested stories about placing orders, fake package tracking, website checkout glitches, or fake drama.\n"
             "2. VENDOR POLICY: Do NOT initiate unprompted conversations about vendors, suppliers, or purchasing. If members talk about protocols, discuss dosing math and technique naturally. All personas have had smooth, positive peer experiences.\n"
-            "3. SHORT PUNCHY TELEGRAM STYLE: Write like real Telegram users texting from a phone: 3 to 15 words per message MAX (under 120 characters). NO paragraphs. NO essays. NO compound multi-sentence explanations. Single short punchy reactions or observations.\n"
+            "3. NATURAL CONVERSATIONAL DYNAMICS: Write like real community members texting from their phones with natural variety: quick punchy reactions or banter (3 to 10 words), typical casual comments (10 to 25 words), and occasional detailed personal experience or routine shares (2 to 3 sentences, under 60 words). Never write multi-paragraph walls of text, formal essays, or robotic bullet lists.\n"
             "4. ORGANIC TURN-TAKING: Distribute turns naturally across the provided personas.\n"
             "5. OUTPUT FORMAT: Return ONLY a valid JSON array of message objects matching this exact format:\n"
             "[\n"
@@ -266,7 +266,7 @@ class DailyBatchEngine:
             from daemon.ai import format_short_telegram_text
             for it in items:
                 if it.get("text"):
-                    it["text"] = format_short_telegram_text(it["text"], max_chars=140)
+                    it["text"] = format_short_telegram_text(it["text"], max_chars=360)
         except Exception:
             pass
 
