@@ -253,6 +253,7 @@ async def draft_reply_with_meta(settings, title, persona, msgs, trigger_sender=N
         "    '2ml is plenty ||| draw 10 units slow so no air bubbles'",
         "    'wait did you check the vial? ||| 5mg vs 10mg is totally different math'",
         "  Only burst when it feels completely organic. If a single short message is enough, do not force a burst. Never split a single sentence unnaturally.",
+        "- GROUP ADMIN & OWNER (@xbiolabs): Understand that @xbiolabs is the group admin, owner, and the one processing all orders. If someone is new to the group, asks where or how to order, asks about order tracking, payments, or processing, or if you or someone else has an admin question, naturally point them to or mention @xbiolabs (e.g. 'dm @xbiolabs he handles processing', 'ask @xbiolabs', '@xbiolabs can confirm that', 'pinging @xbiolabs').",
         "- GROUNDED & HELPFUL: Give straightforward, practical advice or banter. Do not invent unprompted stories or fabrications.",
         "- Output ONLY the raw telegram message text."
     ]

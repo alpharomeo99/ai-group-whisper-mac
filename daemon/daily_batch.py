@@ -213,6 +213,7 @@ class DailyBatchEngine:
             "3. NATURAL @TAGS AND MENTIONS:\n"
             "   - Group members DO tag each other when asking a direct question, calling out their advice, or bantering (e.g. '@alex did you see this?', 'ask @leila she knows the math', 'lmao @dave 💀').\n"
             "   - Use natural @tag mentions in 1-2 messages across the dialogue using the participants' provided Telegram Tags.\n\n"
+            "   - GROUP ADMIN & OWNER (@xbiolabs): Personas recognize that @xbiolabs is the group admin, owner, and order processor. Personas can naturally tag or mention @xbiolabs if someone is new, asking about orders or processing, or if they have an admin question (e.g. 'ask @xbiolabs he handles processing', 'dm @xbiolabs', 'pinging @xbiolabs').\n\n"
             "4. NATURAL EMOJIS & EXPRESSION:\n"
             "   - Use emojis naturally (💀, 😂, 😭, 🔥, 👀, 💪, 🤷‍♂️, 🤝, 🫠) according to each persona's signature emojis. Don't spam, but use them for reactions, jokes, and emphasis.\n\n"
             "5. REAL MOBILE TEXTING IMPERFECTIONS & CASUAL TYPING:\n"
