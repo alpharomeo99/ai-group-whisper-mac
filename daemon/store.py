@@ -654,6 +654,58 @@ class Store:
         else:
             self.q("UPDATE daily_batch_items SET status='sent', sent_ts=? WHERE id=?", (sent_ts, item_id))
 
+    def mark_batch_item_failed(self, item_id, error=None):
+        err_msg = str(error or 'Failed to send')[:255]
+        self.q("UPDATE daily_batch_items SET status='failed', error=? WHERE id=?", (err_msg, item_id))
+
+    def postpone_batch_item(self, item_id, new_ts, reason=None):
+        err_msg = str(reason or 'Postponed')[:255]
+        self.q("UPDATE daily_batch_items SET status='postponed', scheduled_ts=?, error=? WHERE id=?", (new_ts, err_msg, item_id))
+
+    def stagger_overdue_batch_jobs(self, min_spacing_secs=90):
+        """Sleep/wake anti-burst protection:
+        Finds pending batch_scheduled_send jobs whose not_before is overdue by >120s.
+        Smoothly spaces them into the future (starting now + 15s) so waking from sleep
+        does not cause a burst of back-to-back Telegram messages.
+        """
+        now = int(time.time())
+        cutoff = now - 120
+        with self.lock:
+            rows = self.db.execute(
+                "SELECT id, chat_id, payload, not_before FROM queue "
+                "WHERE status='pending' AND kind='batch_scheduled_send' AND not_before < ? "
+                "ORDER BY not_before ASC", (cutoff,)
+            ).fetchall()
+            if not rows:
+                return 0
+
+            by_chat = {}
+            for r in rows:
+                by_chat.setdefault(r["chat_id"], []).append(r)
+
+            rearranged = 0
+            for cid, chat_rows in by_chat.items():
+                offset = 15
+                for r in chat_rows:
+                    new_not_before = now + offset
+                    self.db.execute(
+                        "UPDATE queue SET not_before=?, updated=? WHERE id=?",
+                        (new_not_before, now, r["id"])
+                    )
+                    try:
+                        p = json.loads(r["payload"] or "{}")
+                        if p.get("batch_item_id"):
+                            self.db.execute(
+                                "UPDATE daily_batch_items SET scheduled_ts=? WHERE id=?",
+                                (new_not_before, p["batch_item_id"])
+                            )
+                    except Exception:
+                        pass
+                    offset += min_spacing_secs + random.randint(15, 60)
+                    rearranged += 1
+            self.db.commit()
+            return rearranged
+
     def recent(self, chat_id, limit=80):
         return list(reversed(self.rows(
             "SELECT * FROM messages WHERE chat_id=? ORDER BY ts DESC LIMIT ?", (chat_id, limit))))

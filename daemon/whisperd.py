@@ -667,10 +667,12 @@ class Daemon:
             try:
                 jobs = self.store.claim(limit=4)
                 if jobs:
-                    for job in jobs:
+                    for idx, job in enumerate(jobs):
                         await self.run_job(job)
-                    # If we processed a full batch, continue without waiting to drain backlog
+                        if idx < len(jobs) - 1:
+                            await asyncio.sleep(random.uniform(2.5, 6.0))
                     if len(jobs) == 4:
+                        await asyncio.sleep(random.uniform(3.0, 7.0))
                         continue
             except Exception as e:
                 log.warning("Worker run_job execution error: %s", e)
@@ -1046,17 +1048,31 @@ class Daemon:
                 self.paused_reason = f"AI provider blocked requests ({e.status}): {e}"
                 self.store.set("paused_reason", self.paused_reason)
                 self.store.finish(job["id"], False, str(e), retry_in=0)
+                if job.get("kind") == "batch_scheduled_send" and p.get("batch_item_id"):
+                    self.store.mark_batch_item_failed(p["batch_item_id"], str(e))
             elif e.retryable and job["attempts"] < 5:
-                self.store.finish(job["id"], False, str(e), retry_in=min(600, 15 * 2 ** job["attempts"]))
+                retry_in = min(600, 15 * 2 ** job["attempts"])
+                self.store.finish(job["id"], False, str(e), retry_in=retry_in)
+                if job.get("kind") == "batch_scheduled_send" and p.get("batch_item_id"):
+                    self.store.postpone_batch_item(p["batch_item_id"], int(time.time()) + retry_in, f"AI retry: {e}")
             else:
                 self.store.finish(job["id"], False, str(e))
+                if job.get("kind") == "batch_scheduled_send" and p.get("batch_item_id"):
+                    self.store.mark_batch_item_failed(p["batch_item_id"], str(e))
         except errors.FloodWaitError as e:
-            self.store.finish(job["id"], False, f"Telegram flood wait {e.seconds}s", retry_in=e.seconds + 1)
+            retry_in = e.seconds + 1
+            self.store.finish(job["id"], False, f"Telegram flood wait {e.seconds}s", retry_in=retry_in)
+            if job.get("kind") == "batch_scheduled_send" and p.get("batch_item_id"):
+                self.store.postpone_batch_item(p["batch_item_id"], int(time.time()) + retry_in, f"Flood wait {e.seconds}s")
         except (ConnectionError, OSError) as e:
             self.store.finish(job["id"], False, str(e), retry_in=30)
+            if job.get("kind") == "batch_scheduled_send" and p.get("batch_item_id"):
+                self.store.postpone_batch_item(p["batch_item_id"], int(time.time()) + 30, f"Network retry: {e}")
         except Exception as e:  # noqa
             log.exception("job failed")
             self.store.finish(job["id"], False, str(e))
+            if job.get("kind") == "batch_scheduled_send" and p.get("batch_item_id"):
+                self.store.mark_batch_item_failed(p["batch_item_id"], str(e))
 
     # ---------- Sleep / wake ----------
     async def set_power(self, state, reason):
@@ -1068,7 +1084,8 @@ class Daemon:
         else:
             n = self.store.requeue_in_flight(delay=2)
             self.suspended = False
-            log.info("resume (%s): reconnecting, requeued %d", reason, n)
+            rearranged = self.store.stagger_overdue_batch_jobs(min_spacing_secs=90)
+            log.info("resume (%s): reconnecting, requeued %d, restaggered %d overdue batch items", reason, n, rearranged)
             try:
                 await self.catch_up()
             except Exception as e:  # network may lag after wake; worker retries
@@ -1531,6 +1548,34 @@ class Daemon:
             except Exception:
                 pass
             return web.Response(status=404)
+
+        @r.put("/accounts/{aid}/avatar")
+        async def acc_avatar_upload(req):
+            try:
+                aid = int(req.match_info["aid"])
+                acc = self.store.rows("SELECT id FROM accounts WHERE id=?", (aid,))
+                if not acc:
+                    return J({"error": "Account not found"}, status=404)
+                body = await req.read()
+                if not body or len(body) > 5 * 1024 * 1024:
+                    return J({"error": "Avatar must be a non-empty image under 5 MB"}, status=400)
+                from PIL import Image
+                import io
+                try:
+                    with Image.open(io.BytesIO(body)) as image:
+                        image.verify()
+                    with Image.open(io.BytesIO(body)) as image:
+                        image = image.convert("RGB")
+                        image.thumbnail((512, 512))
+                        temp_path = os.path.join(self.avatars_dir, f"{aid}.upload.tmp.jpg")
+                        image.save(temp_path, format="JPEG", quality=88, optimize=True)
+                    os.replace(temp_path, os.path.join(self.avatars_dir, f"{aid}.jpg"))
+                    return J({"ok": True})
+                except Exception:
+                    return J({"error": "File is not a supported image"}, status=400)
+            except Exception as e:
+                log.warning("Avatar upload failed: %s", e)
+                return J({"error": str(e)}, status=500)
 
         @r.get("/personas/{pid}/avatar")
         async def per_avatar(req):

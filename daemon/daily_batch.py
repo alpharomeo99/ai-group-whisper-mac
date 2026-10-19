@@ -546,7 +546,7 @@ class DailyBatchEngine:
             "LEFT JOIN groups g ON g.chat_id=dbi.chat_id "
             "LEFT JOIN personas p ON p.id=dbi.persona_id "
             "LEFT JOIN accounts a ON a.id=dbi.account_id "
-            "WHERE dbi.created_at >= ? "
+            "WHERE COALESCE(dbi.created_at, dbi.scheduled_ts, 0) >= ? "
             "ORDER BY dbi.scheduled_ts ASC",
             (int(time.time()) - 86400,)
         )
@@ -555,6 +555,7 @@ class DailyBatchEngine:
         pending = sum(1 for x in all_items if x["status"] == "pending")
         sent = sum(1 for x in all_items if x["status"] == "sent")
         postponed = sum(1 for x in all_items if x["status"] == "postponed")
+        failed = sum(1 for x in all_items if x["status"] == "failed")
         cancelled = sum(1 for x in all_items if x["status"] == "cancelled")
 
         # Find next scheduled execution
@@ -592,6 +593,7 @@ class DailyBatchEngine:
                 "pending": pending,
                 "sent": sent,
                 "postponed": postponed,
+                "failed": failed,
                 "cancelled": cancelled
             },
             "next_scheduled_ts": next_ts,

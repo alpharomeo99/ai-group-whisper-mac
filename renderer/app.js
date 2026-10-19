@@ -572,11 +572,48 @@ async function loadAccounts() {
           <div class="hint">${[a.phone, a.username && '@' + a.username, `${a.groups || 0} group${a.groups === 1 ? '' : 's'}`].filter(Boolean).map(esc).join(' · ')}</div></div>
         <span class="badge ${badgeClass}">${badgeLabel}</span>
         <button class="ghost xs" data-sync-acc="${a.id}" title="Sync dialogs and groups for this account">&#8635; Sync</button>
+        <button class="ghost xs" data-avatar-upload="${a.id}" title="Upload a local avatar for this account">Avatar</button>
         <select data-px="${a.id}" title="Proxy">${proxyOptions(null, a.proxy_id)}</select>
         <label><input type="checkbox" data-act="${a.id}" ${a.active ? 'checked' : ''}/> On</label>
         <button class="danger xs" data-del="${a.id}" data-name="${esc(a.name || a.phone || 'Account ' + a.id)}">Delete</button>
       </div>`;
     }).join('');
+
+    document.querySelectorAll('[data-avatar-upload]').forEach((btn) => btn.onclick = async () => {
+      const aid = btn.dataset.avatarUpload;
+      const picker = document.createElement('input');
+      picker.type = 'file';
+      picker.accept = 'image/*';
+      picker.onchange = async () => {
+        const file = picker.files && picker.files[0];
+        if (!file) return;
+        if (file.size > 5 * 1024 * 1024) {
+          alert('Choose an image under 5 MB.');
+          return;
+        }
+        const oldText = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = 'Uploading...';
+        try {
+          const response = await fetch(`/accounts/${encodeURIComponent(aid)}/avatar`, {
+            method: 'PUT',
+            headers: { 'Content-Type': file.type || 'application/octet-stream' },
+            body: file
+          });
+          const result = await response.json();
+          if (!response.ok || result.error) throw new Error(result.error || `HTTP ${response.status}`);
+          await loadAccounts();
+          await loadOverview();
+          if (window.loadNetwork) window.loadNetwork();
+        } catch (error) {
+          alert('Avatar upload failed: ' + error.message);
+        } finally {
+          btn.disabled = false;
+          btn.textContent = oldText;
+        }
+      };
+      picker.click();
+    });
 
     document.querySelectorAll('[data-sync-acc]').forEach((btn) => btn.onclick = async () => {
       btn.disabled = true;
@@ -1462,8 +1499,20 @@ let activeDmAid = '';
 
 async function loadDirectChats() {
   try {
-    const chats = await api('GET', '/direct-chats');
-    dmChatsList = Array.isArray(chats) ? chats : [];
+    const response = await api('GET', '/direct-chats');
+    const chats = Array.isArray(response) ? response : (Array.isArray(response?.chats) ? response.chats : []);
+    dmChatsList = chats.map((c) => ({
+      ...c,
+      chat_id: `${c.account_id}:${c.peer_id}`,
+      title: c.peer_name || c.title || c.username || `User ${c.peer_id}`,
+      first_name: c.peer_name || c.first_name,
+      username: c.peer_username || c.username,
+      last_message: c.last_msg || c.last_message,
+      last_message_at: c.last_ts ? c.last_ts * 1000 : c.last_message_at,
+      account_id: String(c.account_id),
+      auto_reply: c.auto_reply ?? 0,
+      unread_count: c.unread_count || 0
+    }));
     renderDmFilters();
     renderDmChatList();
   } catch (err) {
@@ -1556,6 +1605,17 @@ if ($('dm-btn-sync')) {
   };
 }
 
+function directChatRef(cid) {
+  const chat = dmChatsList.find((c) => String(c.chat_id) === String(cid));
+  return chat ? { aid: chat.account_id, peerId: chat.peer_id } : null;
+}
+
+function directChatPath(cid, suffix) {
+  const ref = directChatRef(cid);
+  if (!ref) throw new Error('Conversation not found');
+  return `/direct-chats/${encodeURIComponent(ref.aid)}/${encodeURIComponent(ref.peerId)}/${suffix}`;
+}
+
 async function selectDirectChat(cid) {
   activeDmCid = cid;
   renderDmChatList();
@@ -1580,7 +1640,7 @@ async function selectDirectChat(cid) {
   pSelect.onchange = async () => {
     const pid = pSelect.value ? Number(pSelect.value) : null;
     try {
-      await api('POST', `/direct-chats/${cid}/settings`, { persona_id: pid });
+      await api('POST', directChatPath(cid, 'settings'), { persona_id: pid });
       chat.persona_id = pid;
     } catch (err) {
       alert('Failed to update persona for this conversation: ' + err.message);
@@ -1591,7 +1651,7 @@ async function selectDirectChat(cid) {
   autoToggle.checked = !!chat.auto_reply;
   autoToggle.onchange = async () => {
     try {
-      await api('POST', `/direct-chats/${cid}/settings`, { auto_reply: autoToggle.checked });
+      await api('POST', directChatPath(cid, 'settings'), { auto_reply: autoToggle.checked });
       chat.auto_reply = autoToggle.checked ? 1 : 0;
     } catch (err) {
       alert('Failed to update auto-reply: ' + err.message);
@@ -1606,15 +1666,17 @@ async function loadDirectMessages(cid) {
   const box = $('dm-messages-box');
   box.innerHTML = '<div class="empty">Loading message thread...</div>';
   try {
-    const messages = await api('GET', `/direct-chats/${cid}/messages?limit=60`);
+    const response = await api('GET', directChatPath(cid, 'messages') + '?limit=60');
+    const messages = Array.isArray(response) ? response : (Array.isArray(response?.messages) ? response.messages : []);
     if (!messages || messages.length === 0) {
       box.innerHTML = '<div class="empty">No messages in this conversation yet.</div>';
       return;
     }
 
     box.innerHTML = messages.map((m) => {
-      const isOut = !!m.outgoing;
-      const timeStr = m.created_at ? new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+      const isOut = !(m.incoming ?? 0);
+      const timeValue = m.created_at || (m.ts ? m.ts * 1000 : null);
+      const timeStr = timeValue ? new Date(timeValue).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
       return `
         <div class="dm-bubble ${isOut ? 'outgoing' : 'incoming'}">
           <div>${esc(m.text || '')}</div>
@@ -1641,7 +1703,7 @@ async function sendDirectReply() {
   btn.textContent = 'Sending...';
 
   try {
-    await api('POST', `/direct-chats/${activeDmCid}/send`, { text });
+    await api('POST', directChatPath(activeDmCid, 'send'), { text });
     input.value = '';
     btn.disabled = false;
     btn.textContent = 'Send';
@@ -1672,7 +1734,7 @@ if ($('dm-btn-ai-draft')) {
     const status = $('dm-draft-status');
     status.textContent = 'Drafting reply in persona voice...';
     try {
-      const res = await api('POST', `/direct-chats/${activeDmCid}/draft`);
+      const res = await api('POST', directChatPath(activeDmCid, 'draft'));
       if (res && res.draft) {
         $('dm-reply-input').value = res.draft;
         status.textContent = 'Draft ready! Review and hit Send.';
@@ -1952,6 +2014,9 @@ function renderBatchScheduleTable(items) {
     } else if (it.status === 'postponed') {
       statusClass = 'bad';
       statusLabel = 'Postponed (Human)';
+    } else if (it.status === 'failed') {
+      statusClass = 'bad';
+      statusLabel = 'Failed: ' + (it.error || 'Send error');
     } else if (it.status === 'cancelled') {
       statusClass = 'off';
       statusLabel = 'Cancelled';
