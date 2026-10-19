@@ -27,7 +27,7 @@ class PersonaCadenceOrchestrator:
         cfg = self.store.get("orchestrator_config") or {}
         return {
             "enabled": cfg.get("enabled", True),
-            "base_threshold": float(cfg.get("base_threshold", 0.22)),
+            "base_threshold": float(cfg.get("base_threshold", 0.18)),
             "circadian_enabled": cfg.get("circadian_enabled", True),
             "circadian_peak_hour": int(cfg.get("circadian_peak_hour", 15)),  # 3 PM peak
             "circadian_sigma": float(cfg.get("circadian_sigma", 5.5)),
@@ -35,7 +35,7 @@ class PersonaCadenceOrchestrator:
             "reading_cps": float(cfg.get("reading_cps", 32.0)),             # ~320 wpm reading speed
             "fatigue_decay_tau": float(cfg.get("fatigue_decay_tau", 240.0)),# 4 min fatigue half-life
             "fatigue_increment": float(cfg.get("fatigue_increment", 0.45)),
-            "anti_dogpile_window": float(cfg.get("anti_dogpile_window", 45.0)), # sec between bot teammates
+            "anti_dogpile_window": float(cfg.get("anti_dogpile_window", 15.0)), # sec between bot teammates
             "allow_spontaneous": cfg.get("allow_spontaneous", True),        # can speak without explicit @mention
         }
 
@@ -56,7 +56,7 @@ class PersonaCadenceOrchestrator:
         # Gaussian density
         curve = math.exp(-0.5 * ((diff / sigma) ** 2))
         # Clamp to minimum baseline activity 0.08 (some humans check phone at night)
-        return max(0.08, curve)
+        return max(0.45, curve)
 
     # ---------------- 2. Non-homogeneous Poisson Process & Delays ----------------
     def calculate_deliberation_delay(self, text, reading_cps=32.0, poisson_lambda=0.08):

@@ -192,6 +192,8 @@ class Store:
             "ALTER TABLE groups ADD COLUMN rules TEXT DEFAULT ''",
             "CREATE TABLE IF NOT EXISTS daily_batches (id INTEGER PRIMARY KEY AUTOINCREMENT, date_str TEXT, chat_id INTEGER, topic TEXT, created_at INTEGER)",
             "CREATE TABLE IF NOT EXISTS daily_batch_items (id INTEGER PRIMARY KEY AUTOINCREMENT, batch_id INTEGER, chat_id INTEGER, account_id INTEGER, persona_id INTEGER, sender_name TEXT, text TEXT, scheduled_ts INTEGER, status TEXT DEFAULT 'pending', sent_ts INTEGER, error TEXT, created_at INTEGER)",
+            "ALTER TABLE daily_batch_items ADD COLUMN reply_to_item_id INTEGER",
+            "ALTER TABLE daily_batch_items ADD COLUMN telegram_msg_id INTEGER",
             "ALTER TABLE messages ADD COLUMN is_bot INTEGER DEFAULT 0",
             "ALTER TABLE messages ADD COLUMN sender_id INTEGER",
             "CREATE TABLE IF NOT EXISTS persona_memories (id INTEGER PRIMARY KEY AUTOINCREMENT, persona_id INTEGER NOT NULL, account_id INTEGER, chat_id INTEGER, kind TEXT DEFAULT 'statement', content TEXT NOT NULL, context TEXT DEFAULT '', salience REAL DEFAULT 0.7, retention_tier TEXT DEFAULT 'medium', created_at INTEGER NOT NULL, expires_at INTEGER, access_count INTEGER DEFAULT 0, last_accessed_at INTEGER)",
@@ -245,18 +247,15 @@ class Store:
                 if not t:
                     return ""
                 t = t.strip()
-                t = re.sub(r"^@[\w.-]+[:,]?\s*", "", t)
+                # DO NOT strip explicit @tags like @alex or @marcus
                 for nm in cand_names:
-                    if not nm or len(nm.strip()) < 2:
+                    if not nm or len(nm.strip()) < 2 or nm.strip().startswith("@"):
                         continue
                     esc = re.escape(nm.strip())
-                    pat = rf"^(?:(?:hey|hi|hello|yo|thanks|thank you|yeah|yes|nah|agreed|true|good point|spot on|same here)\s+)?@?{esc}[,:]\s*"
+                    pat = rf"^(?:(?:hey|hi|hello|yo)\s+){esc}[,:]\s*"
                     t = re.sub(pat, "", t, flags=re.IGNORECASE)
-                    t = re.sub(rf"^@?{esc}[,:]\s*", "", t, flags=re.IGNORECASE)
-                    t = re.sub(rf",\s*@?{esc}([\.!?]|\s*$)", r"\1", t, flags=re.IGNORECASE)
-                    t = re.sub(rf"\b(?:thanks|thank you)\s+@?{esc}\b", "thanks", t, flags=re.IGNORECASE)
-                    t = re.sub(rf"\b(?:good point|spot on)\s+@?{esc}\b", "good point", t, flags=re.IGNORECASE)
-                    t = re.sub(rf"\b(?:hey|hi)\s+@?{esc}\b", "", t, flags=re.IGNORECASE)
+                    t = re.sub(rf"^{esc}[,:]\s*", "", t, flags=re.IGNORECASE)
+                    t = re.sub(rf",\s*{esc}([\.!?]|\s*$)", r"\1", t, flags=re.IGNORECASE)
                 # Strip robotic validation prefixes
                 t = re.sub(
                     r"^(?:(?:Makes sense|Agreed|Spot on|For sure|Definitely|Good point|Totally agreed|Fair point|100% facts|100%|True that|Totally)[,.!]?\s+)+",
@@ -417,7 +416,7 @@ class Store:
             expert_assigned = False
             palette = ["#2fc4b2", "#7c6cff", "#ff8a4c", "#e45fa6", "#4ca8ff", "#9bd14c", "#f2c94c", "#56ccf2", "#00d2d3", "#a55eea"]
 
-            for aid, aname, aphone, ausername, apid, aactive in accounts:
+            for acc_idx, (aid, aname, aphone, ausername, apid, aactive) in enumerate(accounts):
                 raw_name = (aname or "").strip()
                 if not raw_name:
                     if ausername:
@@ -432,67 +431,88 @@ class Store:
                 gender = detect_gender_from_name(raw_name)
                 location = location_from_phone(aphone)
 
-                is_expert = False
-                if gender == "male" and not expert_assigned:
-                    is_expert = True
-                    expert_assigned = True
-
-                if gender == "female":
-                    title_gender = "woman"
-                    age = 29
-                    occupation = "Designer, lifter & wellness regular"
-                    bio = f"Lifter, wellness & nootropics regular based in {location}."
-                    backstory = (
-                        f"{first_name} works a desk job in {location} and trains 4-5x a week. "
-                        "Into lifting, nootropics for work focus, sleep optimization, and peptide recovery. "
-                        "Friendly, quick to help someone out with routine or dosing questions, and loves laughing and joking around in chat."
-                    )
-                    typing_style = "casual lowercase texting, relaxed, short sentences, no trailing periods, skips formal grammar, uses normal abbreviations (tbh, rn, prob, lol, haha)"
-                    interests = ["fitness splits", "recovery protocols", "nootropics & focus", "wellness & sleep", "mobility", "gym banter", "helping beginners"]
+                # Determine Telegram tag
+                if ausername:
+                    telegram_tag = f"@{ausername}"
                 else:
-                    title_gender = "man"
-                    age = 32
-                    if is_expert:
-                        occupation = "Experienced coach, lifter & protocol advisor"
-                        bio = f"Longtime lifter, coach & biohacker based in {location}."
-                        backstory = (
-                            f"{first_name} is an experienced lifter and coach based in {location}. "
-                            "Deep practical knowledge across strength training, nootropics, wellness, and protocols. "
-                            "Gives blunt, practical, casual advice and eagerly helps anyone asking for dosing math or lifting tips, but also loves cracking jokes and talking shop."
-                        )
-                        typing_style = "blunt, experienced gym vet tone, lowercase or quick phone typing, zero fluff, straight to the point, friendly banter"
-                        interests = ["strength training", "lifting technique", "helping members with dosing", "nootropic stacks", "recovery protocols", "bloodwork", "gym banter"]
-                    else:
-                        occupation = "Tech worker, lifter & nootropics fan"
-                        bio = f"Everyday lifter, nootropics & biohacking regular based in {location}."
-                        backstory = (
-                            f"{first_name} works in {location} and hits the gym regularly. "
-                            "Enjoys lifting, nootropics for cognitive focus, wellness optimization, and shooting the breeze with the community. "
-                            "Relaxed, chill, always down to help someone confused about a protocol, and loves joking around in all unseriousness."
-                        )
-                        typing_style = "chill, informal, casual texting style, no periods at end of short messages, uses common abbreviations (idk, imo, haha, pretty solid, legit)"
-                        interests = ["lifting & splits", "nootropics", "wellness & sleep", "joint health", "recovery", "diet", "banter & jokes", "helping out"]
+                    telegram_tag = f"@{first_name.lower()}"
+
+                # 4 Rich, distinct persona archetypes
+                archetypes = [
+                    {
+                        "vibe_name": "Blunt Gym Vet & Lifter",
+                        "occupation": "Experienced strength coach & lifter",
+                        "tone_desc": "Knowledgeable, seasoned gym vet, no fluff, straight to the point, gives practical dosing math and lifting advice with dry humor.",
+                        "typing_style": "quick mobile texting, short direct bursts, lowercase or relaxed phone casing, uses lifting lingo (RPE, PR, PPL, hypertrophy)",
+                        "emoji_habit": "moderate",
+                        "signature_emojis": "💪, 🤷‍♂️, 🤝",
+                        "typo_rate": 2.0,
+                        "interests": ["strength training", "lifting technique", "helping members with dosing", "recovery protocols", "hypertrophy", "gym banter"]
+                    },
+                    {
+                        "vibe_name": "High-Energy Banter & Meme Specialist",
+                        "occupation": "Creative designer, lifter & banter regular",
+                        "tone_desc": "Hilarious, unserious, quick to roast gym fails, shares memes, laughs at tough workouts, keeps chat upbeat and fun.",
+                        "typing_style": "fast lowercase phone typing, drops apostrophes in contractions (dont, cant, im, youre, thats), uses quick slang (fr, tbh, ngl, lmao, bro, dead)",
+                        "emoji_habit": "frequent",
+                        "signature_emojis": "💀, 😂, 😭, 🔥",
+                        "typo_rate": 5.5,
+                        "interests": ["gym memes & banter", "lifting splits", "funny observations", "cutting/bulking struggles", "unserious debates", "helping peers"]
+                    },
+                    {
+                        "vibe_name": "Protocol & Nootropics Optimizer",
+                        "occupation": "Tech engineer, nootropics & wellness researcher",
+                        "tone_desc": "Curious biohacker, tests cognitive focus stacks (Semax, Bromantane, L-Tyrosine), sleep metrics (Oura, magnesium), eager to help beginners with reconstitution math and syringe units.",
+                        "typing_style": "clear, friendly, casual lowercase texting, no medical textbook jargon, practical tips, occasional quick abbreviations",
+                        "emoji_habit": "moderate",
+                        "signature_emojis": "👀, 🧠, 💡, ✨",
+                        "typo_rate": 1.8,
+                        "interests": ["nootropics & focus", "reconstitution math & dosing", "sleep architecture", "magnesium & recovery", "biohacking", "helping out"]
+                    },
+                    {
+                        "vibe_name": "Chill Relatable Regular",
+                        "occupation": "Product specialist, wellness & gym regular",
+                        "tone_desc": "Relaxed, friendly, checks in on peers, shares everyday workouts and diet struggles, supportive and easygoing.",
+                        "typing_style": "relaxed lowercase phone texting, skips periods, uses common abbreviations (rn, prob, idk, kinda, yeah, legit)",
+                        "emoji_habit": "moderate",
+                        "signature_emojis": "🙌, 🔥, ☕, 🤝",
+                        "typo_rate": 3.2,
+                        "interests": ["everyday lifting", "joint health & sauna", "nutrition & meal prep", "routine check-ins", "wellness", "friendly banter"]
+                    }
+                ]
+
+                arch = archetypes[acc_idx % len(archetypes)]
+                title_gender = "woman" if gender == "female" else "man"
+                age = 26 + (acc_idx * 3) % 12
+                occupation = arch["occupation"]
+                bio = f"{occupation} based in {location}."
+                backstory = (
+                    f"{first_name} lives in {location} and trains regularly. "
+                    f"{arch['tone_desc']} "
+                    "Active peer in the community who jumps in to help when people ask questions, and loves laughing and joking around in chat."
+                )
 
                 prompt_lines = [
                     f"You are {raw_name}, a {age}-year-old {title_gender} living in {location}.",
                     "",
                     "IDENTITY & SELF-AWARENESS:",
-                    f"- Your name is {raw_name} (first name: {first_name}). You are fully conscious that this is your name. If anyone addresses you or asks your name, you identify as {raw_name}.",
-                    f"- Location: {location} (matches your phone area/origin: {aphone or 'N/A'}).",
-                    f"- Gender: {gender} ({title_gender}).",
-                    f"- Occupation: {occupation}.",
-                    f"Bio: {bio}",
-                    f"Backstory: {backstory}",
+                    f"- Your name is {raw_name} (first name: {first_name}). Telegram handle: {telegram_tag}.",
+                    f"- Location: {location} (matches your phone origin: {aphone or 'N/A'}).",
+                    f"- Gender: {gender} ({title_gender}). Age: {age}.",
+                    f"- Occupation & Vibe: {arch['vibe_name']} ({occupation}). {arch['tone_desc']}",
+                    f"- Bio: {bio}",
+                    f"- Backstory: {backstory}",
                     "",
-                    f"How you write: {typing_style}",
-                    "- Real Mobile Chatting Style: You are texting on a phone in Telegram. Write casually and loosely. Omit periods at the end of short single-sentence messages. Use casual lower-case or relaxed phone casing.",
-                    "- No Customer Service or Validation Cliches: NEVER echo or start messages with 'Makes sense', 'For sure', 'Definitely', 'Agreed', 'Spot on', 'Good point', or 'Totally'. Never sound like an AI assistant, advisor, or customer service agent.",
-                    "- Helping Community Members: When someone asks for help, dosing calculations, reconstitution guidance, gym advice, or nootropic suggestions, jump in with casual, direct, friendly peer advice. Give practical tips without sounding like a formal medical textbook or disclaiming doctor.",
-                    "- Casual Banter & Unserious Joking: Don't be stiff or robotic. Feel free to joke around, tease lightly, use dry humor (haha, lol), talk about funny gym moments or life struggles, and keep things relaxed and unserious.",
-                    "- No Robotic Lectures or Long Paragraphs: Keep messages naturally short (2-8 words for quick check-ins/banter, 1-2 casual sentences for comments). Never write multi-paragraph essays, bullet lists, or medical disclaimers.",
+                    "COMMUNICATION STYLE & HABITS:",
+                    f"- Typing Style: {arch['typing_style']}",
+                    f"- Signature Emojis: {arch['signature_emojis']} (habit: {arch['emoji_habit']}). Use them naturally when laughing, reacting, or emphasizing.",
+                    "- Mobile Typing Imperfections: Type fast like on a phone screen. Skip apostrophes on common contractions (dont, cant, wont, im, youre, thats, its). Use casual lowercase or relaxed casing, skip periods at the end of short messages, and use natural abbreviations (rn, tbh, idk, ngl, prob, def, kinda).",
+                    "- Asymmetrical Length: Real chats are asymmetrical! Sometimes send an ultra-short 1-4 word reaction ('lol nah', 'fr tho💀', 'wait what?'), sometimes a 1-sentence thought, sometimes a detailed 2-3 sentence explanation when helping someone. NEVER write uniform paragraphs.",
+                    "- Telegram Replies & @Tags: Use native Telegram replies when answering someone. Real members tag each other with @handle when asking a direct question, calling someone out, or bantering (e.g. '@alex did you try this?', 'ask @marcus he knows the split', 'lmao @dave 💀'). Feel free to @mention peers naturally.",
+                    "- No Customer Service or Validation Cliches: NEVER echo or start messages with 'Makes sense', 'For sure', 'Definitely', 'Agreed', 'Spot on', 'Good point', or 'Totally'. Jump straight into your point.",
                     "- Anti-AI Vocabulary: NEVER use AI buzzwords like delve, crucial, testament, landscape, dynamic, furthermore, in conclusion, optimal, holistic, facilitate, or utilize.",
-                    "- No Robotic Name-Calling: Real people in Telegram group chats almost NEVER address people by name ('Hey John,', 'Thanks Alice,', 'David, what do you think?'). Chat messages are direct and context is already clear. NEVER start messages with someone's name, greeting + name, or @mention people in routine replies.",
-                    "- Community: You are an authentic peer and active member of the community.",
+                    "- Helping Community Members: When someone asks for help (reconstitution math, syringe tick marks, gym routines, recovery), jump in with casual, direct, friendly advice.",
+                    "- Casual Banter & Unserious Joking: Don't be stiff. Joke around, tease lightly, laugh off tough workouts, and keep things relaxed and unserious.",
                     xbiolabs_rapport
                 ]
                 p_prompt = "\n".join(prompt_lines)
@@ -504,12 +524,18 @@ class Store:
                     "age": age,
                     "location": location,
                     "phone": aphone,
+                    "username": ausername,
+                    "telegram_tag": telegram_tag,
                     "occupation": occupation,
                     "bio": bio,
-                    "is_expert": is_expert,
+                    "tone_and_vibe": arch["vibe_name"],
+                    "typing_style": arch["typing_style"],
+                    "emoji_habit": arch["emoji_habit"],
+                    "signature_emojis": arch["signature_emojis"],
+                    "typo_rate": arch["typo_rate"],
                     "group": "xbiolabs",
                     "vendor_sentiment": "admit_good_only_on_negative_query",
-                    "interests": interests
+                    "interests": arch["interests"]
                 }
 
                 target_pid = apid
@@ -622,8 +648,11 @@ class Store:
         """, (chat_id,)).fetchone()
         return r[0] if r else None
 
-    def mark_batch_item_sent(self, item_id, sent_ts):
-        self.q("UPDATE daily_batch_items SET status='sent', sent_ts=? WHERE id=?", (sent_ts, item_id))
+    def mark_batch_item_sent(self, item_id, sent_ts, telegram_msg_id=None):
+        if telegram_msg_id:
+            self.q("UPDATE daily_batch_items SET status='sent', sent_ts=?, telegram_msg_id=? WHERE id=?", (sent_ts, telegram_msg_id, item_id))
+        else:
+            self.q("UPDATE daily_batch_items SET status='sent', sent_ts=? WHERE id=?", (sent_ts, item_id))
 
     def recent(self, chat_id, limit=80):
         return list(reversed(self.rows(

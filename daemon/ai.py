@@ -80,63 +80,68 @@ async def summarize(settings, title, msgs):
 
 
 def strip_addressing_names(text, names=None):
-    """Strips robotic name addressing, greeting prefixes, and @mentions from group chat messages.
-    Preserves authentic casual interjections like 'Bro, ', 'Honestly, ', 'Yeah, '.
+    """Strips robotic email-style name addressing and formal greetings while PRESERVING intentional Telegram @mentions
+    and authentic casual interjections like 'bro', 'honestly', 'yeah'.
     """
     if not text:
         return ""
     text = text.strip()
 
-    # 1. Strip leading @mentions: '@john what do you think?' -> 'what do you think?'
-    text = re.sub(r'^@[\w.-]+[:,]?\s*', '', text)
+    # Strip bracketed LLM labels like '[Dave]: ' or 'Dave: ' (but NOT '@handle:')
+    text = re.sub(r'^(?:\[[^\]]+\]:?|(?!@)[a-zA-Z]{2,15}:\s*)', '', text).strip()
 
-    # 2. Targeted name stripping if names are provided
+    # Targeted name stripping if names are provided, but ONLY when used in formal salutation styles:
+    # e.g. 'Hey Dave, ' -> ''
+    # BUT DO NOT STRIP '@dave' mentions!
     target_names = set()
     if names:
         for n in names:
             if not n:
                 continue
             raw = str(n).strip()
+            if raw.startswith('@'):
+                continue
             if len(raw) >= 2:
                 target_names.add(raw.lower())
                 first = raw.split()[0].lower()
-                if len(first) >= 2:
+                if len(first) >= 2 and first not in SAFE_INTERJECTIONS:
                     target_names.add(first)
 
     for name in target_names:
         esc = re.escape(name)
-        # Leading greetings or acknowledgements followed by name: 'Hey Alice, ', 'Thanks Bob, '
-        pat_leading = rf'^(?:(?:hey|hi|hello|yo|thanks|thank you|yeah|yes|nah|agreed|true|good point|spot on|same here)\s+)?@?{esc}[,:]\s*'
+        # Leading greetings followed by bare name without @: 'Hey Alice, '
+        pat_leading = rf'^(?:(?:hey|hi|hello|yo)\s+){esc}[,:]\s*'
         text = re.sub(pat_leading, '', text, flags=re.IGNORECASE)
-        # Leading bare name: 'Alice, ' or 'Alice: '
-        text = re.sub(rf'^@?{esc}[,:]\s*', '', text, flags=re.IGNORECASE)
-        # Mid-sentence / end-of-sentence name addressing: 'what do you think, Alice?' -> 'what do you think?'
-        text = re.sub(rf',\s*@?{esc}([\.!?]|\s*$)', r'\1', text, flags=re.IGNORECASE)
-        # 'Good point Alice' / 'Thanks Alice'
-        text = re.sub(rf'\b(?:thanks|thank you)\s+@?{esc}\b', 'thanks', text, flags=re.IGNORECASE)
-        text = re.sub(rf'\b(?:good point|spot on)\s+@?{esc}\b', 'good point', text, flags=re.IGNORECASE)
-        text = re.sub(rf'\b(?:hey|hi)\s+@?{esc}\b', '', text, flags=re.IGNORECASE)
-
-    # 3. Generic untargeted greeting + name cleaner
-    # 'Hey/Hi/Yo/Hello <Word>[,:] <rest>' e.g. 'Hey David, how is it going?'
-    m = re.match(r'^(?:hey|hi|hello|yo)\s+@?([a-zA-Z]{2,15})[,:]\s*(.*)$', text, flags=re.IGNORECASE)
-    if m:
-        target = m.group(1).lower()
-        rest = m.group(2).strip()
-        if target not in SAFE_INTERJECTIONS and rest:
-            text = rest
-
-    # '<Word>[,:] <rest>' where Word is capitalized and not an interjection
-    m = re.match(r'^@?([a-zA-Z]{2,15})[,:]\s+(.*)$', text)
-    if m:
-        target = m.group(1).lower()
-        rest = m.group(2).strip()
-        if target not in SAFE_INTERJECTIONS and rest:
-            text = rest
+        # Leading bare name without @: 'Alice, ' -> ''
+        text = re.sub(rf'^{esc}[,:]\s*', '', text, flags=re.IGNORECASE)
+        # End of sentence vocative: ', Alice?' -> '?'
+        text = re.sub(rf',\s*{esc}([\.!?]|\s*$)', r'\1', text, flags=re.IGNORECASE)
 
     # Clean leftover punctuation or double spaces
     text = re.sub(r'^\s*[,:;-]\s*', '', text)
     text = re.sub(r'\s{2,}', ' ', text).strip()
+    return text
+
+
+def naturalize_mobile_text(text):
+    """Subtly relaxes formal contractions into authentic casual phone texting (drops apostrophes)."""
+    if not text:
+        return ""
+    contractions = [
+        (r"\b[Dd]on't\b", "dont"),
+        (r"\b[Cc]an't\b", "cant"),
+        (r"\b[Ww]on't\b", "wont"),
+        (r"\b[Ii]'m\b", "im"),
+        (r"\b[Yy]ou're\b", "youre"),
+        (r"\b[Tt]hat's\b", "thats"),
+        (r"\b[Ii]t's\b", "its"),
+        (r"\b[Ww]e're\b", "were"),
+        (r"\b[Dd]idn't\b", "didnt"),
+        (r"\b[Cc]ouldn't\b", "couldnt"),
+        (r"\b[Ww]ouldn't\b", "wouldnt"),
+    ]
+    for pat, rep in contractions:
+        text = re.sub(pat, rep, text)
     return text
 
 
@@ -148,21 +153,21 @@ def format_telegram_message(text, names=None, max_chars=360):
     if not text:
         return ""
     text = text.strip()
+    text = naturalize_mobile_text(text)
     # Strip LLM sender labels like '[Dave]: ' or 'Alice: '
     text = re.sub(r'^(?:\[[^\]]+\]:?|\w+:\s*)\s*', '', text).strip().strip("'\"")
 
     # Clean out robotic name-calling / salutations
     text = strip_addressing_names(text, names=names)
 
-    # Strip robotic validation prefixes and agreement cliches
-    cleaned_prefix = re.sub(
-        r'^(?:(?:Makes sense|Agreed|Spot on|For sure|Definitely|Good point|Totally agreed|Fair point|100% facts|100%|True that|Totally)(?:\s+(?:mate|man|bro|dude))?[,.!]?\s+)+',
-        '', text, flags=re.IGNORECASE
-    )
-    # If stripping left a dangling vocative like 'mate. ' or 'bro, '
-    cleaned_prefix = re.sub(r'^(?:mate|man|bro|dude)[,.!]?\s*', '', cleaned_prefix, flags=re.IGNORECASE).strip()
-    if cleaned_prefix:
-        text = cleaned_prefix
+    # Strip robotic validation prefixes and agreement cliches (preserve natural 'bro' if not agreement phrase)
+    has_agreement = re.search(r'^(?:Makes sense|Agreed|Spot on|For sure|Definitely|Good point|Totally agreed|Fair point|100% facts|100%|True that|Totally)\b', text, flags=re.IGNORECASE)
+    if has_agreement:
+        text = re.sub(
+            r'^(?:(?:Makes sense|Agreed|Spot on|For sure|Definitely|Good point|Totally agreed|Fair point|100% facts|100%|True that|Totally)(?:\s+(?:mate|man|bro|dude))?[,.!]?\s+)+',
+            '', text, flags=re.IGNORECASE
+        )
+        text = re.sub(r'^(?:mate|man|bro|dude)[,.!]?\s*', '', text, flags=re.IGNORECASE).strip()
 
     # Strip formal conversation starter phrases
     cleaned_formal = re.sub(
@@ -220,13 +225,18 @@ async def draft_reply_with_meta(settings, title, persona, msgs, trigger_sender=N
     persona_prompt = persona or "You are a regular member of this Telegram group."
     rules = [
         "CRITICAL RULES - TEXT LIKE A REAL HUMAN IN TELEGRAM, NEVER AN AI:",
-        "- NEVER START WITH BOT-LIKE AGREEMENT OR VALIDATION: Do NOT start messages with 'Makes sense', 'For sure', 'Definitely', 'Agreed', 'Spot on', 'Good point', 'Totally', '100%', or 'Fair point'. Real group members don't validate each other like customer support agents. Jump straight into your thought or question.",
-        "- NO SCRIPTED NAME-DROPPING: NEVER address anyone by name (no 'Hey John', 'Dave, ...', or 'Thanks mate'). Telegram's reply bubble visually links the message.",
-        "- WRITE CASUALLY IN MOBILE TEXTING STYLE: Write like you're typing quickly with your thumbs on a phone. Use lowercase or relaxed casing, skip periods at the end of short single-sentence messages, use natural abbreviations (tbh, rn, idk, prob, imo, lol, haha), and speak in casual fragments rather than complete academic paragraphs.",
-        "- HELPING COMMUNITY MEMBERS: When someone in chat asks a question or asks for help (reconstitution, dosing math, gym splits, joint recovery, nootropics, wellness), reply helpfully, casually, and directly as a knowledgeable friend or gym buddy. Give clear practical tips without sounding like a disclaimer-heavy doctor or customer service bot.",
-        "- CASUAL BANTER & UNSERIOUS JOKING: It's a casual group chat, not a classroom. Feel free to joke around, use humor (haha, lol), banter, tease lightly, share funny observations, and keep things relaxed and unserious.",
-        "- BROAD DOMAIN COMFORT: Speak naturally about peptides, nootropics (Semax, Selank, Bromantane, focus stacks), wellness (sleep, sauna, magnesium, electrolytes, gut health), and general fitness (lifting routines, hypertrophy, cutting/bulking).",
-        "- NATURAL LENGTH VARIATION: Keep it concise and natural. Quick banter/reactions: 2-8 words ('same here honestly', 'what dose though?'). Typical comments/advice: 1-2 casual sentences (10-25 words). NEVER write essay paragraphs or structured lists.",
+        "- WILDLY ASYMMETRICAL LENGTH DIVERSITY: Real humans NEVER type uniform-length messages! Dynamically adapt length to context:",
+        "  * Quick banter / reactions: Ultra-short 1 to 5 words ('lol nah', 'fr tho💀', 'wait what?', 'bro😭', 'same here honestly', 'legend').",
+        "  * Casual takes / questions: 5 to 14 words ('how was the fatigue on leg day?', 'dropped caffeine after 1pm and sleep is way better').",
+        "  * Direct help / explanations: 18 to 45 words ('if it\'s a 5mg vial and you put in 2ml bac water, every 10 units on an insulin pin is 250mcg. super straightforward once you do it once').",
+        "  * NEVER write uniform paragraphs or essay lists!",
+        "- NEVER START WITH BOT-LIKE AGREEMENT OR VALIDATION: Do NOT start messages with 'Makes sense', 'For sure', 'Definitely', 'Agreed', 'Spot on', 'Good point', 'Totally', '100%', or 'Fair point'. Jump straight into your reaction, question, or thought.",
+        "- NATURAL EMOJIS & EXPRESSION: Use emojis naturally (💀, 😂, 😭, 🔥, 👀, 💪, 🤷‍♂️, 🤝) matching your persona. Real chatters react with emojis!",
+        "- NATURAL TELEGRAM TAGS & REPLIES: Never use email-style greetings (no 'Hey Dave, I hope you are well'). DO use natural Telegram @mentions when addressing or bantering with a peer (e.g. '@marcus how was leg day?', 'ask @leila she knows the math', 'lmao @dave 💀'). Telegram reply quotes link the conversation.",
+        "- WRITE CASUALLY IN MOBILE TEXTING STYLE: Type like you are on a phone with thumbs. Skip apostrophes on common contractions (dont, cant, wont, im, youre, thats, its), use casual lowercase or relaxed casing, skip trailing periods, and use natural abbreviations (rn, tbh, idk, ngl, prob, def, kinda, lol, haha).",
+        "- HELPING COMMUNITY MEMBERS: When someone asks for help (reconstitution, dosing math, gym splits, joint recovery, nootropics, wellness), reply helpfully, casually, and directly as a knowledgeable friend or gym buddy. Give clear practical tips without sounding like a medical textbook.",
+        "- CASUAL BANTER & UNSERIOUS JOKING: It's a casual group chat. Joke around, banter, tease lightly, share funny observations, and keep things relaxed and unserious.",
+        "- BROAD DOMAIN COMFORT: Speak naturally about peptides, nootropics (Semax, Selank, Bromantane), wellness (sleep, sauna, magnesium, electrolytes), and general fitness (lifting routines, hypertrophy, cutting/bulking).",
         "- ZERO CORPORATE OR AI JARGON: Never say 'delve', 'crucial', 'testament', 'landscape', 'dynamic', 'furthermore', 'optimal', 'holistic', 'facilitate', 'utilize', 'ensure'.",
         "- STAY CASUALLY GROUNDED: Do NOT invent unrequested stories about vendors, orders, shipping, or drama unless someone directly asked.",
         "- Output ONLY the raw telegram message text."

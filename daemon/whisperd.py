@@ -923,7 +923,12 @@ class Daemon:
                             await asyncio.sleep(secs)
                     except Exception:  # noqa
                         pass
-                    sent_msg = await cl.send_message(job["chat_id"], p["text"], reply_to=p.get("reply_to"))
+                    reply_to_msg_id = p.get("reply_to")
+                    if not reply_to_msg_id and p.get("reply_to_item_id"):
+                        rep_rows = self.store.rows("SELECT telegram_msg_id FROM daily_batch_items WHERE id=?", (p["reply_to_item_id"],))
+                        if rep_rows and rep_rows[0].get("telegram_msg_id"):
+                            reply_to_msg_id = rep_rows[0]["telegram_msg_id"]
+                    sent_msg = await cl.send_message(job["chat_id"], p["text"], reply_to=reply_to_msg_id)
                     sender_id = getattr(sent_msg, "sender_id", None)
                     if sender_id and aid:
                         acc_check = self.store.rows("SELECT user_id FROM accounts WHERE id=?", (aid,))
@@ -968,7 +973,12 @@ class Daemon:
                             await asyncio.sleep(secs)
                     except Exception:  # noqa
                         pass
-                    sent_msg = await cl.send_message(job["chat_id"], p["text"], reply_to=p.get("reply_to"))
+                    reply_to_msg_id = p.get("reply_to")
+                    if not reply_to_msg_id and p.get("reply_to_item_id"):
+                        rep_rows = self.store.rows("SELECT telegram_msg_id FROM daily_batch_items WHERE id=?", (p["reply_to_item_id"],))
+                        if rep_rows and rep_rows[0].get("telegram_msg_id"):
+                            reply_to_msg_id = rep_rows[0]["telegram_msg_id"]
+                    sent_msg = await cl.send_message(job["chat_id"], p["text"], reply_to=reply_to_msg_id)
                     sender_id = getattr(sent_msg, "sender_id", None)
                     if sender_id and aid:
                         acc_check = self.store.rows("SELECT user_id FROM accounts WHERE id=?", (aid,))
@@ -988,7 +998,7 @@ class Daemon:
                     self.usage.log_event("msg_sent", persona_id=eff_pid, account_id=aid, chat_id=job["chat_id"])
 
                 if p.get("batch_item_id"):
-                    self.store.mark_batch_item_sent(p["batch_item_id"], int(time.time()))
+                    self.store.mark_batch_item_sent(p["batch_item_id"], int(time.time()), telegram_msg_id=sent_msg.id)
 
             elif job["kind"] == "direct_send":
                 aid = p.get("account_id")
@@ -1238,14 +1248,14 @@ class Daemon:
                                     (cid,)
                                 )
                                 last_ts = (last_sent[0]["last_ts"] or 0) if last_sent else 0
-                                interval_secs = int(self.store.get("batch_session_interval_seconds", 3600))  # 1 hour quiet threshold by default
+                                interval_secs = int(self.store.get("batch_session_interval_seconds", 1800))  # 30 mins quiet default
                                 if (int(time.time()) - last_ts) >= interval_secs:
                                     should_generate = True
 
                             if should_generate:
                                 cands = self.daily_batch.get_group_candidates(cid)
                                 if len(cands) >= 2:
-                                    count = int(self.store.get("batch_messages_count", 6))
+                                    count = int(self.store.get("batch_messages_count", 12))
                                     log.info("Auto-Pilot: Generating batch for group %s (%d candidates, %d messages)", cid, len(cands), count)
                                     await self.daily_batch.generate_batch_for_group(cid, count=count)
                                     self.wake_event.set()
@@ -1253,7 +1263,7 @@ class Daemon:
                             log.warning("daily_batch_loop error for group %s: %s", cid, group_err)
             except Exception as e:
                 log.warning("daily_batch_loop error: %s", e)
-            await asyncio.sleep(600)
+            await asyncio.sleep(180)
 
     async def catch_up(self):
         """Fetch messages missed while the Mac slept."""

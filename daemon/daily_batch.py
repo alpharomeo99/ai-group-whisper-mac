@@ -36,7 +36,7 @@ class DailyBatchEngine:
 
         # 1. group_personas with explicit account_id
         gp_rows = self.store.rows(
-            "SELECT p.id as persona_id, p.name as persona_name, p.details, p.prompt, gp.account_id, a.name as account_name, a.phone as account_phone "
+            "SELECT p.id as persona_id, p.name as persona_name, p.details, p.prompt, gp.account_id, a.name as account_name, a.phone as account_phone, a.username as account_username "
             "FROM group_personas gp "
             "JOIN personas p ON p.id=gp.persona_id "
             "JOIN accounts a ON a.id=gp.account_id "
@@ -51,7 +51,7 @@ class DailyBatchEngine:
 
         # 2. group_accounts where account has persona_id assigned
         ga_rows = self.store.rows(
-            "SELECT p.id as persona_id, p.name as persona_name, p.details, p.prompt, a.id as account_id, a.name as account_name, a.phone as account_phone "
+            "SELECT p.id as persona_id, p.name as persona_name, p.details, p.prompt, a.id as account_id, a.name as account_name, a.phone as account_phone, a.username as account_username "
             "FROM group_accounts ga "
             "JOIN accounts a ON a.id=ga.account_id "
             "JOIN personas p ON p.id=a.persona_id "
@@ -69,7 +69,7 @@ class DailyBatchEngine:
         if g_rows and g_rows[0].get("account_id"):
             g_aid = g_rows[0]["account_id"]
             owner_rows = self.store.rows(
-                "SELECT p.id as persona_id, p.name as persona_name, p.details, p.prompt, a.id as account_id, a.name as account_name, a.phone as account_phone "
+                "SELECT p.id as persona_id, p.name as persona_name, p.details, p.prompt, a.id as account_id, a.name as account_name, a.phone as account_phone, a.username as account_username "
                 "FROM accounts a "
                 "JOIN personas p ON p.id=a.persona_id "
                 "WHERE a.id=? AND a.active=1",
@@ -84,7 +84,7 @@ class DailyBatchEngine:
         # 4. Global fallback: active accounts with personas if group mapping wasn't populated
         if len(candidates) < 2:
             all_active_accs = self.store.rows(
-                "SELECT p.id as persona_id, p.name as persona_name, p.details, p.prompt, a.id as account_id, a.name as account_name, a.phone as account_phone "
+                "SELECT p.id as persona_id, p.name as persona_name, p.details, p.prompt, a.id as account_id, a.name as account_name, a.phone as account_phone, a.username as account_username "
                 "FROM accounts a "
                 "JOIN personas p ON p.id=a.persona_id "
                 "WHERE a.active=1"
@@ -168,7 +168,7 @@ class DailyBatchEngine:
             topic_prompt = chosen_theme
             topic_query = chosen_query
 
-        # 3. Format persona summaries for the AI prompt
+        # 3. Format persona summaries with Telegram tags and distinct styles
         persona_summaries = []
         for c in candidates:
             dt = {}
@@ -176,8 +176,13 @@ class DailyBatchEngine:
                 dt = json.loads(c.get("details") or "{}") if isinstance(c.get("details"), str) else (c.get("details") or {})
             except Exception:
                 dt = {}
-            role = dt.get("role_in_group") or "Experienced regular"
+            role = dt.get("role_in_group") or dt.get("tone_and_vibe") or "Experienced regular"
             slang = dt.get("slang_and_vocabulary") or "Authentic telegram slang"
+            emojis = dt.get("signature_emojis") or "💀, 😂"
+            emoji_habit = dt.get("emoji_habit") or "moderate"
+            typing = dt.get("typing_style") or "casual phone texting"
+            uname = c.get("account_username")
+            tag = f"@{uname}" if uname else f"@{(c.get('persona_name') or 'member').split()[0].lower()}"
 
             mem_lines = []
             if self.memory:
@@ -195,9 +200,10 @@ class DailyBatchEngine:
             mem_str = ("\n  " + "\n  ".join(mem_lines)) if mem_lines else ""
 
             persona_summaries.append(
-                f"- ID: {c['persona_id']}, AccountID: {c['account_id']}, Name: {c['persona_name']}\n"
-                f"  Role: {role}\n"
-                f"  Style/Slang: {slang}\n"
+                f"- ID: {c['persona_id']}, AccountID: {c['account_id']}, Name: {c['persona_name']}, Telegram Tag: {tag}\n"
+                f"  Vibe/Role: {role}\n"
+                f"  Signature Emojis: {emojis} (habit: {emoji_habit})\n"
+                f"  Typing: {typing}\n"
                 f"  Brief: {c.get('prompt', '')[:160]}...{mem_str}"
             )
         persona_str = "\n\n".join(persona_summaries)
@@ -205,29 +211,49 @@ class DailyBatchEngine:
         group_title = group.get("title") or f"Group {chat_id}"
         group_about = group.get("about") or "Telegram community discussion"
         group_domain = group.get("domain_knowledge") or "Biohacking, research peptides, protocols, sourcing, and health optimization."
-        group_rules = group.get("rules") or "Be authentic, direct, and knowledgeable."
 
         system_prompt = (
             "You orchestrate realistic, organic human conversations in specialist Telegram communities.\n"
             "You write authentic, casual group chat exchanges between real people texting from their phones.\n\n"
-            "CRITICAL GUIDELINES:\n"
-            "1. CASUAL MOBILE TEXTING (NO ESSAYS OR LECTURES): Members are typing on their phones between workouts or at work. Use casual phrasing, natural abbreviations (tbh, rn, imo, prob, idk, lol), fragments, and relaxed casing. DO NOT write complete academic paragraphs or sound like an AI assistant.\n"
-            "2. STOP CONSTANTLY AGREEING OR VALIDATING: Real people DO NOT echo each other with 'Makes sense', 'For sure', 'Definitely', 'Agreed', 'Spot on', 'Good point', or '100%'. Avoid the fake podcast/seminar dynamic where everyone compliments and validates each other's points. Real members banter, joke, have differing takes, share quick personal updates, or ask short questions.\n"
-            "3. NO SCRIPT-LIKE NAME-DROPPING: Real people in Telegram group chats NEVER address each other by name (DO NOT write 'Hey Leila,', 'Mark, what do you think?', 'Thanks Dave,'). Real group chatter is casual, direct, and unscripted. Personas must NEVER call each other by name or use @mentions in dialogue turns.\n"
-            "4. NATURAL TOPIC SCATTER: Mix quick 2-message banter exchanges with occasional single check-ins or quick casual questions spread throughout the day.\n"
-            "5. TOPIC BREADTH (FITNESS, NOOTROPICS, WELLNESS, HELPING OUT & BANTER): Cover a realistic spectrum of community life:\n"
+            "CRITICAL GUIDELINES FOR AUTHENTIC HUMAN MESSAGING:\n"
+            "1. WILDLY ASYMMETRICAL LENGTH DIVERSITY (MANDATORY):\n"
+            "   - Real humans NEVER type uniform-length messages! Distribute message lengths naturally:\n"
+            "     * ULTRA-SHORT REACTIONS (25-30% of turns): 1 to 4 words. Examples: 'lol nah', 'fr tho💀', 'wait what?', 'bro😭', 'nah 2ml is plenty', 'same honestly', 'legend', 'yea 100%'.\n"
+            "     * QUICK TAKES & QUESTIONS (40-45% of turns): 5 to 14 words. Examples: 'how was the fatigue on heavy squat day?', 'dropped caffeine after 1pm and sleep is way better', 'did you run subq or im for that?'.\n"
+            "     * DETAILED REPLIES & EXPLANATIONS (25-30% of turns): 18 to 45 words. Examples: 'if it\'s a 5mg vial and you put in 2ml bac water, every 10 units on an insulin pin is 250mcg. super straightforward once you do it once, just draw slow so no air bubbles'.\n"
+            "   - NEVER make every message the same length!\n\n"
+            "2. GENUINE TELEGRAM REPLIES & THREADING:\n"
+            "   - Group dialogue happens in conversational clusters of 2-3 messages.\n"
+            "   - When a persona is responding to, answering, or bantering with a previous message in the conversation, specify 'reply_to_step': <0-indexed step of target message>.\n"
+            "   - If starting a new conversational topic or check-in, set 'reply_to_step': null.\n\n"
+            "3. NATURAL @TAGS AND MENTIONS:\n"
+            "   - Group members DO tag each other when asking a direct question, calling out their advice, or bantering (e.g. '@alex did you see this?', 'ask @leila she knows the math', 'lmao @dave 💀').\n"
+            "   - Use natural @tag mentions in 1-2 messages across the dialogue using the participants' provided Telegram Tags.\n\n"
+            "4. NATURAL EMOJIS & EXPRESSION:\n"
+            "   - Use emojis naturally (💀, 😂, 😭, 🔥, 👀, 💪, 🤷‍♂️, 🤝, 🫠) according to each persona's signature emojis. Don't spam, but use them for reactions, jokes, and emphasis.\n\n"
+            "5. REAL MOBILE TEXTING IMPERFECTIONS & CASUAL TYPING:\n"
+            "   - Real people type fast on phone glass screens with their thumbs. They make mistakes!\n"
+            "   - Skip apostrophes on common contractions ('dont', 'cant', 'wont', 'im', 'youre', 'thats', 'its').\n"
+            "   - Use lowercase starts, missing periods at the end of short messages, and casual abbreviations ('rn', 'tbh', 'idk', 'ngl', 'prob', 'def', 'bcuz', 'kinda').\n"
+            "   - Occasional natural phone typos when typing fast ('teh', 'yea', 'definately'). No one texts like an academic textbook!\n\n"
+            "6. DISTINCT PERSONALITIES & VIBES (NO CLONES):\n"
+            "   - Give each participant their own unique tone, opinions, and attitude. Do not make everyone agree or sound like clones.\n"
+            "   - Stop constantly agreeing or validating. Ban 'Makes sense', 'For sure', 'Definitely', 'Agreed', 'Spot on', 'Good point', '100% facts'. Real people banter, tease, share hot takes, ask questions, or react directly.\n\n"
+            "7. TOPIC SPECTRUM (FITNESS, NOOTROPICS, WELLNESS, HELPING OUT & BANTER):\n"
             "   - General fitness: PPL, lifting splits, PRs, squat/bench/deadlift form, volume management, deloads, cutting/bulking, nutrition.\n"
             "   - Nootropics & focus: Semax, Selank, Bromantane, L-Tyrosine, Alpha-GPC, clean drive, avoiding caffeine crashes.\n"
             "   - Wellness & longevity: Sleep quality, magnesium, sauna, cold plunges, joint recovery, hydration.\n"
             "   - Helping out: Welcoming peers who ask questions, giving clear, casual reconstitution math or tips.\n"
-            "   - Unserious banter & jokes: Cracking jokes, playful teasing, gym humor, meme moments, and laughing off tough days.\n"
-            "6. VENDOR POLICY: Do NOT initiate unprompted conversations about vendors, suppliers, or purchasing. If members talk about protocols, discuss dosing math and technique naturally. All personas have had smooth, positive peer experiences.\n"
-            "7. OUTPUT FORMAT: Return ONLY a valid JSON array of message objects matching this exact format:\n"
+            "   - Unserious banter & jokes: Cracking jokes, playful teasing, gym humor, meme moments, and laughing off tough days.\n\n"
+            "8. VENDOR POLICY:\n"
+            "   - Do NOT initiate unprompted conversations about vendors, suppliers, or purchasing. All personas have had smooth, positive peer experiences.\n\n"
+            "9. OUTPUT FORMAT: Return ONLY a valid JSON array of message objects matching this exact format:\n"
             "[\n"
             "  {\n"
             "    \"persona_id\": <int>,\n"
             "    \"account_id\": <int>,\n"
             "    \"sender_name\": \"<string>\",\n"
+            "    \"reply_to_step\": <int or null>,\n"
             "    \"offset_minutes\": <int>,\n"
             "    \"text\": \"<exact telegram message text>\"\n"
             "  }\n"
@@ -239,12 +265,12 @@ class DailyBatchEngine:
             f"ABOUT: {group_about}\n"
             f"DOMAIN TOPICS: {group_domain}\n\n"
             f"RECENT MESSAGES IN THIS GROUP:\n{recent_transcript}\n\n"
-            f"AVAILABLE PERSONAS:\n{persona_str}\n\n"
+            f"AVAILABLE PERSONAS & TELEGRAM TAGS:\n{persona_str}\n\n"
             f"CONVERSATIONAL FOCUS: {topic_prompt}\n\n"
             f"TASK:\n"
             f"Create a natural {count}-message conversational thread for today between these personas.\n"
             f"Spread 'offset_minutes' across realistic intervals (e.g. 15, 45, 110, 240).\n"
-            f"Keep messages concise, grounded, and authentic without addressing each other by name. Return strictly the JSON array."
+            f"Embrace varied message lengths (ultra-short reactions, medium takes, detailed explanations), emojis, and realistic casual texting flaws. Return strictly the JSON array."
         )
 
         settings = {k: self.store.get(k) for k in ("fal_key", "ai_model")}
@@ -362,10 +388,19 @@ class DailyBatchEngine:
             jitter_sec = random.randint(-15, 25)
             scheduled_ts = now_ts + int(scheduled_min * 60) + jitter_sec
 
+            # Determine parent_item_id for native Telegram reply quotes:
+            rep_step = item.get("reply_to_step")
+            parent_item_id = None
+            if rep_step is not None and isinstance(rep_step, int) and 0 <= rep_step < len(created_items):
+                parent_item_id = created_items[rep_step]["id"]
+            elif idx > 0 and (offsets_min[idx] - offsets_min[idx-1]) < 8.0 and created_items:
+                # Same conversation burst: automatically reply to previous message in cluster
+                parent_item_id = created_items[-1]["id"]
+
             cur_item = self.store.q(
-                "INSERT INTO daily_batch_items(batch_id, chat_id, account_id, persona_id, sender_name, text, scheduled_ts, status, created_at) "
-                "VALUES(?,?,?,?,?,?,?,'pending',?)",
-                (batch_id, chat_id, aid, pid, sender_name, text, scheduled_ts, now_ts)
+                "INSERT INTO daily_batch_items(batch_id, chat_id, account_id, persona_id, sender_name, text, scheduled_ts, status, created_at, reply_to_item_id) "
+                "VALUES(?,?,?,?,?,?,?,'pending',?,?)",
+                (batch_id, chat_id, aid, pid, sender_name, text, scheduled_ts, now_ts, parent_item_id)
             )
             item_id = cur_item.lastrowid
 
@@ -373,7 +408,13 @@ class DailyBatchEngine:
             self.store.enqueue(
                 "batch_scheduled_send",
                 chat_id,
-                {"batch_item_id": item_id, "account_id": aid, "persona_id": pid, "text": text},
+                {
+                    "batch_item_id": item_id,
+                    "account_id": aid,
+                    "persona_id": pid,
+                    "text": text,
+                    "reply_to_item_id": parent_item_id
+                },
                 dedupe_key=f"batch_send:{item_id}",
                 delay=max(0, scheduled_ts - now_ts)
             )
@@ -385,7 +426,8 @@ class DailyBatchEngine:
                 "sender_name": sender_name,
                 "scheduled_ts": scheduled_ts,
                 "text": text,
-                "status": "pending"
+                "status": "pending",
+                "reply_to_item_id": parent_item_id
             })
 
         return {
@@ -397,121 +439,100 @@ class DailyBatchEngine:
         }
 
     def _fallback_dialogue(self, candidates, domain, count):
-        """Natural community discussion starter templates with realistic casual gym chatter."""
+        """Natural community discussion starter templates with realistic casual gym chatter, emojis, @tags, and reply links."""
         p1 = candidates[0]
         p2 = candidates[1] if len(candidates) > 1 else candidates[0]
         p3 = candidates[2] if len(candidates) > 2 else candidates[0]
         p4 = candidates[3] if len(candidates) > 3 else p1
 
+        t1 = p1.get("account_username") or p1.get("persona_name", "member").split()[0].lower()
+        t2 = p2.get("account_username") or p2.get("persona_name", "member").split()[0].lower()
+        t3 = p3.get("account_username") or p3.get("persona_name", "member").split()[0].lower()
+
         topics = [
             [
-                (p1, 15, "switched back to ppl this week, leg day was brutal haha"),
-                (p2, 48, "leg day fatigue hits different fr"),
-                (p3, 115, "what split were you running before?"),
-                (p1, 185, "upper lower, was solid but felt like i was in the gym forever"),
-                (p2, 290, "yeah upper lower volume creeps up fast if you don't cap sets"),
-                (p3, 380, "like 2 heavy sets per exercise is plenty tbh"),
-                (p4, 450, "high volume just fries the joints anyway"),
-                (p1, 520, "bench feeling any better on elbows?"),
-                (p2, 600, "way better since tucking elbows in more"),
-                (p3, 680, "small form tweaks make all the difference"),
-                (p4, 760, "wrist wraps helped a ton too for heavy presses"),
-                (p1, 840, "hitting shoulders tomorrow or rest day?"),
-                (p2, 910, "rest day prob, need the recovery"),
-                (p3, 980, "smart move, rest days are underrated"),
-                (p4, 1050, "heading to grab food now catch you guys later"),
-                (p1, 1120, "enjoy the feast")
+                (p1, 15, "switched back to ppl this week, leg day was brutal haha", None),
+                (p2, 17, "leg day fatigue hits different fr💀", 0),
+                (p3, 20, f"what split were you running before @{t1}?", 0),
+                (p1, 23, "upper lower, was solid but felt like i was in teh gym forever doing 6 exercises per workout tbh. ppl lets me get in and out in 45 mins", 2),
+                (p2, 25, "yeah volume creeps up fast if you dont cap sets. stick to 2 heavy working sets to failure now and recovery is way better", 3),
+                (p3, 27, "like 2 heavy sets per exercise is plenty tbh", 4),
+                (p4, 28, "lol nah 3 minimum", 5),
+                (p1, 75, f"bench feeling any better on elbows @{t2}?", None),
+                (p2, 78, "way better since tucking elbows in more, zero flare up 💪", 7),
+                (p3, 80, "wrist wraps helped me a ton too", 7),
+                (p4, 82, "same here", 9),
+                (p1, 140, "hitting shoulders tomorrow or rest day?", None),
+                (p2, 142, "rest day prob, need the recovery 😂", 11),
+                (p3, 144, "smart move", 12),
+                (p1, 145, "enjoy the food", 12)
             ],
             [
-                (p1, 20, "quick math check, 2ml bac water in a 5mg vial is 250mcg per 10 units right?"),
-                (p2, 52, "yeah 10 units on a standard 100u pin is 250mcg"),
-                (p3, 120, "just trickle the bac water down the glass slow so it doesn't foam up"),
-                (p1, 190, "got it, keeping it chilled in the fridge now"),
-                (p2, 295, "running subq or im?"),
-                (p3, 385, "subq with a 31g, barely feel anything tbh"),
-                (p4, 460, "31g is the way to go"),
-                (p1, 530, "where you pinning, belly or love handles?"),
-                (p2, 610, "love handles mostly, way less sensitive than belly for me"),
-                (p3, 690, "same here, just rotate sides each day"),
-                (p4, 770, "let the alcohol swab dry fully too, prevents that little sting"),
-                (p1, 850, "yeah learned that the hard way lol"),
-                (p2, 920, "simple stuff makes it smooth"),
-                (p3, 990, "appreciate the sanity check guys"),
-                (p4, 1060, "anytime, ping if you need anything"),
-                (p1, 1130, "will do")
+                (p1, 20, "quick math check, 2ml bac water in a 5mg vial is 250mcg per 10 units right?", None),
+                (p2, 22, "yeah exactly, 10 units on a standard 100u pin is 250mcg. draw slow so no air bubbles 👍", 0),
+                (p3, 24, "just trickle the bac water down the glass slow so it doesnt foam up", 0),
+                (p1, 26, "got it, keeping it chilled in fridge now", 1),
+                (p4, 27, "legend", 3),
+                (p2, 85, f"running subq or im @{t1}?", None),
+                (p3, 87, "subq with a 31g, barely feel anything tbh", 5),
+                (p1, 89, "31g is the way to go fr", 6),
+                (p2, 91, "rotate injection sites each time, keeps it painless", 7),
+                (p1, 93, "appreciate the help guys 🤝", 8),
+                (p4, 94, "anytime", 9),
+                (p3, 150, "anyone pinning glute or strictly belly?", None),
+                (p2, 152, "ventroglute is clutch once you find the spot", 11),
+                (p1, 153, "belly fat pinch is just too easy lol", 11),
+                (p4, 155, "facts", 13)
             ],
             [
-                (p1, 25, "gym was packed today, had to wait 20 mins for a squat rack"),
-                (p2, 58, "hate peak hours fr, 6am crew is where it's at"),
-                (p3, 130, "wish i was a morning person lol, brain doesn't work before 8"),
-                (p1, 200, "takes like 2 weeks to adjust then it's way better, empty gym hits different"),
-                (p2, 305, "what time do you usually train?"),
-                (p3, 395, "usually lunch break or right after work"),
-                (p4, 470, "lunch workouts are clutch if you can sneak away"),
-                (p1, 545, "yeah quick 45 mins in and out"),
-                (p2, 620, "short sessions keep intensity higher anyway"),
-                (p3, 700, "anything past an hour and my energy drops off a cliff"),
-                (p4, 780, "same tbh, warm up, 3-4 exercises heavy, then bounce"),
-                (p1, 860, "post workout meal ready to go?"),
-                (p2, 930, "chicken rice and avocado as always haha"),
-                (p3, 1000, "classic, never gets old"),
-                (p4, 1070, "simple fuel works"),
-                (p1, 1140, "fr, keep it simple")
+                (p1, 18, "anyone running semax or bromantane for work focus lately?", None),
+                (p2, 20, "na-semax-amidate is top tier for cognitive clarity honestly. zero jitters or afternoon crash, just clean quiet focus all morning", 0),
+                (p3, 22, f"how does it compare to regular caffeine @{t2}?", 1),
+                (p2, 25, "caffeine gives me restless anxiety after 2 cups tbh, semax just clears all brain fog without elevated heart rate", 2),
+                (p4, 27, "stacking it with l-tyrosine hits different too 🧠", 3),
+                (p1, 29, "wait really? dosage?", 4),
+                (p4, 31, "like 500mg tyrosine on empty stomach with morning water, then 200mcg semax spray. super smooth drive for deep work", 5),
+                (p1, 33, "ordering some today lol", 6),
+                (p3, 80, "sleep quality still good on it?", None),
+                (p2, 82, "yeah just dont dose it late afternoon", 8),
+                (p3, 84, "makes sense", 9),
+                (p1, 140, "magnesium glycinate before bed completely fixed my rem sleep btw", None),
+                (p2, 142, "glycinate or threonate is a must have for recovery", 11),
+                (p4, 143, "100%", 12),
+                (p3, 145, "gonna add it to my stack tonight", 12)
             ],
             [
-                (p1, 18, "anyone running semax or bromantane for work focus lately?"),
-                (p2, 45, "na-semax-amidate is top tier for cognitive clarity honestly"),
-                (p3, 110, "how does it compare to regular caffeine?"),
-                (p2, 175, "zero jitters or afternoon crash, just clean quiet focus"),
-                (p1, 260, "bromantane paired with l-tyrosine is great for daily drive too"),
-                (p4, 340, "sublingual or nasal spray?"),
-                (p1, 415, "nasal spray for semax, sublingual oil for bromantane"),
-                (p3, 490, "good to know, might test it during this busy sprint"),
-                (p2, 570, "start low to find your sweet spot"),
-                (p4, 650, "yeah keep it simple at first")
-            ],
-            [
-                (p1, 22, "sleep has been terrible this week, wake up feeling like a zombie"),
-                (p2, 50, "magnesium glycinate before bed helped my deep sleep a ton"),
-                (p3, 125, "how much you taking?"),
-                (p2, 195, "about 300mg elemental mag with some water 45 mins before sleep"),
-                (p4, 280, "sauna in the evening knocks me out cold too"),
-                (p1, 360, "need to hit the sauna more often fr"),
-                (p3, 430, "20 mins at 80c then cool shower, sleep like a rock"),
-                (p1, 510, "grabbing magnesium on the way home today haha"),
-                (p2, 580, "makes a noticeable difference in morning recovery")
-            ],
-            [
-                (p1, 15, "quick question, measuring 500mcg on a 30 unit syringe with a 5mg vial... is that 10 ticks?"),
-                (p2, 40, "depends on how much bac water you reconstituted with"),
-                (p1, 80, "mixed with 2ml bac water"),
-                (p2, 130, "gotcha, 5mg in 2ml means 2.5mg per ml. so 500mcg is 0.2ml, which is 20 units"),
-                (p3, 190, "yeah 20 units exactly on any u-100 scale pin"),
-                (p1, 260, "ahhh that makes so much sense, appreciate the help man!"),
-                (p2, 320, "anytime brother, always double check the math first"),
-                (p4, 390, "glad you asked before pinning haha"),
-                (p1, 450, "saved me a headache lol")
-            ],
-            [
-                (p1, 30, "forgot my shaker bottle in my gym bag for 4 days... opened it today and almost passed out"),
-                (p2, 60, "bro that bottle is a biohazard now just throw it away lmao"),
-                (p3, 140, "nothing on earth smells worse than old whey protein residue"),
-                (p4, 210, "dish soap won't save it, straight to the bin haha"),
-                (p1, 280, "already in the trash, buying a 3 pack of shakers right now"),
-                (p2, 350, "rite of passage for every lifter honestly"),
-                (p3, 420, "100% facts"),
-                (p1, 490, "never leaving it in the trunk again lol")
+                (p1, 30, "forgot my shaker bottle in my gym bag for 4 days... opened it today and almost passed out 💀", None),
+                (p2, 32, "bro that bottle is a biohazard now just throw it away lmao", 0),
+                (p3, 34, "nothing on earth smells worse than old whey protein residue 😭", 1),
+                (p4, 36, "dish soap wont save it, straight to the bin haha", 2),
+                (p1, 38, f"already in the trash @{t2}, buying a 3 pack on amazon rn 😂", 3),
+                (p2, 40, "rite of passage for every lifter honestly", 4),
+                (p3, 41, "bro💀", 5),
+                (p4, 43, "never leave it in the trunk in summer, pure toxic waste", 4),
+                (p1, 45, "lesson learned the hard way haha", 7),
+                (p2, 105, "stainless steel shakers are worth every penny btw, plastic absorbs smell forever", None),
+                (p3, 107, "best gym investment i ever made", 9),
+                (p1, 109, "added to cart haha", 10),
+                (p4, 110, "smart man", 11),
+                (p2, 170, "who is hitting gym tonight?", None),
+                (p3, 172, "push day in 20 mins 💪", 13)
             ]
         ]
         chosen = random.choice(topics)
         items = []
-        for cand, offset, text in chosen[:count]:
+        for row in chosen[:count]:
+            cand = row[0]
+            offset = row[1]
+            text = row[2]
+            rep_step = row[3] if len(row) > 3 else None
             items.append({
                 "persona_id": cand["persona_id"],
                 "account_id": cand["account_id"],
                 "sender_name": cand["persona_name"],
                 "offset_minutes": offset,
-                "text": text
+                "text": text,
+                "reply_to_step": rep_step
             })
         return items
 
