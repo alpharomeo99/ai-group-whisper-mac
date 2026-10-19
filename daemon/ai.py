@@ -1,4 +1,5 @@
 """AI client: fal.ai OpenAI-compatible router (Claude, GPT, Gemini, Llama, DeepSeek... via one fal key)."""
+import random
 import re
 import time
 import aiohttp
@@ -128,13 +129,13 @@ def naturalize_mobile_text(text):
     return text
 
 
-def format_telegram_message(text, names=None, max_chars=360):
-    """Cleans LLM formatting artifacts from generated Telegram messages while preserving natural grammar, tone, and casing."""
+def _clean_single_telegram_bubble(text, names=None, max_chars=360):
+    """Sanitizes a single message bubble: strips labels, salutations, markdown lists, and caps length."""
     if not text:
         return ""
-    text = text.strip()
+    text = text.strip().strip("'\"")
     # Strip LLM sender labels like '[Dave]: ' or 'Alice: '
-    text = re.sub(r'^(?:\[[^\]]+\]:?|\w+:\s*)\s*', '', text).strip().strip("'\"")
+    text = re.sub(r'^(?:\[[^\]]+\]:?|\w+:\s*)\s*', '', text).strip()
 
     # Clean out formal email-style salutations (e.g. 'Hey Dave, ' -> '')
     text = strip_addressing_names(text, names=names)
@@ -172,6 +173,65 @@ def format_telegram_message(text, names=None, max_chars=360):
     return text.strip()
 
 
+def format_telegram_message(text, names=None, max_chars=360):
+    """Cleans LLM formatting artifacts from generated Telegram messages while preserving natural grammar, tone, and casing.
+    Preserves multi-bubble burst markers (' ||| ', '[SPLIT]', etc.) by formatting each bubble independently.
+    """
+    if not text:
+        return ""
+    text = text.strip()
+    for sep in (" ||| ", "|||", "[SPLIT]", "\n---\n", "\n===SPLIT===\n"):
+        if sep in text:
+            parts = [_clean_single_telegram_bubble(p, names=names, max_chars=max_chars) for p in text.split(sep)]
+            parts = [p for p in parts if p]
+            return " ||| ".join(parts[:3])
+    return _clean_single_telegram_bubble(text, names=names, max_chars=max_chars)
+
+
+def split_burst_bubbles(text, names=None, burstiness_pct=35, max_chars=360):
+    """Splits a message into 1 to 3 distinct Telegram message bubbles for authentic multi-message texting.
+    Handles explicit markers (' ||| ') and applies natural stochastic sentence splitting calibrated
+    by the persona's burstiness tendency.
+    """
+    if not text:
+        return []
+
+    # Check explicit separators first
+    for sep in (" ||| ", "|||", "[SPLIT]", "\n---\n", "\n===SPLIT===\n"):
+        if sep in text:
+            parts = [_clean_single_telegram_bubble(p, names=names, max_chars=max_chars) for p in text.split(sep)]
+            bubbles = [p for p in parts if p]
+            if len(bubbles) > 1:
+                return bubbles[:3]
+
+    # Clean the single text
+    cleaned = _clean_single_telegram_bubble(text, names=names, max_chars=max_chars)
+    if not cleaned:
+        return []
+
+    # Check paragraph / double newline split
+    if "\n\n" in text:
+        paras = [_clean_single_telegram_bubble(p, names=names, max_chars=max_chars) for p in text.split("\n\n") if p.strip()]
+        paras = [p for p in paras if p]
+        if 1 < len(paras) <= 3 and all(len(p) <= 180 for p in paras):
+            return paras
+
+    # Stochastic sentence split based on persona burstiness
+    pct = float(burstiness_pct if burstiness_pct is not None else 35)
+    roll_chance = max(0.08, min(0.60, (pct / 100.0) * 0.70))
+    if random.random() < roll_chance:
+        sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+', cleaned) if s.strip()]
+        if len(sentences) == 2:
+            s1, s2 = sentences[0], sentences[1]
+            if len(s1) >= 4 and len(s2) >= 6 and (len(s1) + len(s2)) <= 220:
+                return [s1, s2]
+        elif len(sentences) == 3 and pct >= 50:
+            if all(4 <= len(s) <= 90 for s in sentences) and sum(len(s) for s in sentences) <= 180:
+                return sentences
+
+    return [cleaned]
+
+
 def format_short_telegram_text(text, names=None, max_chars=360):
     """Backward-compatible wrapper for format_telegram_message with natural dynamic length."""
     return format_telegram_message(text, names=names, max_chars=max_chars)
@@ -186,6 +246,13 @@ async def draft_reply_with_meta(settings, title, persona, msgs, trigger_sender=N
         "- NATURAL LENGTH VARIATION: Keep your response proportionate to the situation. Quick reactions should be brief; explanations or answers can take a few sentences. Do not force every message into a rigid template.",
         "- NO CORPORATE OR BOT CLICHES: Jump straight into your point without starting with hollow phrases or generic validation.",
         "- AUTHENTIC EMOJIS & REPLIES: Use emojis naturally where fitting. Use Telegram reply quotes and @mentions when directly addressing a peer.",
+        "- MULTI-MESSAGE BURSTS (NATURAL MOBILE TEXTING): Real humans texting from mobile phones frequently send 2 (or occasionally 3) rapid consecutive messages instead of one wall of text. For instance: bubble 1 is a quick reaction or initial remark, bubble 2 is the elaboration, question, or follow-up note.",
+        "  If your persona is bursty or the situation calls for it, separate consecutive bubbles using ' ||| '.",
+        "  Examples:",
+        "    'lol nah ||| who told you that💀'",
+        "    '2ml is plenty ||| draw 10 units slow so no air bubbles'",
+        "    'wait did you check the vial? ||| 5mg vs 10mg is totally different math'",
+        "  Only burst when it feels completely organic. If a single short message is enough, do not force a burst. Never split a single sentence unnaturally.",
         "- GROUNDED & HELPFUL: Give straightforward, practical advice or banter. Do not invent unprompted stories or fabrications.",
         "- Output ONLY the raw telegram message text."
     ]

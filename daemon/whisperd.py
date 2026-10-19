@@ -853,6 +853,19 @@ class Daemon:
         min_secs = max(float(t.get("min_seconds", 1.5)), 1.2)
         return max(min_secs, min(total_secs, dynamic_max))
 
+    def burst_typing_secs(self, g, text):
+        """Typing-indicator delay for rapid consecutive burst messages.
+        Because fingers are already typing, initiation hesitation is minimal (~0.25-0.5s)
+        and keystroke velocity is high, resulting in natural fast follow-ups (0.6s - 3.5s).
+        """
+        import random
+        msg_len = max(len(text or ""), 1)
+        effective_cps = random.uniform(25.0, 32.0)
+        hesitation = random.uniform(0.25, 0.5)
+        typing_dur = msg_len / effective_cps
+        total = hesitation + typing_dur
+        return max(0.6, min(total, 3.5))
+
     async def run_job(self, job):
         import json
         p = json.loads(job["payload"])
@@ -900,62 +913,109 @@ class Daemon:
                                   chat_id=job["chat_id"], tokens_prompt=meta.get("prompt_tokens"),
                                   tokens_completion=meta.get("completion_tokens"), latency_ms=meta.get("latency_ms"),
                                   model=meta.get("model"))
+
+                # Resolve persona burstiness
+                burstiness = 35
+                eff_pid = p.get("persona_id")
+                if eff_pid:
+                    p_row = self.store.rows("SELECT details FROM personas WHERE id=?", (eff_pid,))
+                    if p_row and p_row[0].get("details"):
+                        try:
+                            dt = json.loads(p_row[0]["details"] or "{}")
+                            burstiness = int(dt.get("burstiness") or dt.get("burstiness_percent") or 35)
+                        except Exception:
+                            pass
+
+                bubbles = ai.split_burst_bubbles(text, names=cand_names, burstiness_pct=burstiness)
+
                 if p.get("auto_send"):
                     self.store.enqueue("send", job["chat_id"],
                                        {
                                            "text": text,
+                                           "bubbles": bubbles,
                                            "reply_to": p.get("trigger"),
                                            "account_id": p.get("account_id"),
                                            "persona_id": p.get("persona_id")
                                        },
                                        dedupe_key=f"send:{job['id']}")
                 else:
+                    preview = "\n\n".join(bubbles) if len(bubbles) > 1 else text
                     self.store.q("INSERT INTO summaries(chat_id,body,created) VALUES(?,?,?)",
-                                 (job["chat_id"], "Draft reply:\n" + text, int(time.time())))
+                                 (job["chat_id"], "Draft reply:\n" + preview, int(time.time())))
             elif job["kind"] == "send":
                 aid = p.get("account_id") or g.get("account_id")
                 cand_names = [r["name"] for r in self.store.rows("SELECT name FROM personas UNION SELECT name FROM accounts") if r.get("name")]
-                clean_txt = ai.format_telegram_message(p.get("text", ""), names=cand_names, max_chars=360)
-                if clean_txt:
-                    p["text"] = clean_txt
+
+                eff_pid = p.get("persona_id")
+                if not eff_pid and aid:
+                    acc_p = self.store.rows("SELECT persona_id FROM accounts WHERE id=?", (aid,))
+                    eff_pid = acc_p[0]["persona_id"] if acc_p else None
+
+                burstiness = 35
+                if eff_pid:
+                    p_row = self.store.rows("SELECT details FROM personas WHERE id=?", (eff_pid,))
+                    if p_row and p_row[0].get("details"):
+                        try:
+                            dt = json.loads(p_row[0]["details"] or "{}")
+                            burstiness = int(dt.get("burstiness") or dt.get("burstiness_percent") or 35)
+                        except Exception:
+                            pass
+
+                bubbles = p.get("bubbles")
+                if not bubbles:
+                    clean_txt = ai.format_telegram_message(p.get("text", ""), names=cand_names, max_chars=360)
+                    bubbles = ai.split_burst_bubbles(clean_txt or p.get("text", ""), names=cand_names, burstiness_pct=burstiness)
+                if not bubbles:
+                    bubbles = [p.get("text", "")]
+                bubbles = [b.strip() for b in bubbles if b and b.strip()]
+
+                reply_to_msg_id = p.get("reply_to")
+                if not reply_to_msg_id and p.get("reply_to_item_id"):
+                    rep_rows = self.store.rows("SELECT telegram_msg_id FROM daily_batch_items WHERE id=?", (p["reply_to_item_id"],))
+                    if rep_rows and rep_rows[0].get("telegram_msg_id"):
+                        reply_to_msg_id = rep_rows[0]["telegram_msg_id"]
+
                 async with self.account_session(aid) as cl:
-                    secs = self.typing_secs(g, p["text"])
-                    try:
-                        async with cl.action(job["chat_id"], "typing"):
-                            await asyncio.sleep(secs)
-                    except Exception:  # noqa
-                        pass
-                    reply_to_msg_id = p.get("reply_to")
-                    if not reply_to_msg_id and p.get("reply_to_item_id"):
-                        rep_rows = self.store.rows("SELECT telegram_msg_id FROM daily_batch_items WHERE id=?", (p["reply_to_item_id"],))
-                        if rep_rows and rep_rows[0].get("telegram_msg_id"):
-                            reply_to_msg_id = rep_rows[0]["telegram_msg_id"]
-                    sent_msg = await cl.send_message(job["chat_id"], p["text"], reply_to=reply_to_msg_id)
-                    sender_id = getattr(sent_msg, "sender_id", None)
-                    if sender_id and aid:
-                        acc_check = self.store.rows("SELECT user_id FROM accounts WHERE id=?", (aid,))
-                        if acc_check and not acc_check[0]["user_id"]:
-                            self.store.q("UPDATE accounts SET user_id=? WHERE id=?", (sender_id, aid))
-                    self.store.add_message(
-                        job["chat_id"], sent_msg.id, p.get("sender_name") or "Me",
-                        p["text"], int(time.time()), is_bot=1, sender_id=sender_id
-                    )
-                    # Record memory and message sent usage
-                    eff_pid = p.get("persona_id")
-                    if not eff_pid and aid:
-                        acc_p = self.store.rows("SELECT persona_id FROM accounts WHERE id=?", (aid,))
-                        eff_pid = acc_p[0]["persona_id"] if acc_p else None
+                    sent_msg = None
+                    for b_idx, bubble_text in enumerate(bubbles):
+                        if b_idx == 0:
+                            secs = self.typing_secs(g, bubble_text)
+                        else:
+                            await asyncio.sleep(random.uniform(0.8, 1.8))
+                            secs = self.burst_typing_secs(g, bubble_text)
+
+                        try:
+                            async with cl.action(job["chat_id"], "typing"):
+                                await asyncio.sleep(secs)
+                        except Exception:  # noqa
+                            pass
+
+                        curr_reply = reply_to_msg_id if b_idx == 0 else None
+                        sent_msg = await cl.send_message(job["chat_id"], bubble_text, reply_to=curr_reply)
+                        sender_id = getattr(sent_msg, "sender_id", None)
+                        if sender_id and aid and b_idx == 0:
+                            acc_check = self.store.rows("SELECT user_id FROM accounts WHERE id=?", (aid,))
+                            if acc_check and not acc_check[0]["user_id"]:
+                                self.store.q("UPDATE accounts SET user_id=? WHERE id=?", (sender_id, aid))
+                        self.store.add_message(
+                            job["chat_id"], sent_msg.id, p.get("sender_name") or "Me",
+                            bubble_text, int(time.time()), is_bot=1, sender_id=sender_id
+                        )
+                        if eff_pid:
+                            self.memory.auto_record_statement(eff_pid, aid, job["chat_id"], bubble_text)
+                        self.usage.log_event("msg_sent", persona_id=eff_pid, account_id=aid, chat_id=job["chat_id"])
+
+                        if b_idx == 0 and p.get("batch_item_id"):
+                            self.store.mark_batch_item_sent(p["batch_item_id"], int(time.time()), telegram_msg_id=sent_msg.id)
+
                     if eff_pid:
-                        self.memory.auto_record_statement(eff_pid, aid, job["chat_id"], p.get("text"))
-                    self.usage.log_event("msg_sent", persona_id=eff_pid, account_id=aid, chat_id=job["chat_id"])
+                        self.orchestrator.record_activity(job["chat_id"], eff_pid)
 
             elif job["kind"] == "batch_scheduled_send":
-                # Check if a human recently spoke in this group:
                 last_human_ts = self.store.get_last_human_message_ts(job["chat_id"])
                 now_ts = int(time.time())
                 pause_secs = int(self.store.get("batch_human_pause_seconds", 300))
                 if last_human_ts and (now_ts - last_human_ts) < pause_secs:
-                    # Defer batch message by remaining pause time + jitter so bots do not talk over human!
                     defer_secs = (pause_secs - (now_ts - last_human_ts)) + random.randint(30, 90)
                     if p.get("batch_item_id"):
                         self.store.q("UPDATE daily_batch_items SET status='postponed', scheduled_ts=? WHERE id=?",
@@ -965,81 +1025,146 @@ class Daemon:
 
                 aid = p.get("account_id") or g.get("account_id")
                 cand_names = [r["name"] for r in self.store.rows("SELECT name FROM personas UNION SELECT name FROM accounts") if r.get("name")]
-                clean_txt = ai.format_telegram_message(p.get("text", ""), names=cand_names, max_chars=360)
-                if clean_txt:
-                    p["text"] = clean_txt
-                async with self.account_session(aid) as cl:
-                    secs = self.typing_secs(g, p["text"])
-                    try:
-                        async with cl.action(job["chat_id"], "typing"):
-                            await asyncio.sleep(secs)
-                    except Exception:  # noqa
-                        pass
-                    reply_to_msg_id = p.get("reply_to")
-                    if not reply_to_msg_id and p.get("reply_to_item_id"):
-                        rep_rows = self.store.rows("SELECT telegram_msg_id FROM daily_batch_items WHERE id=?", (p["reply_to_item_id"],))
-                        if rep_rows and rep_rows[0].get("telegram_msg_id"):
-                            reply_to_msg_id = rep_rows[0]["telegram_msg_id"]
-                    sent_msg = await cl.send_message(job["chat_id"], p["text"], reply_to=reply_to_msg_id)
-                    sender_id = getattr(sent_msg, "sender_id", None)
-                    if sender_id and aid:
-                        acc_check = self.store.rows("SELECT user_id FROM accounts WHERE id=?", (aid,))
-                        if acc_check and not acc_check[0]["user_id"]:
-                            self.store.q("UPDATE accounts SET user_id=? WHERE id=?", (sender_id, aid))
-                    self.store.add_message(
-                        job["chat_id"], sent_msg.id, p.get("sender_name") or "Me",
-                        p["text"], int(time.time()), is_bot=1, sender_id=sender_id
-                    )
-                    # Record memory and message sent usage
-                    eff_pid = p.get("persona_id")
-                    if not eff_pid and aid:
-                        acc_p = self.store.rows("SELECT persona_id FROM accounts WHERE id=?", (aid,))
-                        eff_pid = acc_p[0]["persona_id"] if acc_p else None
-                    if eff_pid:
-                        self.memory.auto_record_statement(eff_pid, aid, job["chat_id"], p.get("text"))
-                    self.usage.log_event("msg_sent", persona_id=eff_pid, account_id=aid, chat_id=job["chat_id"])
 
-                if p.get("batch_item_id"):
-                    self.store.mark_batch_item_sent(p["batch_item_id"], int(time.time()), telegram_msg_id=sent_msg.id)
+                eff_pid = p.get("persona_id")
+                if not eff_pid and aid:
+                    acc_p = self.store.rows("SELECT persona_id FROM accounts WHERE id=?", (aid,))
+                    eff_pid = acc_p[0]["persona_id"] if acc_p else None
+
+                burstiness = 35
+                if eff_pid:
+                    p_row = self.store.rows("SELECT details FROM personas WHERE id=?", (eff_pid,))
+                    if p_row and p_row[0].get("details"):
+                        try:
+                            dt = json.loads(p_row[0]["details"] or "{}")
+                            burstiness = int(dt.get("burstiness") or dt.get("burstiness_percent") or 35)
+                        except Exception:
+                            pass
+
+                bubbles = p.get("bubbles")
+                if not bubbles:
+                    clean_txt = ai.format_telegram_message(p.get("text", ""), names=cand_names, max_chars=360)
+                    bubbles = ai.split_burst_bubbles(clean_txt or p.get("text", ""), names=cand_names, burstiness_pct=burstiness)
+                if not bubbles:
+                    bubbles = [p.get("text", "")]
+                bubbles = [b.strip() for b in bubbles if b and b.strip()]
+
+                reply_to_msg_id = p.get("reply_to")
+                if not reply_to_msg_id and p.get("reply_to_item_id"):
+                    rep_rows = self.store.rows("SELECT telegram_msg_id FROM daily_batch_items WHERE id=?", (p["reply_to_item_id"],))
+                    if rep_rows and rep_rows[0].get("telegram_msg_id"):
+                        reply_to_msg_id = rep_rows[0]["telegram_msg_id"]
+
+                async with self.account_session(aid) as cl:
+                    sent_msg = None
+                    for b_idx, bubble_text in enumerate(bubbles):
+                        if b_idx == 0:
+                            secs = self.typing_secs(g, bubble_text)
+                        else:
+                            await asyncio.sleep(random.uniform(0.8, 1.8))
+                            secs = self.burst_typing_secs(g, bubble_text)
+
+                        try:
+                            async with cl.action(job["chat_id"], "typing"):
+                                await asyncio.sleep(secs)
+                        except Exception:  # noqa
+                            pass
+
+                        curr_reply = reply_to_msg_id if b_idx == 0 else None
+                        sent_msg = await cl.send_message(job["chat_id"], bubble_text, reply_to=curr_reply)
+                        sender_id = getattr(sent_msg, "sender_id", None)
+                        if sender_id and aid and b_idx == 0:
+                            acc_check = self.store.rows("SELECT user_id FROM accounts WHERE id=?", (aid,))
+                            if acc_check and not acc_check[0]["user_id"]:
+                                self.store.q("UPDATE accounts SET user_id=? WHERE id=?", (sender_id, aid))
+                        self.store.add_message(
+                            job["chat_id"], sent_msg.id, p.get("sender_name") or "Me",
+                            bubble_text, int(time.time()), is_bot=1, sender_id=sender_id
+                        )
+                        if eff_pid:
+                            self.memory.auto_record_statement(eff_pid, aid, job["chat_id"], bubble_text)
+                        self.usage.log_event("msg_sent", persona_id=eff_pid, account_id=aid, chat_id=job["chat_id"])
+
+                        if b_idx == 0 and p.get("batch_item_id"):
+                            self.store.mark_batch_item_sent(p["batch_item_id"], int(time.time()), telegram_msg_id=sent_msg.id)
+
+                    if eff_pid:
+                        self.orchestrator.record_activity(job["chat_id"], eff_pid)
 
             elif job["kind"] == "direct_send":
                 aid = p.get("account_id")
                 peer_id = job["chat_id"]
+                eff_pid = p.get("persona_id")
+                if not eff_pid and aid:
+                    acc_p = self.store.rows("SELECT persona_id FROM accounts WHERE id=?", (aid,))
+                    eff_pid = acc_p[0]["persona_id"] if acc_p else None
+
+                burstiness = 35
+                if eff_pid:
+                    p_row = self.store.rows("SELECT details FROM personas WHERE id=?", (eff_pid,))
+                    if p_row and p_row[0].get("details"):
+                        try:
+                            dt = json.loads(p_row[0]["details"] or "{}")
+                            burstiness = int(dt.get("burstiness") or dt.get("burstiness_percent") or 35)
+                        except Exception:
+                            pass
+
+                bubbles = p.get("bubbles")
+                if not bubbles:
+                    bubbles = ai.split_burst_bubbles(p.get("text", ""), burstiness_pct=burstiness)
+                if not bubbles:
+                    bubbles = [p.get("text", "")]
+                bubbles = [b.strip() for b in bubbles if b and b.strip()]
+
                 async with self.account_session(aid) as cl:
-                    try:
-                        async with cl.action(peer_id, "typing"):
-                            secs = self.typing_secs({"chat_id": peer_id, "account_id": aid}, p.get("text", ""))
-                            await asyncio.sleep(secs)
-                    except Exception:
-                        pass
-                    sent = await cl.send_message(peer_id, p["text"], reply_to=p.get("reply_to"))
-                    self.store.add_direct_message(aid, peer_id, sent.id, "Me", 0, p["text"], int(time.time()))
-                    eff_pid = p.get("persona_id")
-                    if not eff_pid and aid:
-                        acc_p = self.store.rows("SELECT persona_id FROM accounts WHERE id=?", (aid,))
-                        eff_pid = acc_p[0]["persona_id"] if acc_p else None
-                    if eff_pid:
-                        self.memory.auto_record_statement(eff_pid, aid, peer_id, p.get("text"))
-                    self.usage.log_event("msg_sent", persona_id=eff_pid, account_id=aid, chat_id=peer_id)
+                    for b_idx, bubble_text in enumerate(bubbles):
+                        if b_idx == 0:
+                            secs = self.typing_secs({"chat_id": peer_id, "account_id": aid}, bubble_text)
+                        else:
+                            await asyncio.sleep(random.uniform(0.8, 1.8))
+                            secs = self.burst_typing_secs({"chat_id": peer_id, "account_id": aid}, bubble_text)
+                        try:
+                            async with cl.action(peer_id, "typing"):
+                                await asyncio.sleep(secs)
+                        except Exception:
+                            pass
+                        curr_reply = p.get("reply_to") if b_idx == 0 else None
+                        sent = await cl.send_message(peer_id, bubble_text, reply_to=curr_reply)
+                        self.store.add_direct_message(aid, peer_id, sent.id, "Me", 0, bubble_text, int(time.time()))
+                        if eff_pid:
+                            self.memory.auto_record_statement(eff_pid, aid, peer_id, bubble_text)
+                        self.usage.log_event("msg_sent", persona_id=eff_pid, account_id=aid, chat_id=peer_id)
+
             elif job["kind"] == "direct_reply":
                 aid = p.get("account_id")
                 peer_id = job["chat_id"]
                 pid = p.get("persona_id")
+                burstiness = 35
                 persona_row = self.store.rows("SELECT * FROM personas WHERE id=?", (pid,)) if pid else []
+                if persona_row and persona_row[0].get("details"):
+                    try:
+                        dt = json.loads(persona_row[0]["details"] or "{}")
+                        burstiness = int(dt.get("burstiness") or dt.get("burstiness_percent") or 35)
+                    except Exception:
+                        pass
                 persona_prompt = persona_row[0]["prompt"] if persona_row else "You are chatting 1-on-1 on Telegram. Keep responses natural, human, and direct."
                 recent_msgs = self.store.direct_messages_recent(aid, peer_id, 20)
                 formatted = [{"sender": m["sender_name"], "text": m["text"]} for m in recent_msgs]
                 chat_info = self.store.rows("SELECT * FROM direct_chats WHERE account_id=? AND peer_id=?", (aid, peer_id))
                 peer_name = chat_info[0]["peer_name"] if chat_info else "User"
                 text = await ai.draft_reply(settings, f"1-on-1 conversation with {peer_name}", persona_prompt, formatted)
+                bubbles = ai.split_burst_bubbles(text, burstiness_pct=burstiness)
                 if p.get("auto_send"):
                     self.store.enqueue("direct_send", peer_id, {
                         "account_id": aid,
+                        "persona_id": pid,
                         "text": text,
+                        "bubbles": bubbles,
                         "reply_to": p.get("trigger")
                     }, dedupe_key=f"dmsend:{job['id']}")
                 else:
-                    self.store.add_direct_message(aid, peer_id, 0, "AI Draft", 0, "[Draft]: " + text, int(time.time()))
+                    preview = "\n\n".join(bubbles) if len(bubbles) > 1 else text
+                    self.store.add_direct_message(aid, peer_id, 0, "AI Draft", 0, "[Draft]: " + preview, int(time.time()))
             self.store.finish(job["id"], True)
         except asyncio.CancelledError:
             self.store.finish(job["id"], False, "interrupted by sleep", retry_in=5)
@@ -2051,7 +2176,7 @@ class Daemon:
                             typing_delay = min(3.8, max(0.6, (len(t["text"]) / cps) + random.uniform(0.2, 0.6))) if not is_burst else min(2.0, max(0.4, (len(t["text"]) / cps)))
                             async with cl.action(chat_id, "typing"):
                                 await asyncio.sleep(typing_delay)
-                            sent_msg = await cl.send_message(chat_id, t["text"], reply_to=prev_id)
+                            sent_msg = await cl.send_message(chat_id, t["text"], reply_to=prev_id if not is_burst else None)
                             prev_id = sent_msg.id
                             t["sent"] = True
                             t["msg_id"] = sent_msg.id

@@ -204,6 +204,7 @@ class DailyBatchEngine:
             "     * ULTRA-SHORT REACTIONS (25-30% of turns): 1 to 4 words. Examples: 'lol nah', 'fr tho💀', 'wait what?', 'bro😭', 'nah 2ml is plenty', 'same honestly', 'legend', 'yea 100%'.\n"
             "     * QUICK TAKES & QUESTIONS (40-45% of turns): 5 to 14 words. Examples: 'how was the fatigue on heavy squat day?', 'dropped caffeine after 1pm and sleep is way better', 'did you run subq or im for that?'.\n"
             "     * DETAILED REPLIES & EXPLANATIONS (25-30% of turns): 18 to 45 words. Examples: 'if it\'s a 5mg vial and you put in 2ml bac water, every 10 units on an insulin pin is 250mcg. super straightforward once you do it once, just draw slow so no air bubbles'.\n"
+            "     * MULTI-MESSAGE BURSTS: Mobile texters often send 2 quick consecutive bubbles instead of one chunk. If fitting for the persona, separate consecutive bubbles with ' ||| ' (e.g. 'wait did you check the vial? ||| 5mg vs 10mg is totally different math').\n"
             "   - NEVER make every message the same length!\n\n"
             "2. GENUINE TELEGRAM REPLIES & THREADING:\n"
             "   - Group dialogue happens in conversational clusters of 2-3 messages.\n"
