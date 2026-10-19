@@ -124,66 +124,27 @@ def strip_addressing_names(text, names=None):
 
 
 def naturalize_mobile_text(text):
-    """Subtly relaxes formal contractions into authentic casual phone texting (drops apostrophes)."""
-    if not text:
-        return ""
-    contractions = [
-        (r"\b[Dd]on't\b", "dont"),
-        (r"\b[Cc]an't\b", "cant"),
-        (r"\b[Ww]on't\b", "wont"),
-        (r"\b[Ii]'m\b", "im"),
-        (r"\b[Yy]ou're\b", "youre"),
-        (r"\b[Tt]hat's\b", "thats"),
-        (r"\b[Ii]t's\b", "its"),
-        (r"\b[Ww]e're\b", "were"),
-        (r"\b[Dd]idn't\b", "didnt"),
-        (r"\b[Cc]ouldn't\b", "couldnt"),
-        (r"\b[Ww]ouldn't\b", "wouldnt"),
-    ]
-    for pat, rep in contractions:
-        text = re.sub(pat, rep, text)
+    """Preserves natural text contractions without forcibly removing apostrophes."""
     return text
 
 
 def format_telegram_message(text, names=None, max_chars=360):
-    """Enforces natural Telegram message dynamics (casual, authentic phrasing without robotic walls of text).
-    Allows natural variation from quick punchy quips (3-10 words) up to detailed 2-3 sentence explanations (under 360 chars).
-    Strips robotic name-calling, preserves multi-line quips, cleans quotes/artifacts, and prevents mid-word truncation.
-    """
+    """Cleans LLM formatting artifacts from generated Telegram messages while preserving natural grammar, tone, and casing."""
     if not text:
         return ""
     text = text.strip()
-    text = naturalize_mobile_text(text)
     # Strip LLM sender labels like '[Dave]: ' or 'Alice: '
     text = re.sub(r'^(?:\[[^\]]+\]:?|\w+:\s*)\s*', '', text).strip().strip("'\"")
 
-    # Clean out robotic name-calling / salutations
+    # Clean out formal email-style salutations (e.g. 'Hey Dave, ' -> '')
     text = strip_addressing_names(text, names=names)
-
-    # Strip robotic validation prefixes and agreement cliches (preserve natural 'bro' if not agreement phrase)
-    has_agreement = re.search(r'^(?:Makes sense|Agreed|Spot on|For sure|Definitely|Good point|Totally agreed|Fair point|100% facts|100%|True that|Totally)\b', text, flags=re.IGNORECASE)
-    if has_agreement:
-        text = re.sub(
-            r'^(?:(?:Makes sense|Agreed|Spot on|For sure|Definitely|Good point|Totally agreed|Fair point|100% facts|100%|True that|Totally)(?:\s+(?:mate|man|bro|dude))?[,.!]?\s+)+',
-            '', text, flags=re.IGNORECASE
-        )
-        text = re.sub(r'^(?:mate|man|bro|dude)[,.!]?\s*', '', text, flags=re.IGNORECASE).strip()
-
-    # Strip formal conversation starter phrases
-    cleaned_formal = re.sub(
-        r'^(?:In my experience|To be honest|From my experience|As a rule of thumb)[,:]\s*',
-        '', text, flags=re.IGNORECASE
-    ).strip()
-    if cleaned_formal:
-        text = cleaned_formal
 
     raw_lines = [l.strip() for l in text.splitlines() if l.strip()]
     if not raw_lines:
         return ""
 
     clean_lines = []
-    for l in raw_lines[:3]:
-        # Only strip list markers like '1. ', '1) ', '-', '*', '•', '#' - DO NOT strip bare numbers like '10 units' or '2.5ml'
+    for l in raw_lines[:4]:
         l = re.sub(r'^(?:[-*•#]|\d+[\.\)])\s+', '', l).strip()
         if l:
             clean_lines.append(l)
@@ -208,11 +169,7 @@ def format_telegram_message(text, names=None, max_chars=360):
             last_space = truncated.rfind(' ')
             text = truncated[:last_space] if last_space > 20 else truncated
 
-    text = text.strip()
-    # Real people texting on mobile rarely end short casual messages with a single period
-    if len(text) < 130 and text.endswith('.') and not text.endswith('..') and not text.endswith('etc.'):
-        text = text[:-1].rstrip()
-    return text
+    return text.strip()
 
 
 def format_short_telegram_text(text, names=None, max_chars=360):
@@ -224,21 +181,12 @@ async def draft_reply_with_meta(settings, title, persona, msgs, trigger_sender=N
     sep = chr(10)
     persona_prompt = persona or "You are a regular member of this Telegram group."
     rules = [
-        "CRITICAL RULES - TEXT LIKE A REAL HUMAN IN TELEGRAM, NEVER AN AI:",
-        "- WILDLY ASYMMETRICAL LENGTH DIVERSITY: Real humans NEVER type uniform-length messages! Dynamically adapt length to context:",
-        "  * Quick banter / reactions: Ultra-short 1 to 5 words ('lol nah', 'fr tho💀', 'wait what?', 'bro😭', 'same here honestly', 'legend').",
-        "  * Casual takes / questions: 5 to 14 words ('how was the fatigue on leg day?', 'dropped caffeine after 1pm and sleep is way better').",
-        "  * Direct help / explanations: 18 to 45 words ('if it\'s a 5mg vial and you put in 2ml bac water, every 10 units on an insulin pin is 250mcg. super straightforward once you do it once').",
-        "  * NEVER write uniform paragraphs or essay lists!",
-        "- NEVER START WITH BOT-LIKE AGREEMENT OR VALIDATION: Do NOT start messages with 'Makes sense', 'For sure', 'Definitely', 'Agreed', 'Spot on', 'Good point', 'Totally', '100%', or 'Fair point'. Jump straight into your reaction, question, or thought.",
-        "- NATURAL EMOJIS & EXPRESSION: Use emojis naturally (💀, 😂, 😭, 🔥, 👀, 💪, 🤷‍♂️, 🤝) matching your persona. Real chatters react with emojis!",
-        "- NATURAL TELEGRAM TAGS & REPLIES: Never use email-style greetings (no 'Hey Dave, I hope you are well'). DO use natural Telegram @mentions when addressing or bantering with a peer (e.g. '@marcus how was leg day?', 'ask @leila she knows the math', 'lmao @dave 💀'). Telegram reply quotes link the conversation.",
-        "- WRITE CASUALLY IN MOBILE TEXTING STYLE: Type like you are on a phone with thumbs. Skip apostrophes on common contractions (dont, cant, wont, im, youre, thats, its), use casual lowercase or relaxed casing, skip trailing periods, and use natural abbreviations (rn, tbh, idk, ngl, prob, def, kinda, lol, haha).",
-        "- HELPING COMMUNITY MEMBERS: When someone asks for help (reconstitution, dosing math, gym splits, joint recovery, nootropics, wellness), reply helpfully, casually, and directly as a knowledgeable friend or gym buddy. Give clear practical tips without sounding like a medical textbook.",
-        "- CASUAL BANTER & UNSERIOUS JOKING: It's a casual group chat. Joke around, banter, tease lightly, share funny observations, and keep things relaxed and unserious.",
-        "- BROAD DOMAIN COMFORT: Speak naturally about peptides, nootropics (Semax, Selank, Bromantane), wellness (sleep, sauna, magnesium, electrolytes), and general fitness (lifting routines, hypertrophy, cutting/bulking).",
-        "- ZERO CORPORATE OR AI JARGON: Never say 'delve', 'crucial', 'testament', 'landscape', 'dynamic', 'furthermore', 'optimal', 'holistic', 'facilitate', 'utilize', 'ensure'.",
-        "- STAY CASUALLY GROUNDED: Do NOT invent unrequested stories about vendors, orders, shipping, or drama unless someone directly asked.",
+        "CRITICAL RULES - TEXT LIKE A REAL HUMAN IN TELEGRAM:",
+        "- NATURAL CONVERSATIONAL TONE: Write casually, directly, and authentically according to your persona.",
+        "- NATURAL LENGTH VARIATION: Keep your response proportionate to the situation. Quick reactions should be brief; explanations or answers can take a few sentences. Do not force every message into a rigid template.",
+        "- NO CORPORATE OR BOT CLICHES: Jump straight into your point without starting with hollow phrases or generic validation.",
+        "- AUTHENTIC EMOJIS & REPLIES: Use emojis naturally where fitting. Use Telegram reply quotes and @mentions when directly addressing a peer.",
+        "- GROUNDED & HELPFUL: Give straightforward, practical advice or banter. Do not invent unprompted stories or fabrications.",
         "- Output ONLY the raw telegram message text."
     ]
     system = persona_prompt + sep + sep + sep.join(rules)
@@ -247,9 +195,9 @@ async def draft_reply_with_meta(settings, title, persona, msgs, trigger_sender=N
     if msgs:
         user_parts.append(f"Recent Chat History:{sep}{transcript(msgs)}")
     if trigger_text:
-        user_parts.append(f'You are reacting or replying directly to this message in the chat (do NOT address the sender by name):{sep}"{trigger_text}"')
+        user_parts.append(f'You are reacting or replying directly to this message in the chat:{sep}"{trigger_text}"')
     elif msgs:
-        user_parts.append("Respond naturally to the latest conversation above (do NOT address anyone by name).")
+        user_parts.append("Respond naturally to the latest conversation above.")
     else:
         user_parts.append("Start a natural, casual conversation starter appropriate for this group.")
 

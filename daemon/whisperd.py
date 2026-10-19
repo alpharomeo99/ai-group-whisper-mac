@@ -1236,17 +1236,12 @@ class Daemon:
                 auto_pilot = bool(self.store.get("daily_batch_auto_pilot", True))
                 if system_enabled and auto_pilot:
                     today = self.daily_batch.today_str()
+                    # Only process groups that are explicitly marked as watched
                     groups = self.store.rows("SELECT * FROM groups WHERE watched=1")
-                    group_cids = {g["chat_id"] for g in groups}
-                    ga_cids = {r["chat_id"] for r in self.store.rows("SELECT DISTINCT chat_id FROM group_accounts")}
-                    all_cids = list(group_cids.union(ga_cids))
+                    all_cids = [g["chat_id"] for g in groups]
 
                     for cid in all_cids:
                         try:
-                            # Auto-enroll group if missing from groups table
-                            g_exists = self.store.rows("SELECT chat_id FROM groups WHERE chat_id=?", (cid,))
-                            if not g_exists:
-                                self.store.q("INSERT OR IGNORE INTO groups(chat_id, title, watched, auto_reply) VALUES(?,?,1,1)", (cid, f"Group {cid}"))
 
                             # Check if today has pending/scheduled batch items
                             pending_items = self.store.rows(

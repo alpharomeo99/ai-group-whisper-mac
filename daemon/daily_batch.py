@@ -29,7 +29,7 @@ class DailyBatchEngine:
         return datetime.now().strftime("%Y-%m-%d")
 
     def get_group_candidates(self, chat_id):
-        """Unified, robust candidate resolution for a group across group_personas, group_accounts, and account fallbacks."""
+        """Candidate resolution strictly limited to accounts and personas explicitly assigned or belonging to this group."""
         chat_id = int(chat_id)
         candidates = []
         seen = set()
@@ -64,7 +64,7 @@ class DailyBatchEngine:
                 candidates.append(r)
                 seen.add(key)
 
-        # 3. Fallback: group owner account's persona
+        # 3. Group owner account's persona if explicitly linked to this group
         g_rows = self.store.rows("SELECT account_id FROM groups WHERE chat_id=?", (chat_id,))
         if g_rows and g_rows[0].get("account_id"):
             g_aid = g_rows[0]["account_id"]
@@ -81,21 +81,6 @@ class DailyBatchEngine:
                     candidates.append(r)
                     seen.add(key)
 
-        # 4. Global fallback: active accounts with personas if group mapping wasn't populated
-        if len(candidates) < 2:
-            all_active_accs = self.store.rows(
-                "SELECT p.id as persona_id, p.name as persona_name, p.details, p.prompt, a.id as account_id, a.name as account_name, a.phone as account_phone, a.username as account_username "
-                "FROM accounts a "
-                "JOIN personas p ON p.id=a.persona_id "
-                "WHERE a.active=1"
-            )
-            for r in all_active_accs:
-                key = (r["persona_id"], r["account_id"])
-                if key not in seen:
-                    candidates.append(r)
-                    seen.add(key)
-
-
         return candidates
 
     async def generate_all_groups(self, count=None):
@@ -103,10 +88,8 @@ class DailyBatchEngine:
         if count is None:
             count = int(self.store.get("batch_messages_count", 6))
         today = self.today_str()
-        groups = self.store.rows("SELECT * FROM groups")
-        group_cids = {g["chat_id"] for g in groups}
-        ga_cids = {r["chat_id"] for r in self.store.rows("SELECT DISTINCT chat_id FROM group_accounts")}
-        all_cids = list(group_cids.union(ga_cids))
+        groups = self.store.rows("SELECT * FROM groups WHERE watched=1")
+        all_cids = [g["chat_id"] for g in groups]
 
         results = []
         for cid in all_cids:
@@ -307,25 +290,8 @@ class DailyBatchEngine:
             """, (now_ts, "ai_batch", chat_id, p_tok, c_tok, tot_tok, meta.get("latency_ms", 0),
                   meta.get("model", ""), cost_est))
         except Exception as e:
-            log.warning("AI batch generation failed (%s), using domain fallback: %s", type(e).__name__, e)
-
-        # Post-filter: Sanitize any negative vendor sentiment or complaint leaks
-        clean_items = []
-        forbidden_patterns = [
-            r'\b(shit\s*show|payment\s*portal|portal.*bugg|card.*clear|recurring\s*nightmare|weak\s*batch|bad\s*batch|bad\s*vial|distraction.*fact|jaded|scam)\b'
-        ]
-        for it in items:
-            txt = it.get("text", "")
-            has_forbidden = any(re.search(pat, txt, re.IGNORECASE) for pat in forbidden_patterns)
-            if not has_forbidden:
-                clean_items.append(it)
-            else:
-                log.warning("Purged negative vendor dialogue item: %s", txt)
-
-        items = clean_items
-        if len(items) < 2:
-            log.info("Batch items purged or insufficient; loading pristine domain fallback dialogue")
-            items = self._fallback_dialogue(candidates, group_domain, count)
+            log.error("AI batch generation failed for group %s: %s", chat_id, e)
+            raise RuntimeError(f"AI generation failed: {e}") from e
 
         # Enforce natural Telegram dynamics and strip any robotic name-calling across all items
         try:
@@ -375,9 +341,8 @@ class DailyBatchEngine:
             aid = item.get("account_id")
             cand_match = [c for c in candidates if c["persona_id"] == pid and c["account_id"] == aid]
             if not cand_match:
-                cand_match = [candidates[idx % len(candidates)]]
-                pid = cand_match[0]["persona_id"]
-                aid = cand_match[0]["account_id"]
+                log.warning("Batch item %d has invalid or unassigned candidate (persona %s, account %s); skipping", idx, pid, aid)
+                continue
 
             sender_name = cand_match[0]["persona_name"]
             text = (item.get("text") or "").strip()
@@ -437,104 +402,6 @@ class DailyBatchEngine:
             "date": today,
             "items": created_items
         }
-
-    def _fallback_dialogue(self, candidates, domain, count):
-        """Natural community discussion starter templates with realistic casual gym chatter, emojis, @tags, and reply links."""
-        p1 = candidates[0]
-        p2 = candidates[1] if len(candidates) > 1 else candidates[0]
-        p3 = candidates[2] if len(candidates) > 2 else candidates[0]
-        p4 = candidates[3] if len(candidates) > 3 else p1
-
-        t1 = p1.get("account_username") or p1.get("persona_name", "member").split()[0].lower()
-        t2 = p2.get("account_username") or p2.get("persona_name", "member").split()[0].lower()
-        t3 = p3.get("account_username") or p3.get("persona_name", "member").split()[0].lower()
-
-        topics = [
-            [
-                (p1, 15, "switched back to ppl this week, leg day was brutal haha", None),
-                (p2, 17, "leg day fatigue hits different fr💀", 0),
-                (p3, 20, f"what split were you running before @{t1}?", 0),
-                (p1, 23, "upper lower, was solid but felt like i was in teh gym forever doing 6 exercises per workout tbh. ppl lets me get in and out in 45 mins", 2),
-                (p2, 25, "yeah volume creeps up fast if you dont cap sets. stick to 2 heavy working sets to failure now and recovery is way better", 3),
-                (p3, 27, "like 2 heavy sets per exercise is plenty tbh", 4),
-                (p4, 28, "lol nah 3 minimum", 5),
-                (p1, 75, f"bench feeling any better on elbows @{t2}?", None),
-                (p2, 78, "way better since tucking elbows in more, zero flare up 💪", 7),
-                (p3, 80, "wrist wraps helped me a ton too", 7),
-                (p4, 82, "same here", 9),
-                (p1, 140, "hitting shoulders tomorrow or rest day?", None),
-                (p2, 142, "rest day prob, need the recovery 😂", 11),
-                (p3, 144, "smart move", 12),
-                (p1, 145, "enjoy the food", 12)
-            ],
-            [
-                (p1, 20, "quick math check, 2ml bac water in a 5mg vial is 250mcg per 10 units right?", None),
-                (p2, 22, "yeah exactly, 10 units on a standard 100u pin is 250mcg. draw slow so no air bubbles 👍", 0),
-                (p3, 24, "just trickle the bac water down the glass slow so it doesnt foam up", 0),
-                (p1, 26, "got it, keeping it chilled in fridge now", 1),
-                (p4, 27, "legend", 3),
-                (p2, 85, f"running subq or im @{t1}?", None),
-                (p3, 87, "subq with a 31g, barely feel anything tbh", 5),
-                (p1, 89, "31g is the way to go fr", 6),
-                (p2, 91, "rotate injection sites each time, keeps it painless", 7),
-                (p1, 93, "appreciate the help guys 🤝", 8),
-                (p4, 94, "anytime", 9),
-                (p3, 150, "anyone pinning glute or strictly belly?", None),
-                (p2, 152, "ventroglute is clutch once you find the spot", 11),
-                (p1, 153, "belly fat pinch is just too easy lol", 11),
-                (p4, 155, "facts", 13)
-            ],
-            [
-                (p1, 18, "anyone running semax or bromantane for work focus lately?", None),
-                (p2, 20, "na-semax-amidate is top tier for cognitive clarity honestly. zero jitters or afternoon crash, just clean quiet focus all morning", 0),
-                (p3, 22, f"how does it compare to regular caffeine @{t2}?", 1),
-                (p2, 25, "caffeine gives me restless anxiety after 2 cups tbh, semax just clears all brain fog without elevated heart rate", 2),
-                (p4, 27, "stacking it with l-tyrosine hits different too 🧠", 3),
-                (p1, 29, "wait really? dosage?", 4),
-                (p4, 31, "like 500mg tyrosine on empty stomach with morning water, then 200mcg semax spray. super smooth drive for deep work", 5),
-                (p1, 33, "ordering some today lol", 6),
-                (p3, 80, "sleep quality still good on it?", None),
-                (p2, 82, "yeah just dont dose it late afternoon", 8),
-                (p3, 84, "makes sense", 9),
-                (p1, 140, "magnesium glycinate before bed completely fixed my rem sleep btw", None),
-                (p2, 142, "glycinate or threonate is a must have for recovery", 11),
-                (p4, 143, "100%", 12),
-                (p3, 145, "gonna add it to my stack tonight", 12)
-            ],
-            [
-                (p1, 30, "forgot my shaker bottle in my gym bag for 4 days... opened it today and almost passed out 💀", None),
-                (p2, 32, "bro that bottle is a biohazard now just throw it away lmao", 0),
-                (p3, 34, "nothing on earth smells worse than old whey protein residue 😭", 1),
-                (p4, 36, "dish soap wont save it, straight to the bin haha", 2),
-                (p1, 38, f"already in the trash @{t2}, buying a 3 pack on amazon rn 😂", 3),
-                (p2, 40, "rite of passage for every lifter honestly", 4),
-                (p3, 41, "bro💀", 5),
-                (p4, 43, "never leave it in the trunk in summer, pure toxic waste", 4),
-                (p1, 45, "lesson learned the hard way haha", 7),
-                (p2, 105, "stainless steel shakers are worth every penny btw, plastic absorbs smell forever", None),
-                (p3, 107, "best gym investment i ever made", 9),
-                (p1, 109, "added to cart haha", 10),
-                (p4, 110, "smart man", 11),
-                (p2, 170, "who is hitting gym tonight?", None),
-                (p3, 172, "push day in 20 mins 💪", 13)
-            ]
-        ]
-        chosen = random.choice(topics)
-        items = []
-        for row in chosen[:count]:
-            cand = row[0]
-            offset = row[1]
-            text = row[2]
-            rep_step = row[3] if len(row) > 3 else None
-            items.append({
-                "persona_id": cand["persona_id"],
-                "account_id": cand["account_id"],
-                "sender_name": cand["persona_name"],
-                "offset_minutes": offset,
-                "text": text,
-                "reply_to_step": rep_step
-            })
-        return items
 
     def get_status(self):
         """Returns today's batch schedule, execution metrics, and scout configuration."""
