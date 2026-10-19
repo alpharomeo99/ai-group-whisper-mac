@@ -53,6 +53,8 @@ class Daemon:
         self.usage = usage.UsageTracker(self.store)
         self.autoapi = {}        # token -> {"future": code future, "task": camoufox task}
         self.cfx_install = {"running": False, "log": ""}
+        self._account_locks = {}
+        self._presence_abort_events = {}
 
     async def memory_pruner_loop(self):
         """Autonomous Agent that wakes up every 12 hours to prune expired, useless, and overextended memories."""
@@ -277,6 +279,12 @@ class Daemon:
         finally:
             self._ensuring_scout = False
 
+    def _get_account_lock(self, account_id):
+        aid = int(account_id)
+        if aid not in self._account_locks:
+            self._account_locks[aid] = asyncio.Lock()
+        return self._account_locks[aid]
+
     @asynccontextmanager
     async def account_session(self, account_id):
         """Context manager that provides an active Telegram client for any account.
@@ -295,38 +303,162 @@ class Daemon:
             yield self.clients[account_id]
             return
 
-        acc_rows = self.store.rows("SELECT * FROM accounts WHERE id=?", (account_id,))
-        if not acc_rows:
-            raise ConnectionError(f"Account {account_id} not found in database")
-        a = acc_rows[0]
-        api = self._api(a)
-        if not api:
-            raise ConnectionError(f"Account {account_id} has missing API credentials")
+        # If account is lingering in casual presence check-in, interrupt linger immediately
+        if account_id in self._presence_abort_events:
+            self._presence_abort_events[account_id].set()
 
-        client = self._new_client(a["session"], api, a.get("proxy_id"))
-        await asyncio.wait_for(client.connect(), timeout=10)
-        if not await client.is_user_authorized():
-            try:
-                await client.disconnect()
-            except Exception:
-                pass
-            raise ConnectionError(f"Account {account_id} ({a.get('name')}) is not authorized")
+        lock = self._get_account_lock(account_id)
+        async with lock:
+            if account_id in self.clients and self.clients[account_id].is_connected():
+                yield self.clients[account_id]
+                return
 
-        if not a.get("user_id"):
+            acc_rows = self.store.rows("SELECT * FROM accounts WHERE id=?", (account_id,))
+            if not acc_rows:
+                raise ConnectionError(f"Account {account_id} not found in database")
+            a = acc_rows[0]
+            api = self._api(a)
+            if not api:
+                raise ConnectionError(f"Account {account_id} has missing API credentials")
+
+            client = self._new_client(a["session"], api, a.get("proxy_id"))
+            await asyncio.wait_for(client.connect(), timeout=10)
+            if not await client.is_user_authorized():
+                try:
+                    await client.disconnect()
+                except Exception:
+                    pass
+                raise ConnectionError(f"Account {account_id} ({a.get('name')}) is not authorized")
+
+            if not a.get("user_id"):
+                try:
+                    me = await client.get_me()
+                    if me:
+                        self._save_profile(account_id, me, me.phone and "+" + me.phone.lstrip("+"))
+                except Exception:
+                    pass
+
             try:
-                me = await client.get_me()
-                if me:
-                    self._save_profile(account_id, me, me.phone and "+" + me.phone.lstrip("+"))
-            except Exception:
-                pass
+                yield client
+            finally:
+                try:
+                    await client.disconnect()
+                except Exception:
+                    pass
+
+    async def _casual_check_in(self, aid, account_info):
+        """Ephemerally wakes up a dormant account to simulate a human user checking Telegram on their phone.
+        Marks status online, browses recent dialogs, lingers for 15-45s, sets status offline, and disconnects."""
+        lock = self._get_account_lock(aid)
+        if lock.locked():
+            return  # Account is actively sending or syncing, skip this check-in
+
+        abort_ev = asyncio.Event()
+        self._presence_abort_events[aid] = abort_ev
 
         try:
-            yield client
+            async with lock:
+                api = self._api(account_info)
+                if not api:
+                    return
+                client = self._new_client(account_info["session"], api, account_info.get("proxy_id"))
+                try:
+                    await asyncio.wait_for(client.connect(), timeout=12)
+                    if not await client.is_user_authorized():
+                        return
+
+                    # Update presence: Mark Online
+                    try:
+                        from telethon.tl.functions.account import UpdateStatusRequest
+                        await client(UpdateStatusRequest(offline=False))
+                    except Exception as e:
+                        log.debug("Online status update error for account %s: %s", aid, e)
+
+                    # Casual human browsing: refresh top dialogs / messages
+                    try:
+                        await client.get_dialogs(limit=5)
+                    except Exception:
+                        pass
+
+                    # Human linger duration (15 to 45 seconds)
+                    linger = random.uniform(15.0, 45.0)
+                    log.info("Casual presence: Account %s (%s) online for quick check (~%ds)", aid, account_info.get("name"), int(linger))
+
+                    try:
+                        await asyncio.wait_for(abort_ev.wait(), timeout=linger)
+                    except asyncio.TimeoutError:
+                        pass
+
+                    # Update presence: Mark Offline (records Last Seen)
+                    try:
+                        from telethon.tl.functions.account import UpdateStatusRequest
+                        await client(UpdateStatusRequest(offline=True))
+                    except Exception:
+                        pass
+                finally:
+                    try:
+                        await client.disconnect()
+                    except Exception:
+                        pass
+        except Exception as e:
+            log.warning("Casual check-in failed for account %s: %s", aid, e)
         finally:
+            self._presence_abort_events.pop(aid, None)
+
+    async def casual_presence_loop(self):
+        """Autonomous background simulation: dormant accounts randomly wake up,
+        log into Telegram briefly (set status online, check dialogs), and go back to sleep.
+        Intervals follow an organic circadian wakefulness curve with Poisson intervals."""
+        await asyncio.sleep(45)
+        next_checkins = {}
+        while True:
             try:
-                await client.disconnect()
-            except Exception:
-                pass
+                system_enabled = bool(self.store.get("system_enabled", True))
+                if not system_enabled or self.suspended or self.paused_reason:
+                    await asyncio.sleep(30)
+                    continue
+
+                scout_aid = self.get_scout_account_id()
+                accounts = self.store.rows("SELECT * FROM accounts WHERE active=1")
+                now = time.time()
+                active_ids = {a["id"] for a in accounts}
+
+                for aid in list(next_checkins.keys()):
+                    if aid not in active_ids:
+                        del next_checkins[aid]
+
+                for a in accounts:
+                    aid = a["id"]
+                    if aid == scout_aid:
+                        continue  # Scout maintains the persistent incoming event socket
+
+                    if aid not in next_checkins:
+                        # Stagger initial check-in: 2 to 20 minutes from boot
+                        next_checkins[aid] = now + random.uniform(120, 1200)
+                        continue
+
+                    if now >= next_checkins[aid]:
+                        circ_factor = 1.0
+                        try:
+                            circ_factor = self.orchestrator.circadian_factor()
+                        except Exception:
+                            pass
+
+                        # Daytime base interval: 25 to 55 minutes.
+                        # Nighttime (circ_factor lower): stretches up to 90 to 180+ minutes.
+                        base_mins = random.uniform(25.0, 55.0)
+                        adjusted_mins = base_mins / max(circ_factor, 0.25)
+                        jitter = random.uniform(-5.0, 10.0)
+                        next_interval_secs = max(600.0, (adjusted_mins + jitter) * 60.0)
+                        next_checkins[aid] = now + next_interval_secs
+
+                        asyncio.create_task(self._casual_check_in(aid, a))
+                        await asyncio.sleep(random.uniform(5.0, 15.0))
+
+            except Exception as e:
+                log.warning("casual_presence_loop error: %s", e)
+
+            await asyncio.sleep(30)
 
     def _save_profile(self, aid, me, phone):
         name = " ".join(x for x in (me.first_name, me.last_name) if x) or "Account"
@@ -519,7 +651,7 @@ class Daemon:
                         "persona_id": pid,
                         "trigger": event.id,
                         "auto_send": True
-                    }, dedupe_key=f"dm_reply:{aid}:{peer_id}:{event.id}", delay=3)
+                    }, dedupe_key=f"dm_reply:{aid}:{peer_id}:{event.id}", delay=max(4, int(self.orchestrator.calculate_deliberation_delay(event.raw_text))))
             self.wake_event.set()
             return
 
@@ -651,7 +783,7 @@ class Daemon:
             elif is_direct:
                 # Direct mention fallback with no explicit persona assigned
                 self.store.enqueue("draft_reply", chat_id, {"trigger": event.id, "trigger_sender": name, "trigger_text": event.raw_text, "auto_send": True},
-                                   dedupe_key=f"reply:{chat_id}:{event.id}", delay=4)
+                                   dedupe_key=f"reply:{chat_id}:{event.id}", delay=max(4, int(self.orchestrator.calculate_deliberation_delay(event.raw_text))))
         self.wake_event.set()
 
     # ---------- Queue worker ----------
@@ -3126,6 +3258,7 @@ async def main():
     asyncio.create_task(d.auto_sync_loop())
     asyncio.create_task(d.daily_batch_loop())
     asyncio.create_task(d.memory_pruner_loop())
+    asyncio.create_task(d.casual_presence_loop())
     try:
         await d.ensure_clients()
     except Exception as e:  # noqa
