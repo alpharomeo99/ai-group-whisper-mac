@@ -472,22 +472,22 @@ class DailyBatchEngine:
         }
 
     def clear_today(self, chat_id=None):
-        """Cancels all pending and postponed scheduled batch messages for today."""
+        """Cancels all pending, postponed, and failed scheduled batch messages for today."""
         today = self.today_str()
         if chat_id:
             items = self.store.rows(
-                "SELECT id FROM daily_batch_items WHERE chat_id=? AND status IN ('pending', 'postponed')", (int(chat_id),)
+                "SELECT id FROM daily_batch_items WHERE chat_id=? AND status IN ('pending', 'postponed', 'failed')", (int(chat_id),)
             )
             for it in items:
                 self.store.q("UPDATE daily_batch_items SET status='cancelled' WHERE id=?", (it["id"],))
                 self.store.q("UPDATE queue SET status='cancelled' WHERE dedupe_key=?", (f"batch_send:{it['id']}",))
-            self.store.q("UPDATE queue SET status='cancelled' WHERE kind='batch_scheduled_send' AND chat_id=? AND status IN ('pending', 'postponed')", (int(chat_id),))
+            self.store.q("UPDATE queue SET status='cancelled' WHERE kind='batch_scheduled_send' AND chat_id=? AND status IN ('pending', 'postponed', 'failed')", (int(chat_id),))
         else:
-            items = self.store.rows("SELECT id FROM daily_batch_items WHERE status IN ('pending', 'postponed')")
+            items = self.store.rows("SELECT id FROM daily_batch_items WHERE status IN ('pending', 'postponed', 'failed')")
             for it in items:
                 self.store.q("UPDATE daily_batch_items SET status='cancelled' WHERE id=?", (it["id"],))
                 self.store.q("UPDATE queue SET status='cancelled' WHERE dedupe_key=?", (f"batch_send:{it['id']}",))
-            self.store.q("UPDATE queue SET status='cancelled' WHERE kind='batch_scheduled_send' AND status IN ('pending', 'postponed')")
+            self.store.q("UPDATE queue SET status='cancelled' WHERE kind='batch_scheduled_send' AND status IN ('pending', 'postponed', 'failed')")
         return len(items)
 
     def trigger_next_now(self):

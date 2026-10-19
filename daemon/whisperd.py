@@ -866,6 +866,52 @@ class Daemon:
         total = hesitation + typing_dur
         return max(0.6, min(total, 3.5))
 
+    async def safe_send_message(self, cl, aid, chat_id, text, reply_to=None):
+        """Sends message with automatic resilience against invalid reply targets, unprimed peers, and account restrictions."""
+        try:
+            return await cl.send_message(chat_id, text, reply_to=reply_to)
+        except (errors.rpcerrorlist.ReplyToMsgIdInvalidError, errors.rpcerrorlist.MsgIdInvalidError):
+            log.warning("Reply target invalid/deleted in %s; sending without quote", chat_id)
+            return await cl.send_message(chat_id, text, reply_to=None)
+        except (ValueError, errors.rpcerrorlist.PeerIdInvalidError, errors.rpcerrorlist.ChannelInvalidError):
+            try:
+                await cl.get_dialogs(limit=50)
+            except Exception:
+                pass
+            return await cl.send_message(chat_id, text, reply_to=None)
+        except (errors.rpcerrorlist.ChatWriteForbiddenError, errors.rpcerrorlist.UserBannedInChannelError, errors.rpcerrorlist.ChannelPrivateError) as perm_err:
+            alt_accs = self.store.rows(
+                "SELECT a.id FROM group_accounts ga JOIN accounts a ON a.id=ga.account_id WHERE ga.chat_id=? AND a.active=1 AND a.id != ? LIMIT 1",
+                (chat_id, aid)
+            )
+            if alt_accs:
+                alt_aid = alt_accs[0]["id"]
+                log.warning("Account %s cannot send in %s (%s). Re-routing to alternate account %s", aid, chat_id, perm_err, alt_aid)
+                async with self.account_session(alt_aid) as alt_cl:
+                    return await alt_cl.send_message(chat_id, text, reply_to=None)
+            raise perm_err
+
+    async def auto_generate_daily_if_needed(self):
+        """Helper to ensure batches are generated automatically in the background if none exist."""
+        try:
+            today = self.daily_batch.today_str()
+            all_cids = [r["chat_id"] for r in self.store.rows(
+                "SELECT chat_id FROM groups WHERE watched=1 "
+                "UNION SELECT chat_id FROM group_personas "
+                "UNION SELECT chat_id FROM group_accounts"
+            )]
+            for cid in all_cids:
+                existing = self.store.rows("SELECT id FROM daily_batches WHERE chat_id=? AND date_str=?", (cid, today))
+                if not existing:
+                    cands = self.daily_batch.get_group_candidates(cid)
+                    if len(cands) >= 1:
+                        count = int(self.store.get("batch_messages_count", 8))
+                        log.info("Auto-Pilot: Auto-generating missing batch for group %s (%d candidates)", cid, len(cands))
+                        await self.daily_batch.generate_batch_for_group(cid, count=count)
+                        self.wake_event.set()
+        except Exception as e:
+            log.warning("auto_generate_daily_if_needed error: %s", e)
+
     async def run_job(self, job):
         import json
         p = json.loads(job["payload"])
@@ -991,7 +1037,7 @@ class Daemon:
                             pass
 
                         curr_reply = reply_to_msg_id if b_idx == 0 else None
-                        sent_msg = await cl.send_message(job["chat_id"], bubble_text, reply_to=curr_reply)
+                        sent_msg = await self.safe_send_message(cl, aid, job["chat_id"], bubble_text, reply_to=curr_reply)
                         sender_id = getattr(sent_msg, "sender_id", None)
                         if sender_id and aid and b_idx == 0:
                             acc_check = self.store.rows("SELECT user_id FROM accounts WHERE id=?", (aid,))
@@ -1071,7 +1117,7 @@ class Daemon:
                             pass
 
                         curr_reply = reply_to_msg_id if b_idx == 0 else None
-                        sent_msg = await cl.send_message(job["chat_id"], bubble_text, reply_to=curr_reply)
+                        sent_msg = await self.safe_send_message(cl, aid, job["chat_id"], bubble_text, reply_to=curr_reply)
                         sender_id = getattr(sent_msg, "sender_id", None)
                         if sender_id and aid and b_idx == 0:
                             acc_check = self.store.rows("SELECT user_id FROM accounts WHERE id=?", (aid,))
@@ -1129,7 +1175,7 @@ class Daemon:
                         except Exception:
                             pass
                         curr_reply = p.get("reply_to") if b_idx == 0 else None
-                        sent = await cl.send_message(peer_id, bubble_text, reply_to=curr_reply)
+                        sent = await self.safe_send_message(cl, aid, peer_id, bubble_text, reply_to=curr_reply)
                         self.store.add_direct_message(aid, peer_id, sent.id, "Me", 0, bubble_text, int(time.time()))
                         if eff_pid:
                             self.memory.auto_record_statement(eff_pid, aid, peer_id, bubble_text)
@@ -1184,20 +1230,35 @@ class Daemon:
                 self.store.finish(job["id"], False, str(e))
                 if job.get("kind") == "batch_scheduled_send" and p.get("batch_item_id"):
                     self.store.mark_batch_item_failed(p["batch_item_id"], str(e))
-        except errors.FloodWaitError as e:
-            retry_in = e.seconds + 1
-            self.store.finish(job["id"], False, f"Telegram flood wait {e.seconds}s", retry_in=retry_in)
+        except (errors.FloodWaitError, errors.rpcerrorlist.SlowmodeWaitError) as e:
+            wait_sec = getattr(e, "seconds", 30) + 2
+            self.store.finish(job["id"], False, f"Telegram rate wait {wait_sec}s", retry_in=wait_sec)
             if job.get("kind") == "batch_scheduled_send" and p.get("batch_item_id"):
-                self.store.postpone_batch_item(p["batch_item_id"], int(time.time()) + retry_in, f"Flood wait {e.seconds}s")
-        except (ConnectionError, OSError) as e:
-            self.store.finish(job["id"], False, str(e), retry_in=30)
-            if job.get("kind") == "batch_scheduled_send" and p.get("batch_item_id"):
-                self.store.postpone_batch_item(p["batch_item_id"], int(time.time()) + 30, f"Network retry: {e}")
+                self.store.postpone_batch_item(p["batch_item_id"], int(time.time()) + wait_sec, f"Rate wait {wait_sec}s")
+        except (ConnectionError, OSError, asyncio.TimeoutError, TimeoutError) as e:
+            attempts = job.get("attempts", 0)
+            if attempts < 5:
+                retry_in = min(300, 15 * (2 ** attempts))
+                self.store.finish(job["id"], False, str(e), retry_in=retry_in)
+                if job.get("kind") == "batch_scheduled_send" and p.get("batch_item_id"):
+                    self.store.postpone_batch_item(p["batch_item_id"], int(time.time()) + retry_in, f"Network retry: {e}")
+            else:
+                self.store.finish(job["id"], False, str(e))
+                if job.get("kind") == "batch_scheduled_send" and p.get("batch_item_id"):
+                    self.store.mark_batch_item_failed(p["batch_item_id"], str(e))
         except Exception as e:  # noqa
-            log.exception("job failed")
-            self.store.finish(job["id"], False, str(e))
-            if job.get("kind") == "batch_scheduled_send" and p.get("batch_item_id"):
-                self.store.mark_batch_item_failed(p["batch_item_id"], str(e))
+            attempts = job.get("attempts", 0)
+            if attempts < 3:
+                retry_in = min(180, 15 * (2 ** attempts))
+                log.warning("Transient error on job %s (attempt %d/3), will retry in %ds: %s", job["id"], attempts + 1, retry_in, e)
+                self.store.finish(job["id"], False, str(e), retry_in=retry_in)
+                if job.get("kind") == "batch_scheduled_send" and p.get("batch_item_id"):
+                    self.store.postpone_batch_item(p["batch_item_id"], int(time.time()) + retry_in, f"Auto-retry: {e}")
+            else:
+                log.exception("job %s failed after %d attempts: %s", job["id"], attempts + 1, e)
+                self.store.finish(job["id"], False, str(e))
+                if job.get("kind") == "batch_scheduled_send" and p.get("batch_item_id"):
+                    self.store.mark_batch_item_failed(p["batch_item_id"], str(e))
 
     # ---------- Sleep / wake ----------
     async def set_power(self, state, reason):
@@ -1354,20 +1415,22 @@ class Daemon:
 
     async def daily_batch_loop(self):
         """Automatically checks and generates daily batches for active groups with personas."""
-        await asyncio.sleep(6)
+        await asyncio.sleep(2)
         while True:
             try:
                 system_enabled = bool(self.store.get("system_enabled", True))
                 auto_pilot = bool(self.store.get("daily_batch_auto_pilot", True))
                 if system_enabled and auto_pilot:
                     today = self.daily_batch.today_str()
-                    # Only process groups that are explicitly marked as watched
-                    groups = self.store.rows("SELECT * FROM groups WHERE watched=1")
-                    all_cids = [g["chat_id"] for g in groups]
+                    # Target watched groups or any group configured with active personas/accounts
+                    all_cids = [r["chat_id"] for r in self.store.rows(
+                        "SELECT chat_id FROM groups WHERE watched=1 "
+                        "UNION SELECT chat_id FROM group_personas "
+                        "UNION SELECT chat_id FROM group_accounts"
+                    )]
 
                     for cid in all_cids:
                         try:
-
                             # Check if today has pending/scheduled batch items
                             pending_items = self.store.rows(
                                 "SELECT id FROM daily_batch_items WHERE chat_id=? AND status IN ('pending', 'postponed') AND created_at >= ?",
@@ -1379,20 +1442,20 @@ class Daemon:
                             if not existing_batches:
                                 should_generate = True
                             elif not pending_items:
-                                # Prior batch is completely finished (all sent). If last sent message was > 3 hours ago, allow a follow-up conversation session
+                                # Prior batch is completely finished (all sent). Follow-up session after interval
                                 last_sent = self.store.rows(
                                     "SELECT MAX(sent_ts) as last_ts FROM daily_batch_items WHERE chat_id=? AND status='sent'",
                                     (cid,)
                                 )
                                 last_ts = (last_sent[0]["last_ts"] or 0) if last_sent else 0
-                                interval_secs = int(self.store.get("batch_session_interval_seconds", 1800))  # 30 mins quiet default
+                                interval_secs = int(self.store.get("batch_session_interval_seconds", 1800))
                                 if (int(time.time()) - last_ts) >= interval_secs:
                                     should_generate = True
 
                             if should_generate:
                                 cands = self.daily_batch.get_group_candidates(cid)
-                                if len(cands) >= 2:
-                                    count = int(self.store.get("batch_messages_count", 12))
+                                if len(cands) >= 1:
+                                    count = int(self.store.get("batch_messages_count", 8))
                                     log.info("Auto-Pilot: Generating batch for group %s (%d candidates, %d messages)", cid, len(cands), count)
                                     await self.daily_batch.generate_batch_for_group(cid, count=count)
                                     self.wake_event.set()
@@ -1400,7 +1463,7 @@ class Daemon:
                             log.warning("daily_batch_loop error for group %s: %s", cid, group_err)
             except Exception as e:
                 log.warning("daily_batch_loop error: %s", e)
-            await asyncio.sleep(180)
+            await asyncio.sleep(60)
 
     async def catch_up(self):
         """Fetch messages missed while the Mac slept."""
@@ -2356,7 +2419,49 @@ class Daemon:
         # ----- Daily Batch Dialogue & Scout Control -----
         @r.get("/daily-batch/status")
         async def daily_batch_status(_):
-            return J(self.daily_batch.get_status())
+            st = self.daily_batch.get_status()
+            if bool(self.store.get("daily_batch_auto_pilot", True)) and bool(self.store.get("system_enabled", True)):
+                if not st.get("items"):
+                    asyncio.create_task(self.auto_generate_daily_if_needed())
+            return J(st)
+
+        @r.post("/daily-batch/retry-failed")
+        async def daily_batch_retry_failed(_):
+            failed_items = self.store.rows("SELECT * FROM daily_batch_items WHERE status='failed'")
+            now = int(time.time())
+            count = 0
+            for it in failed_items:
+                self.store.q(
+                    "UPDATE daily_batch_items SET status='pending', scheduled_ts=?, error=NULL WHERE id=?",
+                    (now + count * 15, it["id"])
+                )
+                q_rows = self.store.rows(
+                    "SELECT id FROM queue WHERE kind='batch_scheduled_send' AND payload LIKE ?",
+                    (f'%"batch_item_id": {it["id"]}%',)
+                )
+                if q_rows:
+                    self.store.q(
+                        "UPDATE queue SET status='pending', attempts=0, last_error=NULL, not_before=?, updated=? WHERE id=?",
+                        (now + count * 15, now, q_rows[0]["id"])
+                    )
+                else:
+                    self.store.enqueue("batch_scheduled_send", it["chat_id"], {
+                        "batch_item_id": it["id"],
+                        "account_id": it["account_id"],
+                        "persona_id": it["persona_id"],
+                        "text": it["text"],
+                        "reply_to_item_id": it.get("reply_to_item_id")
+                    }, dedupe_key=f"batch_send:{it['id']}", delay=count * 15)
+                count += 1
+            self.store.q("UPDATE queue SET status='pending', attempts=0, last_error=NULL, not_before=? WHERE status='failed'", (now,))
+            self.wake_event.set()
+            return J({"ok": True, "retried": count})
+
+        @r.post("/queue/clear-failed")
+        async def queue_clear_failed(_):
+            res = self.store.q("DELETE FROM queue WHERE status='failed'")
+            self.store.q("UPDATE daily_batch_items SET status='cancelled' WHERE status='failed'")
+            return J({"ok": True, "cleared": res.rowcount})
 
         @r.post("/daily-batch/generate")
         async def daily_batch_generate(req):

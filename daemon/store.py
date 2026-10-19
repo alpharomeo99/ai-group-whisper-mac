@@ -213,6 +213,13 @@ class Store:
         self.db.commit()
         self.seed_xbiolabs_and_personas()
         self._sanitize_name_calling_on_startup()
+        try:
+            now_ts = int(time.time())
+            self.db.execute("DELETE FROM queue WHERE status IN ('done', 'cancelled') AND updated < ?", (now_ts - 86400,))
+            self.db.execute("DELETE FROM queue WHERE status='failed' AND updated < ?", (now_ts - 86400 * 2,))
+            self.db.commit()
+        except Exception:
+            pass
 
 
     def _sanitize_name_calling_on_startup(self):

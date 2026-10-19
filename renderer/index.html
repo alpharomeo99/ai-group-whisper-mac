@@ -820,9 +820,9 @@
 
             <!-- Global Action Buttons -->
             <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
-              <button class="primary" id="batch-btn-generate-all" style="height:28px; font-size:11.5px; padding:0 12px; font-weight:600;">&#9889; Auto-Generate All Groups</button>
+              <button class="ghost" id="batch-btn-retry-failed" title="Retry all failed messages" style="height:28px; font-size:11.5px; padding:0 10px; display:none; color:var(--warn, #f59e0b); border-color:rgba(245,158,11,0.3);">&#8635; Retry Failed</button>
               <button class="ghost" id="batch-btn-send-next" title="Force send immediate next scheduled message" style="height:28px; font-size:11.5px; padding:0 10px;">&#9654; Send Next</button>
-              <button class="danger" id="batch-btn-clear" title="Clear all pending batch messages" style="height:28px; font-size:11.5px; padding:0 10px;">Clear Schedule</button>
+              <button class="danger" id="batch-btn-clear" title="Clear all batch messages" style="height:28px; font-size:11.5px; padding:0 10px;">Clear Schedule</button>
             </div>
           </div>
 
@@ -911,32 +911,7 @@
           </div>
         </div>
 
-        <!-- Optional Single Group Manual Override (Subtle) -->
-        <details class="p-card" style="margin-bottom:10px; padding:8px 12px;">
-          <summary style="font-size:11.5px; font-weight:600; cursor:pointer; color:var(--text-dim);">Single Group Topic Override (Optional)</summary>
-          <div style="display:grid; grid-template-columns: 1.4fr 1fr 2fr auto; gap:6px; align-items:end; margin-top:8px;">
-            <div>
-              <label class="ps-label">Target Group</label>
-              <select id="batch-gen-group" style="height:26px; font-size:11.5px;"></select>
-            </div>
-            <div>
-              <label class="ps-label">Messages</label>
-              <select id="batch-gen-count" style="height:26px; font-size:11.5px;">
-                <option value="4">4 messages</option>
-                <option value="6" selected>6 messages</option>
-                <option value="8">8 messages</option>
-              </select>
-            </div>
-            <div>
-              <label class="ps-label">Custom Topic Prompt</label>
-              <input type="text" id="batch-gen-topic" placeholder="e.g. Discussing peptide purity, testing, and dosing routines" style="height:26px; font-size:11.5px;" />
-            </div>
-            <div>
-              <button class="ghost" id="batch-btn-generate" style="height:26px; font-size:11.5px; padding:0 10px;">Generate</button>
-            </div>
-          </div>
-          <div id="batch-gen-status" class="hint" style="margin-top:4px; min-height:14px; font-size:11px;"></div>
-        </details>
+        
 
         <!-- Schedule Timeline Table --><!-- Schedule Timeline Table -->
         <div class="p-card" style="margin-bottom:10px; padding:8px 12px;">
@@ -959,64 +934,6 @@
                 <tr><td colspan="5" class="empty" style="padding:12px; text-align:center;">No batch generated for today. Click 'Generate Batch' above.</td></tr>
               </tbody>
             </table>
-          </div>
-        </div>
-
-        <!-- Cadence Engine & Human Simulation Timing -->
-        <div class="p-card" style="margin-bottom:10px; padding:10px 12px;">
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
-            <div>
-              <div style="font-weight:600; font-size:12px; color:var(--text);">Cadence Engine &amp; Human Simulation Timing</div>
-              <div class="hint" style="font-size:10.5px;">Stochastic Poisson response delays, diurnal wakefulness &amp; turn-taking</div>
-            </div>
-            <button id="orch-save" class="primary" style="font-size:11px; padding:3px 10px; height:24px;">Save Cadence Parameters</button>
-          </div>
-          <p class="hint" style="margin:2px 0 10px 0; font-size:11px;">
-            Eliminates mechanical instant responses by modeling stochastic human delays, reading speeds, circadian wakefulness, topic salience, and anti-dogpiling turn suppression.
-          </p>
-          <div class="grid2">
-            <div class="card ps-card">
-              <div class="ps-card-title">Stochastic Timing &amp; Poisson Process</div>
-              <div class="check" style="justify-content:space-between; margin-bottom:8px;">
-                <label style="font-size:11.5px;"><b>Enable Orchestrator</b><br><small class="hint">Probabilistic deliberation &amp; fatigue dynamics</small></label>
-                <input type="checkbox" id="orch-enabled" checked />
-              </div>
-              <div class="check" style="justify-content:space-between; margin-bottom:8px;">
-                <label style="font-size:11.5px;"><b>Spontaneous Chatter</b><br><small class="hint">Allow chime-ins on relevant topics without @mention</small></label>
-                <input type="checkbox" id="orch-spontaneous" checked />
-              </div>
-              <div class="ps-slider-group" style="margin-bottom:8px;">
-                <div class="ps-slider-header">
-                  <span class="ps-slider-label">Relevance Threshold</span>
-                  <span class="ps-slider-val" id="orch-thresh-val">(0.52)</span>
-                </div>
-                <input type="range" id="orch-threshold" min="0.2" max="0.85" step="0.01" value="0.52" />
-              </div>
-              <div>
-                <label class="ps-label">Reading Speed (chars/second)</label>
-                <input type="number" id="orch-reading-cps" min="10" max="80" value="32" />
-              </div>
-            </div>
-
-            <div class="card ps-card">
-              <div class="ps-card-title">Circadian &amp; Multi-Persona Turn-Taking</div>
-              <div class="check" style="justify-content:space-between; margin-bottom:8px;">
-                <label style="font-size:11.5px;"><b>Diurnal Activity Curve</b><br><small class="hint">Suppresses late-night replies unless night owl</small></label>
-                <input type="checkbox" id="orch-circadian" checked />
-              </div>
-              <div style="margin-bottom:8px;">
-                <label class="ps-label">Peak Activity Hour (0-23 UTC)</label>
-                <input type="number" id="orch-peak-hour" min="0" max="23" value="15" />
-              </div>
-              <div style="margin-bottom:8px;">
-                <label class="ps-label">Anti-Dogpiling Suppression Window (seconds)</label>
-                <input type="number" id="orch-anti-dogpile" min="10" max="300" value="45" />
-              </div>
-              <div>
-                <label class="ps-label">Fatigue Half-Life (seconds)</label>
-                <input type="number" id="orch-fatigue-tau" min="60" max="1200" value="240" />
-              </div>
-            </div>
           </div>
         </div>
 

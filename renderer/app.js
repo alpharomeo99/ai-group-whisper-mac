@@ -1988,6 +1988,16 @@ async function loadDailyBatchView() {
     if ($('batch-metric-sent')) $('batch-metric-sent').textContent = st.sent || 0;
     if ($('batch-metric-postponed')) $('batch-metric-postponed').textContent = st.postponed || 0;
 
+    const retryFailedBtn = $('batch-btn-retry-failed');
+    if (retryFailedBtn) {
+      if ((st.failed || 0) > 0) {
+        retryFailedBtn.style.display = 'inline-block';
+        retryFailedBtn.textContent = `↺ Retry Failed (${st.failed})`;
+      } else {
+        retryFailedBtn.style.display = 'none';
+      }
+    }
+
     // Render schedule table
     renderBatchScheduleTable(Array.isArray(batch.items) ? batch.items : []);
   } catch (err) {
@@ -2000,7 +2010,7 @@ function renderBatchScheduleTable(items) {
   const tbody = $('batch-schedule-tbody');
   if (!tbody) return;
   if (!items || items.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="5" class="empty" style="padding:16px; text-align:center;">No batch generated for today. Click \'Generate Batch\' above to pre-bake today\'s conversation.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="5" class="empty" style="padding:24px 16px; text-align:center; color:var(--text-dim);"><div style="font-weight:600; color:var(--text); margin-bottom:4px;">Auto-Pilot Active</div><div style="font-size:11.5px;">Daily conversations are automatically planned and dispatched in the background for all active groups.</div></td></tr>';
     return;
   }
 
@@ -2149,6 +2159,26 @@ if ($('batch-btn-generate')) {
       await loadDailyBatchView();
     } catch (err) {
       if (statusEl) statusEl.textContent = 'Generation failed: ' + err.message;
+    } finally {
+      btn.textContent = oldText;
+      btn.disabled = false;
+    }
+  };
+}
+
+
+if ($('batch-btn-retry-failed')) {
+  $('batch-btn-retry-failed').onclick = async () => {
+    const btn = $('batch-btn-retry-failed');
+    btn.disabled = true;
+    const oldText = btn.textContent;
+    btn.textContent = 'Retrying...';
+    try {
+      const res = await api('POST', '/daily-batch/retry-failed');
+      await loadDailyBatchView();
+      await loadQueue();
+    } catch (e) {
+      alert('Failed to retry: ' + e.message);
     } finally {
       btn.textContent = oldText;
       btn.disabled = false;
