@@ -6,6 +6,7 @@ import subprocess
 import sys
 import threading
 import time
+import json
 import urllib.request
 
 import webview
@@ -120,34 +121,58 @@ def set_dock_icon():
 class WindowBridge:
     """Small UI bridge for switching between the full dashboard and a compact Live widget."""
     def __init__(self, window=None):
-        self.window = window
+        self._window = window
 
     def show_mini(self):
         def resize():
             state["mini"] = True
             try:
-                win = self.window or state.get("window")
-                if win:
+                win = self._window or state.get("window")
+                if not win:
+                    return
+                try:
+                    win.set_title("Live")
+                except Exception:
+                    pass
+                native = getattr(win, "native", None)
+                if native:
                     try:
-                        win.set_title("Live")
-                    except Exception:
-                        pass
-                    native = getattr(win, "native", None)
-                    if native:
+                        from AppKit import NSSize, NSMakeRect, NSFloatingWindowLevel
+                        from PyObjCTools import AppHelper
+
+                        def _cocoa_mini():
+                            try:
+                                native.setMaxSize_(NSSize(10000, 10000))
+                                native.setMinSize_(NSSize(100, 28))
+                                try:
+                                    native.setContentMinSize_(NSSize(100, 28))
+                                except Exception:
+                                    pass
+                                cur = native.frame()
+                                target_w, target_h = 220, 56
+                                new_x = cur.origin.x
+                                new_y = cur.origin.y + (cur.size.height - target_h)
+                                native.setFrame_display_animate_(NSMakeRect(new_x, new_y, target_w, target_h), True, False)
+                                native.setMinSize_(NSSize(140, 36))
+                                native.setMaxSize_(NSSize(360, 72))
+                                native.setLevel_(NSFloatingWindowLevel)
+                            except Exception as ce:
+                                print("Cocoa mini error:", ce)
+
+                        AppHelper.callAfter(_cocoa_mini)
+                    except Exception as e:
+                        print("AppKit callAfter failed:", e)
                         try:
-                            from AppKit import NSSize
-                            from PyObjCTools import AppHelper
-                            AppHelper.callAfter(lambda: (
-                                native.setMinSize_(NSSize(160, 42)),
-                                native.setMaxSize_(NSSize(220, 52))
-                            ))
+                            win.on_top = True
                         except Exception:
                             pass
+                        win.resize(220, 56)
+                else:
                     try:
                         win.on_top = True
                     except Exception:
                         pass
-                    win.resize(180, 48)
+                    win.resize(220, 56)
             except Exception as e:
                 print("Could not resize to Live widget:", e)
         threading.Thread(target=resize, daemon=True).start()
@@ -157,27 +182,49 @@ class WindowBridge:
         def resize():
             state["mini"] = False
             try:
-                win = self.window or state.get("window")
-                if win:
+                win = self._window or state.get("window")
+                if not win:
+                    return
+                try:
+                    win.set_title("AI Group Whisper")
+                except Exception:
+                    pass
+                native = getattr(win, "native", None)
+                if native:
                     try:
-                        win.set_title("AI Group Whisper")
-                    except Exception:
-                        pass
+                        from AppKit import NSSize, NSMakeRect, NSNormalWindowLevel
+                        from PyObjCTools import AppHelper
+
+                        def _cocoa_full():
+                            try:
+                                native.setMaxSize_(NSSize(10000, 10000))
+                                native.setMinSize_(NSSize(640, 480))
+                                try:
+                                    native.setContentMinSize_(NSSize(640, 480))
+                                except Exception:
+                                    pass
+                                cur = native.frame()
+                                target_w, target_h = 1180, 780
+                                new_x = cur.origin.x
+                                new_y = cur.origin.y + (cur.size.height - target_h)
+                                native.setFrame_display_animate_(NSMakeRect(new_x, new_y, target_w, target_h), True, False)
+                                native.setLevel_(NSNormalWindowLevel)
+                            except Exception as ce:
+                                print("Cocoa full error:", ce)
+
+                        AppHelper.callAfter(_cocoa_full)
+                    except Exception as e:
+                        print("AppKit callAfter failed:", e)
+                        try:
+                            win.on_top = False
+                        except Exception:
+                            pass
+                        win.resize(1180, 780)
+                else:
                     try:
                         win.on_top = False
                     except Exception:
                         pass
-                    native = getattr(win, "native", None)
-                    if native:
-                        try:
-                            from AppKit import NSSize
-                            from PyObjCTools import AppHelper
-                            AppHelper.callAfter(lambda: (
-                                native.setMaxSize_(NSSize(10000, 10000)),
-                                native.setMinSize_(NSSize(720, 500))
-                            ))
-                        except Exception:
-                            pass
                     win.resize(1180, 780)
             except Exception as e:
                 print("Could not restore dashboard size:", e)
@@ -190,6 +237,27 @@ class WindowBridge:
         return {"live": alive, "mini": state.get("mini", False)}
 
 
+def watch_window_cmd(bridge):
+    cmd_file = os.path.join(DATA, "window_cmd.json")
+    last_t = time.time()
+    while not state["quitting"]:
+        try:
+            if os.path.isfile(cmd_file):
+                with open(cmd_file, "r") as f:
+                    data = json.load(f)
+                t = data.get("t", 0)
+                if t > last_t:
+                    last_t = t
+                    mode = data.get("mode")
+                    if mode == "mini":
+                        bridge.show_mini()
+                    elif mode == "full":
+                        bridge.show_full()
+        except Exception:
+            pass
+        time.sleep(0.3)
+
+
 def main():
     start_engine()
     threading.Thread(target=watch_engine, daemon=True).start()
@@ -197,13 +265,10 @@ def main():
     hook_sleep_wake()
     set_dock_icon()
     bridge = WindowBridge()
-    window = webview.create_window("AI Group Whisper", BASE + "/", width=1180, height=780, min_size=(160, 42), js_api=bridge)
-    bridge.window = window
+    window = webview.create_window("AI Group Whisper", BASE + "/", width=1180, height=780, min_size=(100, 28), js_api=bridge)
+    bridge._window = window
     state["window"] = window
-    try:
-        window.expose(bridge.show_mini, bridge.show_full, bridge.get_live_status)
-    except Exception:
-        pass
+    threading.Thread(target=watch_window_cmd, args=(bridge,), daemon=True).start()
     webview.start()
     state["quitting"] = True
     try:

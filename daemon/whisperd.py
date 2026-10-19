@@ -1313,6 +1313,33 @@ class Daemon:
                       "accounts": n_acc, "connected": len(ready), "suspended": self.suspended,
                       "paused_reason": self.paused_reason, "queue": counts})
 
+        @r.post("/window/mode")
+        async def set_window_mode(req):
+            try:
+                b = await req.json()
+            except Exception:
+                b = {}
+            mode = b.get("mode") or "full"
+            cmd_file = os.path.join(self.data_dir, "window_cmd.json")
+            try:
+                with open(cmd_file, "w") as f:
+                    json.dump({"mode": mode, "t": time.time()}, f)
+            except Exception as e:
+                return J({"ok": False, "error": str(e)}, status=500)
+            return J({"ok": True, "mode": mode})
+
+        @r.get("/window/mode")
+        async def get_window_mode(_):
+            cmd_file = os.path.join(self.data_dir, "window_cmd.json")
+            mode = "full"
+            if os.path.isfile(cmd_file):
+                try:
+                    with open(cmd_file, "r") as f:
+                        mode = json.load(f).get("mode", "full")
+                except Exception:
+                    pass
+            return J({"mode": mode})
+
         SECRET_KEYS = ("fal_key", "vmos_sk", "tv_key")
         PLAIN_KEYS = ("ai_model", "vmos_ak", "vmos_pad", "tv_user", "tv_max_price", "cfx_headless", "cfx_app_title", "cfx_proxy_id")
 
