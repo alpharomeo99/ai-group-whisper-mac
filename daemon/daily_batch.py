@@ -81,12 +81,28 @@ class DailyBatchEngine:
                     candidates.append(r)
                     seen.add(key)
 
+        # 4. Broad Fallback for Watched Groups: Ensure all active accounts with personas participate
+        g_watch = self.store.rows("SELECT watched FROM groups WHERE chat_id=?", (chat_id,))
+        is_watched = bool(g_watch and g_watch[0].get("watched"))
+        if is_watched or len(candidates) < 2:
+            all_active = self.store.rows(
+                "SELECT p.id as persona_id, p.name as persona_name, p.details, p.prompt, a.id as account_id, a.name as account_name, a.phone as account_phone, a.username as account_username "
+                "FROM accounts a "
+                "JOIN personas p ON p.id=a.persona_id "
+                "WHERE a.active=1"
+            )
+            for r in all_active:
+                key = (r["persona_id"], r["account_id"])
+                if key not in seen:
+                    candidates.append(r)
+                    seen.add(key)
+
         return candidates
 
     async def generate_all_groups(self, count=None):
         """Generates today's batch schedule for all eligible groups in one shot."""
         if count is None:
-            count = int(self.store.get("batch_messages_count", 6))
+            count = int(self.store.get("batch_messages_count", 14))
         today = self.today_str()
         groups = self.store.rows("SELECT * FROM groups WHERE watched=1")
         all_cids = [g["chat_id"] for g in groups]
@@ -104,7 +120,7 @@ class DailyBatchEngine:
                     log.warning("Failed to generate batch for group %s: %s", cid, e)
         return results
 
-    async def generate_batch_for_group(self, chat_id, count=6, topic_override=None):
+    async def generate_batch_for_group(self, chat_id, count=14, topic_override=None):
         """Generates today's batch schedule for a watched group."""
         chat_id = int(chat_id)
         g_rows = self.store.rows("SELECT * FROM groups WHERE chat_id=?", (chat_id,))
@@ -221,7 +237,11 @@ class DailyBatchEngine:
             "   - Skip apostrophes on common contractions ('dont', 'cant', 'wont', 'im', 'youre', 'thats', 'its').\n"
             "   - Use lowercase starts, missing periods at the end of short messages, and casual abbreviations ('rn', 'tbh', 'idk', 'ngl', 'prob', 'def', 'bcuz', 'kinda').\n"
             "   - Occasional natural phone typos when typing fast ('teh', 'yea', 'definately'). No one texts like an academic textbook!\n\n"
-            "6. DISTINCT PERSONALITIES & VIBES (NO CLONES):\n"
+            "6. DISTINCT PERSONALITIES & MANDATORY EQUAL ROTATION (NO MONOPOLIES):\n"
+            "   - EVERY SINGLE persona listed under AVAILABLE PERSONAS MUST speak in this dialogue thread!\n"
+            "   - Distribute speaking turns evenly across ALL candidates. Do NOT let one persona dominate the chat.\n"
+            "   - Quieter or supporting personas must ask questions, banter, drop short reactions (1-4 words), or follow up.\n"
+            "   - Ban single-persona monopolization: no single persona may take more than 35% of the total dialogue steps.\n"
             "   - Give each participant their own unique tone, opinions, and attitude. Do not make everyone agree or sound like clones.\n"
             "   - Stop constantly agreeing or validating. Ban 'Makes sense', 'For sure', 'Definitely', 'Agreed', 'Spot on', 'Good point', '100% facts'. Real people banter, tease, share hot takes, ask questions, or react directly.\n\n"
             "7. TOPIC SPECTRUM (FITNESS, NOOTROPICS, WELLNESS, HELPING OUT & BANTER):\n"
@@ -338,15 +358,30 @@ class DailyBatchEngine:
                 offsets_min.append(curr_min)
                 item_idx += 1
 
+        cand_usage = { (c["persona_id"], c["account_id"]): 0 for c in candidates }
+
         for idx, item in enumerate(items):
             pid = item.get("persona_id")
             aid = item.get("account_id")
-            cand_match = [c for c in candidates if c["persona_id"] == pid and c["account_id"] == aid]
-            if not cand_match:
-                log.warning("Batch item %d has invalid or unassigned candidate (persona %s, account %s); skipping", idx, pid, aid)
-                continue
+            sname = (item.get("sender_name") or "").lower()
 
-            sender_name = cand_match[0]["persona_name"]
+            cand_match = [c for c in candidates if c["persona_id"] == pid and c["account_id"] == aid]
+            if not cand_match and pid:
+                cand_match = [c for c in candidates if c["persona_id"] == pid]
+            if not cand_match and aid:
+                cand_match = [c for c in candidates if c["account_id"] == aid]
+            if not cand_match and sname:
+                cand_match = [c for c in candidates if sname in (c.get("persona_name") or "").lower() or sname in (c.get("account_name") or "").lower()]
+            if not cand_match:
+                least_used = sorted(candidates, key=lambda c: cand_usage.get((c["persona_id"], c["account_id"]), 0))[0]
+                cand_match = [least_used]
+
+            chosen_cand = cand_match[0]
+            pid = chosen_cand["persona_id"]
+            aid = chosen_cand["account_id"]
+            sender_name = chosen_cand["persona_name"]
+            cand_usage[(pid, aid)] = cand_usage.get((pid, aid), 0) + 1
+
             text = (item.get("text") or "").strip()
             if not text:
                 continue

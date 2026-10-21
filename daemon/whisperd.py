@@ -322,7 +322,17 @@ class Daemon:
                 raise ConnectionError(f"Account {account_id} has missing API credentials")
 
             client = self._new_client(a["session"], api, a.get("proxy_id"))
-            await asyncio.wait_for(client.connect(), timeout=10)
+            connected = False
+            for c_attempt in range(2):
+                try:
+                    await asyncio.wait_for(client.connect(), timeout=25.0)
+                    connected = True
+                    break
+                except Exception as ce:
+                    if c_attempt == 0:
+                        await asyncio.sleep(1.5)
+                        continue
+                    raise ConnectionError(f"Account {account_id} connection timed out/failed: {ce}") from ce
             if not await client.is_user_authorized():
                 try:
                     await client.disconnect()
@@ -759,12 +769,14 @@ class Daemon:
                     )
                     log.info("Enqueued human reply in %s (Acc %s / Persona %s, delay=%ds): %s", chat_id, aid, pid, int(delay), reason)
 
-                    # Dynamic Teammate Chime-In: occasionally (15% chance, if 2+ candidates) allow a second persona to chime in later
-                    if len(candidates) >= 2 and random.random() < 0.15 and not is_direct:
+                    # Dynamic Teammate Chime-In: actively allow a second persona to chime in (55% chance) with priority to under-represented personas
+                    if len(candidates) >= 2 and random.random() < 0.55 and not is_direct:
                         teammates = [c for c in candidates if c["persona_id"] != pid and c["account_id"] != aid]
                         if teammates:
-                            t_c = random.choice(teammates)
-                            second_delay = int(delay) + random.randint(90, 240)
+                            counts = self.orchestrator.persona_speaker_counts.get(chat_id, {})
+                            teammates.sort(key=lambda t: counts.get(t["persona_id"], 0))
+                            t_c = teammates[0]
+                            second_delay = int(delay) + random.randint(35, 120)
                             self.store.enqueue(
                                 "draft_reply", chat_id,
                                 {
@@ -895,9 +907,14 @@ class Daemon:
         try:
             acc_rows = self.store.rows("SELECT account_id FROM group_accounts WHERE chat_id=?", (chat_id,))
             acc_ids = {r["account_id"] for r in acc_rows if r.get("account_id")}
-            g = self.store.rows("SELECT account_id FROM groups WHERE chat_id=?", (chat_id,))
+            g = self.store.rows("SELECT account_id, watched FROM groups WHERE chat_id=?", (chat_id,))
             if g and g[0].get("account_id"):
                 acc_ids.add(g[0]["account_id"])
+            if g and g[0].get("watched"):
+                all_active = self.store.rows("SELECT id FROM accounts WHERE active=1 AND persona_id IS NOT NULL")
+                for ar in all_active:
+                    acc_ids.add(ar["id"])
+                    self.store.q("INSERT OR IGNORE INTO group_accounts(chat_id, account_id) VALUES(?,?)", (chat_id, ar["id"]))
 
             for aid in acc_ids:
                 if not aid:
@@ -1005,12 +1022,17 @@ class Daemon:
         except (errors.rpcerrorlist.ReplyToMsgIdInvalidError, errors.rpcerrorlist.MsgIdInvalidError):
             log.warning("Reply target invalid/deleted in %s; sending without quote", chat_id)
             return await cl.send_message(chat_id, text, reply_to=None)
-        except (ValueError, errors.rpcerrorlist.PeerIdInvalidError, errors.rpcerrorlist.ChannelInvalidError):
+        except (ValueError, errors.rpcerrorlist.PeerIdInvalidError, errors.rpcerrorlist.ChannelInvalidError) as peer_err:
             try:
-                await cl.get_dialogs(limit=50)
+                entity = await cl.get_entity(chat_id)
+                return await cl.send_message(entity, text, reply_to=reply_to)
             except Exception:
-                pass
-            return await cl.send_message(chat_id, text, reply_to=None)
+                try:
+                    await cl.get_dialogs(limit=100)
+                    return await cl.send_message(chat_id, text, reply_to=None)
+                except Exception as final_err:
+                    log.error("Could not resolve peer %s for account %s: %s", chat_id, aid, final_err)
+                    raise peer_err
         except (errors.rpcerrorlist.ChatWriteForbiddenError, errors.rpcerrorlist.UserBannedInChannelError, errors.rpcerrorlist.ChannelPrivateError) as perm_err:
             alt_accs = self.store.rows(
                 "SELECT a.id FROM group_accounts ga JOIN accounts a ON a.id=ga.account_id WHERE ga.chat_id=? AND a.active=1 AND a.id != ? LIMIT 1",
@@ -2309,18 +2331,16 @@ class Daemon:
 
             part_a = None
             part_b = None
-            if leila_candidates and dorian_candidates:
-                part_a = leila_candidates[0]
-                part_b = dorian_candidates[0]
+            grp_acc_ids = [r["account_id"] for r in self.store.rows("SELECT account_id FROM group_accounts WHERE chat_id=?", (chat_id,))]
+            grp_accs = [a for a in all_accs if a["id"] in grp_acc_ids]
+            eligible = grp_accs if len(grp_accs) >= 2 else all_accs
+            if len(eligible) >= 2:
+                # Rotate dynamically instead of hardcoding any persona
+                shuffled = list(eligible)
+                random.shuffle(shuffled)
+                part_a, part_b = shuffled[0], shuffled[1]
             else:
-                grp_acc_ids = [r["account_id"] for r in self.store.rows("SELECT account_id FROM group_accounts WHERE chat_id=?", (chat_id,))]
-                grp_accs = [a for a in all_accs if a["id"] in grp_acc_ids]
-                if len(grp_accs) >= 2:
-                    part_a, part_b = grp_accs[0], grp_accs[1]
-                elif len(all_accs) >= 2:
-                    part_a, part_b = all_accs[0], all_accs[1]
-                else:
-                    return J({"error": "Need at least 2 accounts to have a conversational test chat."}, status=400)
+                return J({"error": "Need at least 2 accounts to have a conversational test chat."}, status=400)
 
             # Ensure both participants have a persona
             for p_acc in (part_a, part_b):

@@ -21,21 +21,23 @@ class PersonaCadenceOrchestrator:
         self.activity_log = {}
         # Multi-persona group lock / suppression: { chat_id: (last_speaker_persona_id, timestamp) }
         self.last_group_speakers = {}
+        # Per-group speaker counts to enforce equal participation: { chat_id: { persona_id: count } }
+        self.persona_speaker_counts = {}
 
     def get_config(self):
         """Load orchestration parameters from settings or defaults."""
         cfg = self.store.get("orchestrator_config") or {}
         return {
             "enabled": cfg.get("enabled", True),
-            "base_threshold": float(cfg.get("base_threshold", 0.18)),
+            "base_threshold": float(cfg.get("base_threshold", 0.10)),
             "circadian_enabled": cfg.get("circadian_enabled", True),
             "circadian_peak_hour": int(cfg.get("circadian_peak_hour", 15)),  # 3 PM peak
-            "circadian_sigma": float(cfg.get("circadian_sigma", 5.5)),
+            "circadian_sigma": float(cfg.get("circadian_sigma", 6.5)),
             "poisson_lambda": float(cfg.get("poisson_lambda", 0.08)),       # mean ~12.5s deliberation
             "reading_cps": float(cfg.get("reading_cps", 32.0)),             # ~320 wpm reading speed
-            "fatigue_decay_tau": float(cfg.get("fatigue_decay_tau", 240.0)),# 4 min fatigue half-life
+            "fatigue_decay_tau": float(cfg.get("fatigue_decay_tau", 150.0)),# 4 min fatigue half-life
             "fatigue_increment": float(cfg.get("fatigue_increment", 0.45)),
-            "anti_dogpile_window": float(cfg.get("anti_dogpile_window", 15.0)), # sec between bot teammates
+            "anti_dogpile_window": float(cfg.get("anti_dogpile_window", 6.0)), # sec between bot teammates
             "allow_spontaneous": cfg.get("allow_spontaneous", True),        # can speak without explicit @mention
         }
 
@@ -56,7 +58,7 @@ class PersonaCadenceOrchestrator:
         # Gaussian density
         curve = math.exp(-0.5 * ((diff / sigma) ** 2))
         # Clamp to minimum baseline activity 0.08 (some humans check phone at night)
-        return max(0.45, curve)
+        return max(0.70, curve)
 
     # ---------------- 2. Non-homogeneous Poisson Process & Delays ----------------
     def calculate_deliberation_delay(self, text, reading_cps=32.0, poisson_lambda=0.08):
@@ -96,9 +98,14 @@ class PersonaCadenceOrchestrator:
 
     def record_activity(self, chat_id, persona_id):
         now = time.time()
-        key = (int(chat_id), int(persona_id))
+        cid = int(chat_id)
+        pid = int(persona_id)
+        key = (cid, pid)
         self.activity_log.setdefault(key, []).append(now)
-        self.last_group_speakers[int(chat_id)] = (int(persona_id), now)
+        self.last_group_speakers[cid] = (pid, now)
+        if cid not in self.persona_speaker_counts:
+            self.persona_speaker_counts[cid] = {}
+        self.persona_speaker_counts[cid][pid] = self.persona_speaker_counts[cid].get(pid, 0) + 1
 
     # ---------------- 4. Topic Salience & Relevance Scoring ----------------
     def compute_relevance_score(self, message_text, persona, group_profile=None):
@@ -226,14 +233,23 @@ class PersonaCadenceOrchestrator:
             fatigue = self.compute_fatigue(chat_id, pid, tau=cfg["fatigue_decay_tau"])
             fatigue_penalty = fatigue * cfg["fatigue_increment"]
 
-            # 4. Freshness / Novelty Boost:
-            # If an account/persona hasn't spoken yet (e.g. newly added user or quiet member),
-            # give it a strong priority bonus so it is elected next!
+            # 4. Equal Participation / Anti-Monopoly Balancer:
+            counts = self.persona_speaker_counts.get(chat_id, {})
+            total_speeches = sum(counts.values()) or 1
+            speech_share = counts.get(pid, 0) / total_speeches
+
+            if speech_share > 0.40 and len(candidate_personas) >= 2:
+                balance_mod = -0.35  # Suppress over-represented persona
+            elif counts.get(pid, 0) == 0 or speech_share < 0.20:
+                balance_mod = 0.45   # Strong boost for quiet / under-represented personas
+            else:
+                balance_mod = 0.10
+
+            # 5. Freshness / Novelty Boost
             freshness_boost = 0.30 if fatigue < 0.05 else (0.15 if fatigue < 0.20 else 0.0)
 
-            # 5. Total probability utility score
-            # Score = (Relevance + Salience) * Circadian - Fatigue + Freshness
-            utility = ((rel_score + salience_boost) * circadian_mod) - fatigue_penalty + freshness_boost
+            # 6. Total probability utility score
+            utility = ((rel_score + salience_boost) * circadian_mod) - fatigue_penalty + freshness_boost + balance_mod
 
             # Add stochastic perturbation to break ties
             perturbed_utility = utility + random.uniform(-0.03, 0.03)
