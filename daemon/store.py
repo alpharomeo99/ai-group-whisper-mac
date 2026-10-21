@@ -11,6 +11,8 @@ log = logging.getLogger('whisper.store')
 
 SCHEMA = """
 PRAGMA journal_mode=WAL;
+PRAGMA busy_timeout=5000;
+PRAGMA synchronous=NORMAL;
 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);
 CREATE TABLE IF NOT EXISTS groups (
   chat_id INTEGER PRIMARY KEY, title TEXT, watched INTEGER DEFAULT 0,
@@ -169,9 +171,14 @@ def detect_gender_from_name(name):
 
 class Store:
     def __init__(self, path):
-        self.db = sqlite3.connect(path, check_same_thread=False)
+        self.db = sqlite3.connect(path, check_same_thread=False, timeout=30.0)
         self.db.row_factory = sqlite3.Row
-        self.lock = threading.Lock()
+        self.lock = threading.RLock()
+        self.db.execute("PRAGMA journal_mode=WAL;")
+        self.db.execute("PRAGMA busy_timeout=5000;")
+        self.db.execute("PRAGMA synchronous=NORMAL;")
+        self.db.execute("PRAGMA cache_size=-64000;")
+        self.db.execute("PRAGMA temp_store=MEMORY;")
         self.db.executescript(SCHEMA)
         for ddl in (
             "ALTER TABLE groups ADD COLUMN account_id INTEGER",
@@ -617,16 +624,32 @@ class Store:
 
     def q(self, sql, args=()):
         with self.lock:
-            cur = self.db.execute(sql, args)
-            s = sql.strip().upper()
-            if not (s.startswith("SELECT") or s.startswith("PRAGMA") or s.startswith("EXPLAIN")):
-                self.db.commit()
-            return cur
+            for attempt in range(6):
+                try:
+                    cur = self.db.execute(sql, args)
+                    s = sql.strip().upper()
+                    if not (s.startswith("SELECT") or s.startswith("PRAGMA") or s.startswith("EXPLAIN")):
+                        self.db.commit()
+                    return cur
+                except sqlite3.OperationalError as e:
+                    err_msg = str(e).lower()
+                    if ("locked" in err_msg or "busy" in err_msg) and attempt < 5:
+                        time.sleep(0.05 * (2 ** attempt) + random.uniform(0.01, 0.05))
+                        continue
+                    raise
 
     def rows(self, sql, args=()):
         with self.lock:
-            cur = self.db.execute(sql, args)
-            return [dict(r) for r in cur.fetchall()]
+            for attempt in range(6):
+                try:
+                    cur = self.db.execute(sql, args)
+                    return [dict(r) for r in cur.fetchall()]
+                except sqlite3.OperationalError as e:
+                    err_msg = str(e).lower()
+                    if ("locked" in err_msg or "busy" in err_msg) and attempt < 5:
+                        time.sleep(0.05 * (2 ** attempt) + random.uniform(0.01, 0.05))
+                        continue
+                    raise
 
     # settings
     def get(self, key, default=None):
@@ -655,6 +678,24 @@ class Store:
             ORDER BY ts DESC LIMIT 1
         """, (chat_id,)).fetchone()
         return r[0] if r else None
+
+    def get_recent_human_message_stats(self, chat_id, window_secs=900):
+        """Returns (count, last_ts, avg_gap_secs) of recent human messages within window_secs."""
+        now = int(time.time())
+        cutoff = now - window_secs
+        rows = self.q("""
+            SELECT ts FROM messages
+            WHERE chat_id=? AND is_bot=0 AND ts >= ?
+              AND (sender_id IS NULL OR sender_id NOT IN (SELECT user_id FROM accounts WHERE user_id IS NOT NULL))
+            ORDER BY ts ASC
+        """, (chat_id, cutoff)).fetchall()
+        if not rows:
+            return 0, None, None
+        timestamps = [r[0] for r in rows]
+        count = len(timestamps)
+        last_ts = timestamps[-1]
+        avg_gap = (timestamps[-1] - timestamps[0]) / (count - 1) if count > 1 else None
+        return count, last_ts, avg_gap
 
     def mark_batch_item_sent(self, item_id, sent_ts, telegram_msg_id=None):
         if telegram_msg_id:
@@ -753,15 +794,23 @@ class Store:
     def claim(self, limit=3):
         now = int(time.time())
         with self.lock:
-            rows = self.db.execute(
-                "SELECT * FROM queue WHERE status='pending' AND not_before<=? ORDER BY id LIMIT ?",
-                (now, limit)).fetchall()
-            ids = [r["id"] for r in rows]
-            if ids:
-                self.db.execute(f"UPDATE queue SET status='in_flight', updated=? WHERE id IN ({','.join('?'*len(ids))})",
-                                (now, *ids))
-                self.db.commit()
-            return [dict(r) for r in rows]
+            for attempt in range(6):
+                try:
+                    rows = self.db.execute(
+                        "SELECT * FROM queue WHERE status='pending' AND not_before<=? ORDER BY id LIMIT ?",
+                        (now, limit)).fetchall()
+                    ids = [r["id"] for r in rows]
+                    if ids:
+                        self.db.execute(f"UPDATE queue SET status='in_flight', updated=? WHERE id IN ({','.join('?'*len(ids))})",
+                                        (now, *ids))
+                        self.db.commit()
+                    return [dict(r) for r in rows]
+                except sqlite3.OperationalError as e:
+                    err_msg = str(e).lower()
+                    if ("locked" in err_msg or "busy" in err_msg) and attempt < 5:
+                        time.sleep(0.05 * (2 ** attempt) + random.uniform(0.01, 0.05))
+                        continue
+                    raise
 
     def finish(self, qid, ok, error=None, retry_in=None):
         now = int(time.time())

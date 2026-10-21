@@ -1190,15 +1190,56 @@ class Daemon:
                         self.orchestrator.record_activity(job["chat_id"], eff_pid)
 
             elif job["kind"] == "batch_scheduled_send":
-                last_human_ts = self.store.get_last_human_message_ts(job["chat_id"])
                 now_ts = int(time.time())
-                pause_secs = int(self.store.get("batch_human_pause_seconds", 300))
-                if last_human_ts and (now_ts - last_human_ts) < pause_secs:
-                    defer_secs = (pause_secs - (now_ts - last_human_ts)) + random.randint(30, 90)
+                configured_pause = int(self.store.get("batch_human_pause_seconds", 300))
+
+                # Fetch recent human activity (last 15m) to evaluate chat velocity
+                human_count, last_human_ts, avg_gap = self.store.get_recent_human_message_stats(job["chat_id"], window_secs=900)
+                if not last_human_ts:
+                    last_human_ts = self.store.get_last_human_message_ts(job["chat_id"])
+
+                # Anti-starvation tracking across retries
+                postpone_count = int(p.get("_postpone_count") or 0)
+                first_attempt_ts = int(p.get("_first_attempt_ts") or now_ts)
+                starvation_age = max(0, now_ts - first_attempt_ts)
+
+                # Active group detection: humans chat every few minutes, so 300s of dead silence never happens.
+                # In active groups, humans organically slip in during conversational breaks (25-45s).
+                is_active_chat = (human_count >= 3)
+                is_starving = (postpone_count >= 3 or starvation_age >= 600)
+
+                if is_starving:
+                    # Hard starvation ceiling: scale pause down to natural slip-in gap so personas never freeze indefinitely
+                    effective_pause = max(25, min(40, configured_pause))
+                elif is_active_chat:
+                    # Dynamic velocity cadence: match natural conversation pauses
+                    effective_pause = max(30, min(configured_pause, 60))
+                else:
+                    # Quiet chat: observe full configured pause
+                    effective_pause = configured_pause
+
+                # Strict safety gap: never barge in if a human typed within 20s
+                min_safety_gap = 20
+                required_wait = max(min_safety_gap, effective_pause)
+
+                if last_human_ts and (now_ts - last_human_ts) < required_wait:
+                    elapsed_since_human = now_ts - last_human_ts
+                    remaining = required_wait - elapsed_since_human
+                    # Fast, jittered retry window (20-60s) so the engine catches the next conversational lull
+                    defer_secs = max(20, min(remaining + random.randint(10, 30), 65))
+
+                    p["_postpone_count"] = postpone_count + 1
+                    p["_first_attempt_ts"] = first_attempt_ts
+                    self.store.q("UPDATE queue SET payload=? WHERE id=?", (json.dumps(p), job["id"]))
+
                     if p.get("batch_item_id"):
                         self.store.q("UPDATE daily_batch_items SET status='postponed', scheduled_ts=? WHERE id=?",
                                      (now_ts + defer_secs, p["batch_item_id"]))
-                    self.store.finish(job["id"], False, "Postponed: human spoke recently in chat", retry_in=defer_secs)
+                    reason = (
+                        f"Postponed: human spoke {elapsed_since_human}s ago "
+                        f"(adaptive pause {required_wait}s, deferral #{postpone_count + 1})"
+                    )
+                    self.store.finish(job["id"], False, reason, retry_in=defer_secs)
                     return
 
                 aid = p.get("account_id") or g.get("account_id")
