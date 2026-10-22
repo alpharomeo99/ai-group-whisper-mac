@@ -172,6 +172,18 @@ class DailyBatchEngine:
                 ("Pure unserious banter, roasting each other, gym memes, gym crush stories, weird gym people.", "banter jokes roast meme"),
                 ("Someone newer asking the group general questions and veterans sharing honest experience and warnings.", "newbie question advice experience"),
                 ("Physique updates: bulk vs cut debates, scale weight, mirror check, bodyfat guesses.", "bulk cut weight physique"),
+                ("Someone venting about a bad day and the group actually supporting them, then joking to lighten it.", "bad day vent support"),
+                ("Random 2am thoughts, shower thoughts, conspiracy-lite debates that go nowhere.", "random thoughts debate"),
+                ("Music, gym playlists, podcasts, Joe Rogan clips, YouTube lifters people follow or hate.", "music podcast youtube"),
+                ("Gaming, phones, tech, AI stuff, someone's PC build or new iPhone.", "gaming tech phone ai"),
+                ("Pets: someone's dog ate their protein bar, cat videos, gym dog.", "dog cat pet"),
+                ("Hometown and culture: weather complaints, local food, holidays, where everyone's from.", "weather holiday hometown food"),
+                ("Health scares and getting older: back pain, hairline, knees cracking, first grey hair.", "aging hair back knees"),
+                ("Life wins: promotion, new car, engagement, first competition, someone hitting a goal weight.", "win promotion engaged goal"),
+                ("Disagreements: two members arguing a take (natty vs enhanced, cardio, carnivore) while others pick sides or make fun.", "debate natty enhanced carnivore"),
+                ("Old stories: worst gym injury, dumbest thing they did when young, first time in a gym.", "story injury young first"),
+                ("Shopping and style: gym clothes, sneakers, overpriced supplements, Amazon finds.", "clothes sneakers shopping"),
+                ("Group check-ins: who's alive, who disappeared, catching someone up on what they missed.", "checkin missed alive"),
             ]
             chosen_theme, chosen_query = random.choice(default_themes)
             topic_prompt = chosen_theme
@@ -247,6 +259,15 @@ class DailyBatchEngine:
             "   - Skip apostrophes on common contractions ('dont', 'cant', 'wont', 'im', 'youre', 'thats', 'its').\n"
             "   - Use lowercase starts, missing periods at the end of short messages, and casual abbreviations ('rn', 'tbh', 'idk', 'ngl', 'prob', 'def', 'bcuz', 'kinda').\n"
             "   - Occasional natural phone typos when typing fast ('teh', 'yea', 'definately'). No one texts like an academic textbook!\n\n"
+            "5B. REAL HUMAN BEHAVIOR (MANDATORY):\n"
+            "   - Each persona has a mood today (tired, hyped, annoyed, bored, in a hurry, chill) that colors how they text. Keep it consistent in this batch.\n"
+            "   - People have lives: they mention being at work, on the toilet, driving, at their kid's thing, just woke up, about to train. They sometimes leave mid-convo ('brb boss walking by').\n"
+            "   - Not every message gets an answer. Some questions are ignored, some get answered late, people misread and get corrected, people say 'wait what' or 'nvm'.\n"
+            "   - People disagree, tease, get mildly salty, change their mind, admit they were wrong, and go off-topic. Avoid everyone being agreeable and helpful.\n"
+            "   - Callbacks and inside jokes: reference things said earlier or in memories ('like your 6am cardio era lol').\n"
+            "   - Vary energy: some members barely talk and drop one-liners, some ramble. Uneven, messy, real. Never sound like customer support or an AI.\n"
+            "   - Sometimes a message is just an emoji, 'lmaooo', a voice-of-text reaction, or a correction like '*their'.\n"
+            "   - Opinions come from personal experience ('when i tried it...') not textbook facts. Uncertainty is normal ('idk tbh', 'could be wrong').\n\n"
             "6. DISTINCT PERSONALITIES & MANDATORY EQUAL ROTATION (NO MONOPOLIES):\n"
             "   - EVERY SINGLE persona listed under AVAILABLE PERSONAS MUST speak in this dialogue thread!\n"
             "   - Distribute speaking turns evenly across ALL candidates. Do NOT let one persona dominate the chat.\n"
