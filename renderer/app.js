@@ -1989,6 +1989,7 @@ async function loadDailyBatchView() {
     if ($('batch-metric-postponed')) $('batch-metric-postponed').textContent = st.postponed || 0;
 
     const retryFailedBtn = $('batch-btn-retry-failed');
+    const clearFailedBtn = $('batch-btn-clear-failed');
     if (retryFailedBtn) {
       if ((st.failed || 0) > 0) {
         retryFailedBtn.style.display = 'inline-block';
@@ -1997,6 +1998,7 @@ async function loadDailyBatchView() {
         retryFailedBtn.style.display = 'none';
       }
     }
+    if (clearFailedBtn) clearFailedBtn.style.display = ((st.failed || 0) > 0) ? 'inline-block' : 'none';
 
     // Render schedule table
     renderBatchScheduleTable(Array.isArray(batch.items) ? batch.items : []);
@@ -2195,6 +2197,20 @@ if ($('batch-btn-send-next')) {
       await loadDailyBatchView();
     } catch (e) {
       if (statusEl) statusEl.textContent = 'Send next failed: ' + e.message;
+    }
+  };
+}
+
+if ($('batch-btn-clear-failed')) {
+  $('batch-btn-clear-failed').onclick = async () => {
+    const groupSel = $('batch-gen-group');
+    const cid = groupSel && groupSel.value ? parseInt(groupSel.value, 10) : null;
+    try {
+      await api('POST', '/daily-batch/clear-failed', { chat_id: cid });
+      await loadDailyBatchView();
+      await loadQueue();
+    } catch (e) {
+      alert('Failed to clear failed messages: ' + e.message);
     }
   };
 }

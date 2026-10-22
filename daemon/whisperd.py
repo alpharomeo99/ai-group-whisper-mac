@@ -55,6 +55,12 @@ class Daemon:
         self.cfx_install = {"running": False, "log": ""}
         self._account_locks = {}
         self._presence_abort_events = {}
+        # Clear stale failed jobs and batch items on boot so queue remains clean and responsive
+        try:
+            self.store.q("DELETE FROM queue WHERE status='failed'")
+            self.store.q("DELETE FROM daily_batch_items WHERE status='failed'")
+        except Exception as e:
+            log.debug("startup failed item purge: %s", e)
 
     async def memory_pruner_loop(self):
         """Autonomous Agent that wakes up every 12 hours to prune expired, useless, and overextended memories."""
@@ -1059,7 +1065,7 @@ class Daemon:
                 if not existing:
                     cands = self.daily_batch.get_group_candidates(cid)
                     if len(cands) >= 1:
-                        count = int(self.store.get("batch_messages_count", 8))
+                        count = int(self.store.get("batch_messages_count", 24))
                         log.info("Auto-Pilot: Auto-generating missing batch for group %s (%d candidates)", cid, len(cands))
                         await self.daily_batch.generate_batch_for_group(cid, count=count)
                         self.wake_event.set()
@@ -1643,14 +1649,14 @@ class Daemon:
                                     (cid,)
                                 )
                                 last_ts = (last_sent[0]["last_ts"] or 0) if last_sent else 0
-                                interval_secs = int(self.store.get("batch_session_interval_seconds", 1800))
+                                interval_secs = int(self.store.get("batch_session_interval_seconds", 900))
                                 if (int(time.time()) - last_ts) >= interval_secs:
                                     should_generate = True
 
                             if should_generate:
                                 cands = self.daily_batch.get_group_candidates(cid)
                                 if len(cands) >= 1:
-                                    count = int(self.store.get("batch_messages_count", 8))
+                                    count = int(self.store.get("batch_messages_count", 24))
                                     log.info("Auto-Pilot: Generating batch for group %s (%d candidates, %d messages)", cid, len(cands), count)
                                     await self.daily_batch.generate_batch_for_group(cid, count=count)
                                     self.wake_event.set()
@@ -2653,7 +2659,7 @@ class Daemon:
         @r.post("/queue/clear-failed")
         async def queue_clear_failed(_):
             res = self.store.q("DELETE FROM queue WHERE status='failed'")
-            self.store.q("UPDATE daily_batch_items SET status='cancelled' WHERE status='failed'")
+            self.store.q("DELETE FROM daily_batch_items WHERE status='failed'")
             return J({"ok": True, "cleared": res.rowcount})
 
         @r.post("/daily-batch/generate")
@@ -2665,7 +2671,7 @@ class Daemon:
                 if not watched:
                     return J({"error": "No watched group available to generate batch for"}, status=400)
                 chat_id = watched[0]["chat_id"]
-            count = int(b.get("count", 6))
+            count = int(b.get("count", self.store.get("batch_messages_count", 24)))
             topic = b.get("topic")
             try:
                 res = await self.daily_batch.generate_batch_for_group(chat_id, count=count, topic_override=topic)
@@ -2682,6 +2688,16 @@ class Daemon:
             except Exception:
                 pass
             cleared = self.daily_batch.clear_today(b.get("chat_id"))
+            return J({"ok": True, "cleared": cleared})
+
+        @r.post("/daily-batch/clear-failed")
+        async def daily_batch_clear_failed(req):
+            b = {}
+            try:
+                b = await req.json()
+            except Exception:
+                pass
+            cleared = self.daily_batch.clear_failed(b.get("chat_id"))
             return J({"ok": True, "cleared": cleared})
 
         @r.post("/daily-batch/send-next")

@@ -102,7 +102,7 @@ class DailyBatchEngine:
     async def generate_all_groups(self, count=None):
         """Generates today's batch schedule for all eligible groups in one shot."""
         if count is None:
-            count = int(self.store.get("batch_messages_count", 14))
+            count = int(self.store.get("batch_messages_count", 24))
         today = self.today_str()
         groups = self.store.rows("SELECT * FROM groups WHERE watched=1")
         all_cids = [g["chat_id"] for g in groups]
@@ -120,7 +120,7 @@ class DailyBatchEngine:
                     log.warning("Failed to generate batch for group %s: %s", cid, e)
         return results
 
-    async def generate_batch_for_group(self, chat_id, count=14, topic_override=None):
+    async def generate_batch_for_group(self, chat_id, count=24, topic_override=None):
         """Generates today's batch schedule for a watched group."""
         chat_id = int(chat_id)
         g_rows = self.store.rows("SELECT * FROM groups WHERE chat_id=?", (chat_id,))
@@ -324,6 +324,13 @@ class DailyBatchEngine:
         except Exception as e:
             log.warning("Error formatting batch items: %s", e)
 
+        # 4. Auto-clear past failed and cancelled items for this chat to keep queue fresh
+        try:
+            self.store.q("DELETE FROM daily_batch_items WHERE chat_id=? AND status IN ('failed', 'cancelled')", (chat_id,))
+            self.store.q("DELETE FROM queue WHERE chat_id=? AND kind='batch_scheduled_send' AND status IN ('failed', 'cancelled')", (chat_id,))
+        except Exception as e:
+            log.debug("Auto-cleanup failed items: %s", e)
+
         # 4. Schedule the items throughout today
         today = self.today_str()
         cur_batch = self.store.rows("SELECT id FROM daily_batches WHERE chat_id=? AND date_str=?", (chat_id, today))
@@ -336,25 +343,32 @@ class DailyBatchEngine:
             )
             batch_id = cur.lastrowid
 
-        # Calculate organic clustered conversational arcs (bursts of 2-3 messages, then quiet intervals)
+        # Calculate organic clustered conversational arcs with high activity and varied rhythm
         now_ts = int(time.time())
         created_items = []
 
-        # Determine cluster timing
+        # Determine cluster timing: non-patterned, dynamic clusters (1 to 5 messages) and active lulls
         offsets_min = []
-        curr_min = 2.0  # Thread 1 starts 2 minutes from now
+        curr_min = random.uniform(0.5, 2.0)  # Starts promptly
         item_idx = 0
         total_items = len(items)
 
         while item_idx < total_items:
-            cluster_size = min(random.choice([2, 3]), total_items - item_idx)
+            # Diverse cluster sizes: 1 (solo drop-in/reaction), 2-3 (dialogue), 4-5 (multi-persona active chatter)
+            # Weights favor 2-3 but frequently include solo reactions and lively 4-5 message exchanges
+            cluster_weights = [0.20, 0.35, 0.25, 0.14, 0.06]
+            cluster_size = min(random.choices([1, 2, 3, 4, 5], weights=cluster_weights)[0], total_items - item_idx)
             for c in range(cluster_size):
                 if c == 0 and item_idx > 0:
-                    # Natural gap between conversational topics: 35 to 75 minutes
-                    curr_min += random.randint(35, 75)
+                    # Dynamic active gap between conversational threads: 4 to 18 minutes (occasional 8-22m lull)
+                    curr_min += random.choice([
+                        random.uniform(3.5, 8.5),
+                        random.uniform(6.0, 14.0),
+                        random.uniform(10.0, 20.0)
+                    ])
                 elif c > 0:
-                    # Natural conversational response interval: 1.5 to 3.5 minutes
-                    curr_min += random.uniform(1.5, 3.5)
+                    # Rapid mobile texting reply interval: 18 to 85 seconds (0.3 to 1.4 minutes)
+                    curr_min += random.uniform(0.3, 1.4)
                 offsets_min.append(curr_min)
                 item_idx += 1
 
@@ -386,9 +400,9 @@ class DailyBatchEngine:
             if not text:
                 continue
 
-            scheduled_min = offsets_min[idx] if idx < len(offsets_min) else (curr_min + (idx * 5))
-            jitter_sec = random.randint(-15, 25)
-            scheduled_ts = now_ts + int(scheduled_min * 60) + jitter_sec
+            scheduled_min = offsets_min[idx] if idx < len(offsets_min) else (curr_min + (idx * 2))
+            jitter_sec = random.randint(-18, 25)
+            scheduled_ts = max(now_ts + 5, now_ts + int(scheduled_min * 60) + jitter_sec)
 
             # Determine parent_item_id for native Telegram reply quotes:
             rep_step = item.get("reply_to_step")
@@ -480,7 +494,7 @@ class DailyBatchEngine:
                 scout_info = acc[0]
 
         auto_pilot = bool(self.store.get("daily_batch_auto_pilot", True))
-        batch_count = int(self.store.get("batch_messages_count", 6))
+        batch_count = int(self.store.get("batch_messages_count", 24))
         human_pause = int(self.store.get("batch_human_pause_seconds", 600)) // 60
         last_human = self.store.get("last_human_event")
 
@@ -507,22 +521,38 @@ class DailyBatchEngine:
         }
 
     def clear_today(self, chat_id=None):
-        """Cancels all pending, postponed, and failed scheduled batch messages for today."""
+        """Cancels and purges all pending, postponed, and failed scheduled batch messages for today."""
         today = self.today_str()
         if chat_id:
             items = self.store.rows(
                 "SELECT id FROM daily_batch_items WHERE chat_id=? AND status IN ('pending', 'postponed', 'failed')", (int(chat_id),)
             )
             for it in items:
-                self.store.q("UPDATE daily_batch_items SET status='cancelled' WHERE id=?", (it["id"],))
-                self.store.q("UPDATE queue SET status='cancelled' WHERE dedupe_key=?", (f"batch_send:{it['id']}",))
-            self.store.q("UPDATE queue SET status='cancelled' WHERE kind='batch_scheduled_send' AND chat_id=? AND status IN ('pending', 'postponed', 'failed')", (int(chat_id),))
+                self.store.q("DELETE FROM daily_batch_items WHERE id=?", (it["id"],))
+                self.store.q("DELETE FROM queue WHERE dedupe_key=?", (f"batch_send:{it['id']}",))
+            self.store.q("DELETE FROM queue WHERE kind='batch_scheduled_send' AND chat_id=? AND status IN ('pending', 'postponed', 'failed')", (int(chat_id),))
         else:
             items = self.store.rows("SELECT id FROM daily_batch_items WHERE status IN ('pending', 'postponed', 'failed')")
             for it in items:
-                self.store.q("UPDATE daily_batch_items SET status='cancelled' WHERE id=?", (it["id"],))
-                self.store.q("UPDATE queue SET status='cancelled' WHERE dedupe_key=?", (f"batch_send:{it['id']}",))
-            self.store.q("UPDATE queue SET status='cancelled' WHERE kind='batch_scheduled_send' AND status IN ('pending', 'postponed', 'failed')")
+                self.store.q("DELETE FROM daily_batch_items WHERE id=?", (it["id"],))
+                self.store.q("DELETE FROM queue WHERE dedupe_key=?", (f"batch_send:{it['id']}",))
+            self.store.q("DELETE FROM queue WHERE kind='batch_scheduled_send' AND status IN ('pending', 'postponed', 'failed')")
+        return len(items)
+
+    def clear_failed(self, chat_id=None):
+        """Specifically removes and purges all failed batch items and failed queue entries."""
+        if chat_id:
+            items = self.store.rows("SELECT id FROM daily_batch_items WHERE chat_id=? AND status='failed'", (int(chat_id),))
+            for it in items:
+                self.store.q("DELETE FROM daily_batch_items WHERE id=?", (it["id"],))
+                self.store.q("DELETE FROM queue WHERE dedupe_key=?", (f"batch_send:{it['id']}",))
+            self.store.q("DELETE FROM queue WHERE kind='batch_scheduled_send' AND chat_id=? AND status='failed'", (int(chat_id),))
+        else:
+            items = self.store.rows("SELECT id FROM daily_batch_items WHERE status='failed'")
+            for it in items:
+                self.store.q("DELETE FROM daily_batch_items WHERE id=?", (it["id"],))
+                self.store.q("DELETE FROM queue WHERE dedupe_key=?", (f"batch_send:{it['id']}",))
+            self.store.q("DELETE FROM queue WHERE status='failed'")
         return len(items)
 
     def trigger_next_now(self):
