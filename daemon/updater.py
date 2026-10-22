@@ -1,6 +1,7 @@
 """In-app updates: check GitHub releases, download the new version, swap files, restart."""
 import asyncio
 import io
+import json
 import os
 import plistlib
 import shutil
@@ -36,21 +37,80 @@ def vtuple(v):
     return tuple(out + [0] * (3 - len(out)))
 
 
+def fetch_latest_release_sync():
+    """Resilient release checker trying GitHub API, web release redirect, and raw VERSION."""
+    headers = {
+        "User-Agent": "AIGroupWhisper-Mac/2.x (macOS; in-app-updater)",
+        "Accept": "application/vnd.github+json",
+    }
+
+    # 1. Try GitHub REST API with urllib (uses macOS system DNS resolver)
+    api_url = f"https://api.github.com/repos/{REPO}/releases/latest"
+    for attempt in range(2):
+        try:
+            req = urllib.request.Request(api_url, headers=headers)
+            with urllib.request.urlopen(req, timeout=12) as resp:
+                if resp.status == 200:
+                    data = json.loads(resp.read().decode("utf-8"))
+                    if data.get("tag_name"):
+                        return data
+        except Exception:
+            time.sleep(0.5)
+
+    # 2. Try web release page redirect: github.com/owner/repo/releases/latest -> /releases/tag/vX.X.X
+    web_url = f"https://github.com/{REPO}/releases/latest"
+    try:
+        req = urllib.request.Request(web_url, headers={"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"})
+        with urllib.request.urlopen(req, timeout=12) as resp:
+            final_url = resp.geturl()
+            if "/releases/tag/" in final_url:
+                tag = final_url.split("/releases/tag/")[-1].strip("/")
+                if tag:
+                    return {
+                        "tag_name": tag,
+                        "html_url": final_url,
+                        "name": f"AI Group Whisper {tag}",
+                    }
+    except Exception:
+        pass
+
+    # 3. Try raw.githubusercontent.com VERSION fallback
+    raw_url = f"https://raw.githubusercontent.com/{REPO}/main/VERSION"
+    try:
+        req = urllib.request.Request(raw_url, headers=headers)
+        with urllib.request.urlopen(req, timeout=12) as resp:
+            if resp.status == 200:
+                ver = resp.read().decode("utf-8").strip()
+                if ver:
+                    tag = f"v{ver}" if not ver.startswith("v") else ver
+                    return {
+                        "tag_name": tag,
+                        "html_url": f"https://github.com/{REPO}/releases/tag/{tag}",
+                        "name": f"AI Group Whisper {tag}",
+                    }
+    except Exception:
+        pass
+
+    raise RuntimeError("Could not reach GitHub via API, web releases, or raw mirrors. Check internet/DNS.")
+
+
 async def latest():
-    url = f"https://api.github.com/repos/{REPO}/releases/latest"
-    async with aiohttp.ClientSession() as s:
-        async with s.get(url, headers={"Accept": "application/vnd.github+json"}) as r:
-            if r.status != 200:
-                raise RuntimeError(f"GitHub answered {r.status}")
-            return await r.json()
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, fetch_latest_release_sync)
 
 
 async def check():
     cur = current_version()
     rel = await latest()
     tag = rel.get("tag_name", "")
-    return {"current": cur, "latest": tag.lstrip("v"), "tag": tag, "url": rel.get("html_url"),
-            "available": vtuple(tag) > vtuple(cur), "canInstall": True}
+    return {
+        "current": cur,
+        "latest": tag.lstrip("v"),
+        "tag": tag,
+        "url": rel.get("html_url"),
+        "available": vtuple(tag) > vtuple(cur),
+        "canInstall": True,
+    }
 
 
 def download_archive_sync(tag, progress_cb=None):
@@ -117,8 +177,6 @@ async def install():
             if os.path.isdir(src):
                 shutil.rmtree(dst, ignore_errors=True)
                 shutil.copytree(src, dst)
-        # The desktop icon lives beside the app bundle, not in the updateable daemon folder.
-        # Updating its bundle metadata also upgrades installs made before the logo existed.
         contents = os.path.abspath(os.path.join(APP_ROOT, "..", ".."))
         plist_path = os.path.join(contents, "Info.plist")
         icon_src = os.path.join(top, "assets", "logo.icns")

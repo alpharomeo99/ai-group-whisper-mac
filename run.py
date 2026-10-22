@@ -142,20 +142,21 @@ class WindowBridge:
 
                         def _cocoa_mini():
                             try:
-                                native.setMaxSize_(NSSize(10000, 10000))
-                                native.setMinSize_(NSSize(100, 28))
+                                target = native.window() if hasattr(native, "window") and callable(native.window) and native.window() else native
+                                target.setMaxSize_(NSSize(10000, 10000))
+                                target.setMinSize_(NSSize(100, 28))
                                 try:
-                                    native.setContentMinSize_(NSSize(100, 28))
+                                    target.setContentMinSize_(NSSize(100, 28))
                                 except Exception:
                                     pass
-                                cur = native.frame()
+                                cur = target.frame()
                                 target_w, target_h = 220, 56
                                 new_x = cur.origin.x
                                 new_y = cur.origin.y + (cur.size.height - target_h)
-                                native.setFrame_display_animate_(NSMakeRect(new_x, new_y, target_w, target_h), True, False)
-                                native.setMinSize_(NSSize(140, 36))
-                                native.setMaxSize_(NSSize(360, 72))
-                                native.setLevel_(NSFloatingWindowLevel)
+                                target.setFrame_display_animate_(NSMakeRect(new_x, new_y, target_w, target_h), True, False)
+                                target.setMinSize_(NSSize(140, 36))
+                                target.setMaxSize_(NSSize(360, 72))
+                                target.setLevel_(NSFloatingWindowLevel)
                             except Exception as ce:
                                 print("Cocoa mini error:", ce)
 
@@ -197,18 +198,19 @@ class WindowBridge:
 
                         def _cocoa_full():
                             try:
-                                native.setMaxSize_(NSSize(10000, 10000))
-                                native.setMinSize_(NSSize(640, 480))
+                                target = native.window() if hasattr(native, "window") and callable(native.window) and native.window() else native
+                                target.setMaxSize_(NSSize(10000, 10000))
+                                target.setMinSize_(NSSize(640, 480))
                                 try:
-                                    native.setContentMinSize_(NSSize(640, 480))
+                                    target.setContentMinSize_(NSSize(640, 480))
                                 except Exception:
                                     pass
-                                cur = native.frame()
+                                cur = target.frame()
                                 target_w, target_h = 1180, 780
                                 new_x = cur.origin.x
                                 new_y = cur.origin.y + (cur.size.height - target_h)
-                                native.setFrame_display_animate_(NSMakeRect(new_x, new_y, target_w, target_h), True, False)
-                                native.setLevel_(NSNormalWindowLevel)
+                                target.setFrame_display_animate_(NSMakeRect(new_x, new_y, target_w, target_h), True, False)
+                                target.setLevel_(NSNormalWindowLevel)
                             except Exception as ce:
                                 print("Cocoa full error:", ce)
 
