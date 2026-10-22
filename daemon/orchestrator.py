@@ -132,7 +132,7 @@ class PersonaCadenceOrchestrator:
             score += 0.25
 
         # Broad domain relevance boost: nootropics, wellness, fitness, peptides
-        if bool(re.search(r"\b(nootropic|nootropics|semax|selank|bromantane|modafinil|tyrosine|alpha-gpc|focus|wellness|sleep|sauna|plunge|magnesium|electrolytes|fitness|gym|split|ppl|hypertrophy|workout|bench|squat|deadlift|bpc|tb500|tirz|reta|peptides|dosing|recon|bac)\b", text_lower)):
+        if bool(re.search(r"\b(nootropic|nootropics|semax|selank|bromantane|modafinil|tyrosine|alpha-gpc|focus|wellness|sleep|sauna|plunge|magnesium|electrolytes|fitness|gym|split|ppl|hypertrophy|workout|bench|squat|deadlift|bpc|tb500|tirz|reta|peptides|dosing|recon|bac|test|trt|tren|deca|anavar|var|dbol|primo|cycle|blast|cruise|pct|gear|sarm|sarms|rad|lgd|ostarine|mk677|bloodwork|labs|bulk|cut|diet|protein|meal|cardio|pr|news|ufc|fight|football|soccer|nba|f1|game|work|job|boss|money|crypto|girlfriend|wife|kids|weekend|movie|show|car|trip)\b", text_lower)):
             score += 0.15
 
         # Check persona details: interests, role, backstory, topics
