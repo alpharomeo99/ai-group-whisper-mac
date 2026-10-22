@@ -150,18 +150,28 @@ class DailyBatchEngine:
             recent_snippet = " ".join(m.get("text", "") for m in recent_msgs[-4:] if m.get("text"))[:180]
             topic_prompt = (
                 "Organic continuation of ongoing community conversation based on recent messages above. "
-                "Freely touch upon nootropics (Semax, Selank, Bromantane), general fitness & training splits, "
-                "wellness (sleep, sauna, recovery), helping out a peer with questions or dosing math, "
-                "or lighthearted unserious gym banter and joking around."
+                "Talk like real people with full lives: training, gear/TRT/SARMs experiences, peptides, nootropics, "
+                "bloodwork, diet, sleep, injuries, but ALSO work, relationships, sports, news, money, travel, "
+                "shows, cars and pure banter. Drift between topics naturally like a real group chat."
             )
             topic_query = recent_snippet or "fitness nootropics wellness recovery banter"
         else:
             default_themes = [
-                ("Natural community discussion on training splits, workout recovery, and general fitness progress.", "fitness training recovery"),
-                ("Casual chat about nootropics, morning focus stacks (Semax, Bromantane, L-Tyrosine), and clean energy without brain fog.", "nootropics semax focus energy"),
-                ("Everyday wellness discussion on sleep quality, sauna, magnesium glycinate, and staying healthy.", "wellness sleep recovery magnesium"),
-                ("Community peer helping another member with quick reconstitution math, insulin syringe units, or routine advice.", "peptides dosing reconstitution help"),
-                ("Completely relaxed, unserious gym banter, joking about tired mornings, meme supplements, and daily laughs.", "banter gym jokes funny")
+                ("Training talk: splits, PRs, plateaus, form checks, leg day suffering.", "training gym split pr"),
+                ("Gear talk between experienced lifters: first cycle experiences, sides they dealt with, TRT life, bloodwork results, what they'd never run again.", "gear trt cycle bloodwork sides"),
+                ("SARMs chat: people comparing experiences, skepticism about quality, suppression, whether it was worth it vs just running TRT.", "sarms rad lgd ostarine suppression"),
+                ("Peptides and research compounds: what people noticed, healing injuries, GLP-1 appetite stories.", "peptides bpc tirz reta healing"),
+                ("Nootropics and focus: morning stacks, caffeine, brain fog, work productivity.", "nootropics focus caffeine work"),
+                ("Diet and food: meal prep, cheat meals, protein struggles, what they ate today, cooking fails.", "food diet protein meal cheat"),
+                ("Bloodwork and health: lab results, doctor visits, blood pressure, lipids, hair and skin worries.", "bloodwork labs doctor health"),
+                ("Sleep, recovery, sauna, cold plunge, injuries and physio.", "sleep recovery sauna injury"),
+                ("Current news and what's going on in the world, sports results, UFC fight night, F1, football, viral stuff.", "news sports ufc football viral"),
+                ("Work and money: annoying boss, side hustles, crypto/stocks losses, job stress.", "work job money crypto"),
+                ("Relationships and family: girlfriend/wife complaining about gym time, kids, dating stories.", "girlfriend wife kids dating"),
+                ("Weekend plans, travel, cars, movies and shows people are watching.", "weekend travel car movie show"),
+                ("Pure unserious banter, roasting each other, gym memes, gym crush stories, weird gym people.", "banter jokes roast meme"),
+                ("Someone newer asking the group general questions and veterans sharing honest experience and warnings.", "newbie question advice experience"),
+                ("Physique updates: bulk vs cut debates, scale weight, mirror check, bodyfat guesses.", "bulk cut weight physique"),
             ]
             chosen_theme, chosen_query = random.choice(default_themes)
             topic_prompt = chosen_theme
@@ -209,7 +219,7 @@ class DailyBatchEngine:
 
         group_title = group.get("title") or f"Group {chat_id}"
         group_about = group.get("about") or "Telegram community discussion"
-        group_domain = group.get("domain_knowledge") or "Biohacking, research peptides, protocols, sourcing, and health optimization."
+        group_domain = group.get("domain_knowledge") or "Lifting, gear, TRT, SARMs, peptides, nootropics, health, plus everyday life, news and banter."
 
         system_prompt = (
             "You orchestrate realistic, organic human conversations in specialist Telegram communities.\n"
