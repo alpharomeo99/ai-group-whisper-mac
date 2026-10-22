@@ -984,7 +984,7 @@ class Daemon:
         except Exception:
             pass
 
-        base_cps = max(float(t.get("chars_per_second") or 21.0), 5.0)
+        base_cps = max(float(t.get("chars_per_second") or 7.0), 3.5)
 
         # Human keystroke variance (lognormal distribution around base CPS)
         effective_cps = base_cps * random.lognormvariate(0.0, 0.12)
@@ -1010,16 +1010,16 @@ class Daemon:
 
     def burst_typing_secs(self, g, text):
         """Typing-indicator delay for rapid consecutive burst messages.
-        Because fingers are already typing, initiation hesitation is minimal (~0.25-0.5s)
-        and keystroke velocity is high, resulting in natural fast follow-ups (0.6s - 3.5s).
+        Because fingers are already typing, initiation hesitation is brief (~0.4-0.9s)
+        and keystroke velocity is high (9-14 CPS), creating authentic multi-bubble delivery (1.2s - 5.5s).
         """
         import random
         msg_len = max(len(text or ""), 1)
-        effective_cps = random.uniform(25.0, 32.0)
-        hesitation = random.uniform(0.25, 0.5)
+        effective_cps = random.uniform(9.0, 14.0)
+        hesitation = random.uniform(0.4, 0.9)
         typing_dur = msg_len / effective_cps
         total = hesitation + typing_dur
-        return max(0.6, min(total, 3.5))
+        return max(1.2, min(total, 5.5))
 
     async def safe_send_message(self, cl, aid, chat_id, text, reply_to=None):
         """Sends message with automatic resilience against invalid reply targets, unprimed peers, and account restrictions."""
