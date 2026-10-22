@@ -378,30 +378,57 @@ class DailyBatchEngine:
         now_ts = int(time.time())
         created_items = []
 
-        # Determine cluster timing: non-patterned, dynamic clusters (1 to 5 messages) and active lulls
-        offsets_min = []
-        curr_min = random.uniform(0.5, 2.0)  # Starts promptly
-        item_idx = 0
-        total_items = len(items)
+        # Determine circadian & diurnal cluster timing: natural awake hours, quiet hours, and organic gap pacing
+        from datetime import datetime as _dt
+        now_dt = _dt.fromtimestamp(now_ts)
+        cur_hour = now_dt.hour + (now_dt.minute / 60.0)
 
-        while item_idx < total_items:
-            # Diverse cluster sizes: 1 (solo drop-in/reaction), 2-3 (dialogue), 4-5 (multi-persona active chatter)
-            # Weights favor 2-3 but frequently include solo reactions and lively 4-5 message exchanges
-            cluster_weights = [0.20, 0.35, 0.25, 0.14, 0.06]
-            cluster_size = min(random.choices([1, 2, 3, 4, 5], weights=cluster_weights)[0], total_items - item_idx)
-            for c in range(cluster_size):
-                if c == 0 and item_idx > 0:
-                    # Dynamic active gap between conversational threads: 4 to 18 minutes (occasional 8-22m lull)
-                    curr_min += random.choice([
-                        random.uniform(3.5, 8.5),
-                        random.uniform(6.0, 14.0),
-                        random.uniform(10.0, 20.0)
-                    ])
-                elif c > 0:
-                    # Rapid mobile texting reply interval: 18 to 85 seconds (0.3 to 1.4 minutes)
-                    curr_min += random.uniform(0.3, 1.4)
-                offsets_min.append(curr_min)
-                item_idx += 1
+        # Quiet / sleep hours: midnight to 7:45 AM
+        quiet_start = 0.0
+        quiet_end = 7.75
+        if quiet_start <= cur_hour < quiet_end:
+            # Postpone start until morning waking hours (~08:15 - 08:45 AM)
+            start_delay_min = ((quiet_end - cur_hour) * 60.0) + random.uniform(15.0, 45.0)
+        elif cur_hour >= 23.5:
+            # Late night: postpone until morning waking hours
+            start_delay_min = (((24.0 - cur_hour) + quiet_end) * 60.0) + random.uniform(15.0, 45.0)
+        else:
+            # Active daytime: start naturally within 1 to 4 minutes
+            start_delay_min = random.uniform(1.2, 3.8)
+
+        # Calculate available daytime waking hours until bedtime (~23:45)
+        start_hour = (cur_hour + (start_delay_min / 60.0)) % 24.0
+        if start_hour < 23.5:
+            avail_hours = max(3.0, 23.75 - start_hour)
+        else:
+            avail_hours = 14.0
+
+        # Partition items into organic clusters of 1 to 4 messages (conversational arcs)
+        clusters = []
+        rem_items = len(items)
+        while rem_items > 0:
+            c_size = min(rem_items, random.choices([1, 2, 3, 4], weights=[0.15, 0.40, 0.35, 0.10])[0])
+            clusters.append(c_size)
+            rem_items -= c_size
+
+        num_clusters = len(clusters)
+        target_cluster_gap_min = max(25.0, min(115.0, (avail_hours * 60.0) / max(num_clusters, 1)))
+
+        offsets_min = []
+        cluster_cur_min = start_delay_min
+
+        for c_idx, c_size in enumerate(clusters):
+            if c_idx > 0:
+                # Organic gap between conversation arcs: 30 to 95 minutes with natural jitter
+                gap = target_cluster_gap_min * random.uniform(0.70, 1.30)
+                cluster_cur_min += gap
+
+            msg_time = cluster_cur_min
+            for msg_i in range(c_size):
+                if msg_i > 0:
+                    # Rapid mobile back-and-forth texting interval: 22 to 85 seconds
+                    msg_time += random.uniform(0.35, 1.4)
+                offsets_min.append(msg_time)
 
         cand_usage = { (c["persona_id"], c["account_id"]): 0 for c in candidates }
 
