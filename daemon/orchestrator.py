@@ -170,22 +170,35 @@ class PersonaCadenceOrchestrator:
         return max(0.0, min(1.0, score))
 
     # ---------------- 5. Multi-Persona Turn-Taking & Arbiter ----------------
-    def arbiter_decision(self, chat_id, candidate_personas, message_event, is_direct_mention=False):
+    def arbiter_decision(self, chat_id, candidate_personas, message_event, is_direct_mention=False, target_persona_id=None, target_account_id=None, is_admin=False):
         """Evaluates all candidate personas in this group and selects the optimal speaker
         according to the mathematical cadence & game-theoretic model.
         Returns: (selected_persona_id, selected_account_id, calculated_delay, reason) or (None, None, 0, reason)
         """
         cfg = self.get_config()
         if not cfg["enabled"]:
-            if is_direct_mention and candidate_personas:
+            if (is_direct_mention or is_admin) and candidate_personas:
                 p = candidate_personas[0]
                 return p["persona_id"], p["account_id"], 3.0, "Direct mention (cadence disabled)"
             return None, None, 0, "Orchestration disabled & not directly mentioned"
 
         now = time.time()
         chat_id = int(chat_id)
+        msg_text = message_event.get("text", "")
+
+        # 0. TARGET PERSONA OVERRIDE: If human or admin addressed a specific persona directly
+        if target_persona_id:
+            for cp in candidate_personas:
+                if cp.get("persona_id") == target_persona_id:
+                    delay = self.calculate_deliberation_delay(
+                        msg_text,
+                        reading_cps=cfg.get("reading_cps", 32.0),
+                        poisson_lambda=cfg.get("poisson_lambda", 0.08)
+                    )
+                    return target_persona_id, target_account_id or cp["account_id"], delay, f"Directly addressed persona {target_persona_id}"
 
         # Multi-persona turn-taking & anti-dogpile control:
+        inter_spacing_offset = 0.0
         if chat_id in self.last_group_speakers:
             last_pid, last_time = self.last_group_speakers[chat_id]
             time_since_last = now - last_time
@@ -193,18 +206,19 @@ class PersonaCadenceOrchestrator:
             # 1. Self-suppression / Refractory period:
             # Prevent the SAME persona from monopolizing the conversation and talking to itself
             same_speaker_cooldown = float(cfg.get("same_speaker_cooldown", 28.0))
-            if time_since_last < same_speaker_cooldown and not is_direct_mention:
+            if time_since_last < same_speaker_cooldown and not is_direct_mention and not is_admin:
                 other_candidates = [cp for cp in candidate_personas if cp.get("persona_id") != last_pid]
                 if other_candidates:
                     candidate_personas = other_candidates
                 else:
-                    return None, None, 0, f"Same-speaker refractory cooldown active for persona {last_pid} ({int(time_since_last)}s < {int(same_speaker_cooldown)}s)"
+                    # For human/admin events, never discard: apply an offset instead of dropping!
+                    inter_spacing_offset += max(2.0, same_speaker_cooldown - time_since_last)
 
             # 2. Inter-bot team spacing:
-            # Enforce a natural human pause between different personas so they don't blast replies at the same second
+            # Enforce natural human pause between bot messages without dropping human/admin events
             inter_spacing = min(float(cfg.get("anti_dogpile_window", 8.0)), 12.0)
-            if time_since_last < inter_spacing and not is_direct_mention:
-                return None, None, 0, f"Inter-persona spacing buffer active ({int(time_since_last)}s < {int(inter_spacing)}s)"
+            if time_since_last < inter_spacing and not is_direct_mention and not is_admin:
+                inter_spacing_offset += max(2.0, inter_spacing - time_since_last)
 
         # Calculate time-of-day circadian activity factor
         circadian_mod = 1.0
@@ -213,9 +227,10 @@ class PersonaCadenceOrchestrator:
                 peak_hour=cfg["circadian_peak_hour"],
                 sigma=cfg["circadian_sigma"]
             )
+        # Real humans and admin speaking always get active attention (never suppressed to 0)
+        circadian_mod = max(0.85, circadian_mod)
 
         scored_candidates = []
-        msg_text = message_event.get("text", "")
 
         for cp in candidate_personas:
             pid = cp["persona_id"]
@@ -226,12 +241,12 @@ class PersonaCadenceOrchestrator:
             # 1. Relevance score
             rel_score = self.compute_relevance_score(msg_text, cp)
 
-            # 2. Direct mention or reply boost
-            salience_boost = 0.50 if is_direct_mention else 0.0
+            # 2. Direct mention or admin priority boost
+            salience_boost = 0.65 if is_admin else (0.50 if is_direct_mention else 0.25)
 
             # 3. Fatigue penalty (Hawkes process self-excitation decay)
             fatigue = self.compute_fatigue(chat_id, pid, tau=cfg["fatigue_decay_tau"])
-            fatigue_penalty = fatigue * cfg["fatigue_increment"]
+            fatigue_penalty = fatigue * (cfg["fatigue_increment"] * 0.4 if (is_direct_mention or is_admin) else cfg["fatigue_increment"])
 
             # 4. Equal Participation / Anti-Monopoly Balancer:
             counts = self.persona_speaker_counts.get(chat_id, {})
@@ -239,7 +254,7 @@ class PersonaCadenceOrchestrator:
             speech_share = counts.get(pid, 0) / total_speeches
 
             if speech_share > 0.40 and len(candidate_personas) >= 2:
-                balance_mod = -0.35  # Suppress over-represented persona
+                balance_mod = -0.25  # Lightly suppress over-represented persona
             elif counts.get(pid, 0) == 0 or speech_share < 0.20:
                 balance_mod = 0.45   # Strong boost for quiet / under-represented personas
             else:
@@ -270,22 +285,20 @@ class PersonaCadenceOrchestrator:
         scored_candidates.sort(key=lambda x: x["utility"], reverse=True)
         best = scored_candidates[0]
 
-        # Check threshold
-        threshold = cfg["base_threshold"]
-        if not is_direct_mention and not cfg["allow_spontaneous"]:
-            return None, None, 0, "Spontaneous chatter disabled, no direct mention"
-
-        # If direct mention, threshold is lenient
-        effective_threshold = (threshold * 0.4) if is_direct_mention else threshold
+        # Check threshold: for human and admin messages, personas ALWAYS respond
+        effective_threshold = 0.0 if (is_direct_mention or is_admin) else float(cfg.get("base_threshold", 0.10)) * 0.2
 
         if best["utility"] < effective_threshold:
-            return None, None, 0, f"Utility {best['utility']:.2f} below threshold {effective_threshold:.2f} (Fatigue: {best['fatigue']:.2f})"
+            # Fallback: always elect the best candidate for live group participants
+            best_cand = scored_candidates[0]
+            delay = self.calculate_deliberation_delay(msg_text, reading_cps=cfg["reading_cps"], poisson_lambda=cfg["poisson_lambda"]) + inter_spacing_offset
+            return best_cand["persona_id"], best_cand["account_id"], delay, f"Elected fallback for human speaker (utility: {best_cand['utility']:.2f})"
 
         # Calculate stochastic Poisson delay for cognitive deliberation
         delay = self.calculate_deliberation_delay(
             msg_text,
             reading_cps=cfg["reading_cps"],
             poisson_lambda=cfg["poisson_lambda"]
-        )
+        ) + inter_spacing_offset
 
         return best["persona_id"], best["account_id"], delay, f"Elected (utility: {best['utility']:.2f}, fatigue: {best['fatigue']:.2f}, freshness: {best['freshness']:.2f}, delay: {delay:.1f}s)"

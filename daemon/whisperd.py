@@ -676,7 +676,7 @@ class Daemon:
             return
         chat_id = event.chat_id
 
-        # Auto-discover group so it instantly appears in Network canvas
+        # Auto-discover group & self-heal watched status
         try:
             chat = await event.get_chat()
             title = getattr(chat, 'title', None) or getattr(chat, 'name', None) or f"Group {chat_id}"
@@ -684,114 +684,175 @@ class Daemon:
             has_persona = bool(acc_check and acc_check[0]["persona_id"])
             self.store.q(
                 "INSERT INTO groups(chat_id,title,account_id,watched,auto_reply) VALUES(?,?,?,1,1) "
-                "ON CONFLICT(chat_id) DO UPDATE SET title=excluded.title",
+                "ON CONFLICT(chat_id) DO UPDATE SET title=excluded.title, watched=1, auto_reply=1",
                 (chat_id, title, aid if has_persona else None)
             )
             self.store.q("INSERT OR IGNORE INTO group_accounts(chat_id, account_id) VALUES(?,?)", (chat_id, aid))
         except Exception:
             pass
-        chat_id = event.chat_id
-        g = self.store.rows("SELECT * FROM groups WHERE chat_id=?", (chat_id,))
-        if g and g[0]["account_id"] not in (None, aid) and g[0]["account_id"] in self.clients:
-            return  # another account owns this group; avoid duplicates
-        if not g or not g[0]["watched"]:
-            return
-        sender = await event.get_sender()
-        name = getattr(sender, "first_name", None) or getattr(sender, "title", None) or "unknown"
-        sender_id = getattr(sender, "id", None) or getattr(event, "sender_id", None)
 
-        # 3. IDENTIFY SENDER: Internal Bot vs External Human
-        all_accounts = self.store.rows("SELECT user_id FROM accounts")
-        our_user_ids = {a["user_id"] for a in all_accounts if a.get("user_id")}
-        is_internal_bot = bool(event.out or (sender_id and sender_id in our_user_ids))
+        # Deduplication check: ignore if this message was already received and processed
+        existing = self.store.rows("SELECT id FROM messages WHERE chat_id=? AND msg_id=?", (chat_id, event.id))
+        if existing:
+            return
+
+        g = self.store.rows("SELECT * FROM groups WHERE chat_id=?", (chat_id,))
+        if not g:
+            self.store.q("INSERT OR IGNORE INTO groups(chat_id, title, watched, auto_reply) VALUES(?,?,1,1)", (chat_id, f"Group {chat_id}"))
+            g = self.store.rows("SELECT * FROM groups WHERE chat_id=?", (chat_id,))
+        elif not g[0].get("watched") or not g[0].get("auto_reply"):
+            self.store.q("UPDATE groups SET watched=1, auto_reply=1 WHERE chat_id=?", (chat_id,))
+            g = self.store.rows("SELECT * FROM groups WHERE chat_id=?", (chat_id,))
+
+        sender = await event.get_sender()
+        name = " ".join(x for x in (getattr(sender, 'first_name', None), getattr(sender, 'last_name', None)) if x) or getattr(sender, 'title', None) or getattr(sender, 'username', None) or "unknown"
+        sender_username = (getattr(sender, "username", None) or "").lower().lstrip("@")
+        sender_id = getattr(sender, "id", None) or getattr(event, "sender_id", None)
+        raw_text = event.raw_text or ""
+
+        # Fetch accounts and personas to identify sender role
+        all_accounts = self.store.rows("SELECT id, user_id, name, username, phone, persona_id, is_admin FROM accounts")
+        all_personas = self.store.rows("SELECT id, name, details FROM personas")
+
+        # Check if sender is @xbiolabs or admin
+        is_admin_sender = (
+            sender_username == "xbiolabs"
+            or "xbiolabs" in name.lower()
+            or any(a.get("user_id") == sender_id and (a.get("is_admin") or (a.get("username") or "").lower() == "xbiolabs") for a in all_accounts)
+        )
+
+        # Check if sender is an internal bot persona (excluding admin/xbiolabs)
+        bot_user_ids = {a["user_id"] for a in all_accounts if a.get("user_id") and not a.get("is_admin") and (a.get("username") or "").lower() != "xbiolabs"}
+        is_internal_bot = bool(not is_admin_sender and (event.out or (sender_id and sender_id in bot_user_ids)))
 
         # Record message with is_bot flag
         self.store.add_message(
-            chat_id, event.id, name, event.raw_text, int(event.date.timestamp()),
+            chat_id, event.id, name, raw_text, int(event.date.timestamp() if event.date else time.time()),
             is_bot=1 if is_internal_bot else 0, sender_id=sender_id
         )
         self.usage.log_event("msg_recv", account_id=aid, chat_id=chat_id)
 
-        # STRICT RULE: Bot-to-bot dialogue is governed strictly by the Daily Batch Schedule.
-        # Messages sent by any bot account in our system DO NOT trigger live AI replies!
+        # STRICT RULE: Internal Bot-to-bot dialogue is governed strictly by the Daily Batch Schedule.
+        # Messages sent by any persona bot in our system DO NOT trigger live AI replies!
         if is_internal_bot:
             self.wake_event.set()
             return
 
-        # 4. LIVE AI ORCHESTRATION: Only triggered when an external HUMAN sends a message!
+        # 4. LIVE AI ORCHESTRATION: Triggered when an external HUMAN or @xbiolabs ADMIN sends a message!
         system_enabled = bool(self.store.get("system_enabled", True))
         if system_enabled:
-            # Record last human event for live UI feedback
             g_title = g[0].get("title") if g else f"Group {chat_id}"
+            sender_label = "ADMIN (@xbiolabs)" if is_admin_sender else f"HUMAN ({name})"
             self.store.set("last_human_event", {
                 "chat_id": chat_id,
                 "group_title": g_title,
                 "sender": name,
-                "text": event.raw_text,
+                "text": raw_text,
+                "is_admin": is_admin_sender,
                 "ts": int(time.time())
             })
-            log.info("HUMAN DETECTED in %s from %s: %s", g_title, name, (event.raw_text or "")[:80])
+            log.info("%s DETECTED in %s: %s", sender_label, g_title, raw_text[:80])
 
-            # Ensure group is enrolled
-            if not g:
-                self.store.q("INSERT OR IGNORE INTO groups(chat_id, title, watched, auto_reply) VALUES(?,?,1,1)", (chat_id, f"Group {chat_id}"))
-            elif not g[0].get("auto_reply"):
-                self.store.q("UPDATE groups SET auto_reply=1, watched=1 WHERE chat_id=?", (chat_id,))
+            # Detect direct replies and mentions across ALL persona accounts & @xbiolabs
+            is_direct = bool(getattr(event, 'mentioned', False)) or is_admin_sender
+            target_persona_id = None
+            target_account_id = None
 
-            me = await event.client.get_me()
-            is_direct = bool(getattr(event, 'mentioned', False))
-            if not is_direct and getattr(event, 'is_reply', False):
+            # A. Check reply target: was a persona message replied to?
+            if getattr(event, 'is_reply', False):
                 try:
                     rep = await event.get_reply_message()
-                    client_uids = {getattr(c, "_self_id", None) for c in self.clients.values() if hasattr(c, "_self_id")}
-                    if rep and (rep.sender_id == me.id or rep.sender_id in client_uids):
-                        is_direct = True
+                    if rep and rep.sender_id:
+                        for a in all_accounts:
+                            if a.get("user_id") == rep.sender_id:
+                                is_direct = True
+                                target_account_id = a["id"]
+                                target_persona_id = a.get("persona_id")
+                                break
                 except Exception:
                     pass
 
+            # B. Check handle / username mention in text
+            if not target_persona_id and raw_text:
+                text_lower = raw_text.lower()
+                for a in all_accounts:
+                    uname = (a.get("username") or "").lower().lstrip("@")
+                    if uname and uname != "xbiolabs" and (f"@{uname}" in text_lower or re.search(rf"{re.escape(uname)}", text_lower)):
+                        is_direct = True
+                        target_account_id = a["id"]
+                        target_persona_id = a.get("persona_id")
+                        break
+
+            # C. Check persona name mention in text (e.g. "Leila", "Sam", "Dave")
+            if not target_persona_id and raw_text:
+                text_lower = raw_text.lower()
+                for p in all_personas:
+                    pname = (p.get("name") or "").lower()
+                    if pname and len(pname) >= 3 and re.search(rf"{re.escape(pname)}", text_lower):
+                        is_direct = True
+                        target_persona_id = p["id"]
+                        matching_accs = [a for a in all_accounts if a.get("persona_id") == p["id"] and a.get("active", 1)]
+                        if matching_accs:
+                            target_account_id = matching_accs[0]["id"]
+                        break
+
+            # D. If @xbiolabs mentioned or speaking, always mark direct
+            if is_admin_sender or ("@xbiolabs" in raw_text.lower()):
+                is_direct = True
+
             candidates = self.daily_batch.get_group_candidates(chat_id)
+            if not candidates:
+                self.ensure_group_personas_assigned(chat_id)
+                candidates = self.daily_batch.get_group_candidates(chat_id)
 
             if candidates:
-                pid, aid, delay, reason = self.orchestrator.arbiter_decision(
+                pid, aid_chosen, delay, reason = self.orchestrator.arbiter_decision(
                     chat_id, candidates,
-                    {"text": event.raw_text, "sender": name, "id": event.id},
-                    is_direct_mention=is_direct
+                    {"text": raw_text, "sender": name, "id": event.id},
+                    is_direct_mention=is_direct,
+                    target_persona_id=target_persona_id,
+                    target_account_id=target_account_id,
+                    is_admin=is_admin_sender
                 )
-                if pid and aid:
+                if pid and aid_chosen:
                     self.orchestrator.record_activity(chat_id, pid)
                     self.store.enqueue(
                         "draft_reply", chat_id,
                         {
                             "trigger": event.id,
                             "trigger_sender": name,
-                            "trigger_text": event.raw_text,
+                            "trigger_text": raw_text,
                             "auto_send": True,
-                            "account_id": aid,
+                            "account_id": aid_chosen,
                             "persona_id": pid,
+                            "is_admin": is_admin_sender,
                             "reason": reason
                         },
                         dedupe_key=f"reply:{chat_id}:{event.id}",
                         delay=int(delay)
                     )
-                    log.info("Enqueued human reply in %s (Acc %s / Persona %s, delay=%ds): %s", chat_id, aid, pid, int(delay), reason)
+                    log.info("Enqueued %s reply in %s (Acc %s / Persona %s, delay=%ds): %s",
+                             "ADMIN" if is_admin_sender else "HUMAN", chat_id, aid_chosen, pid, int(delay), reason)
 
-                    # Dynamic Teammate Chime-In: actively allow a second persona to chime in (55% chance) with priority to under-represented personas
-                    if len(candidates) >= 2 and random.random() < 0.55 and not is_direct:
-                        teammates = [c for c in candidates if c["persona_id"] != pid and c["account_id"] != aid]
+                    # Dynamic Teammate Chime-In: allow a second persona to chime in (50% chance for humans, 65% for admin)
+                    chime_chance = 0.65 if is_admin_sender else 0.50
+                    if len(candidates) >= 2 and random.random() < chime_chance and not target_persona_id:
+                        teammates = [c for c in candidates if c["persona_id"] != pid and c["account_id"] != aid_chosen]
                         if teammates:
                             counts = self.orchestrator.persona_speaker_counts.get(chat_id, {})
                             teammates.sort(key=lambda t: counts.get(t["persona_id"], 0))
                             t_c = teammates[0]
-                            second_delay = int(delay) + random.randint(35, 120)
+                            second_delay = int(delay) + random.randint(25, 80)
                             self.store.enqueue(
                                 "draft_reply", chat_id,
                                 {
                                     "trigger": event.id,
                                     "trigger_sender": name,
-                                    "trigger_text": event.raw_text,
+                                    "trigger_text": raw_text,
                                     "auto_send": True,
                                     "account_id": t_c["account_id"],
                                     "persona_id": t_c["persona_id"],
+                                    "is_admin": is_admin_sender,
                                     "reason": "Teammate natural follow-up chime-in"
                                 },
                                 dedupe_key=f"teammate_reply:{chat_id}:{event.id}",
@@ -800,8 +861,13 @@ class Daemon:
                             log.info("Enqueued teammate follow-up in %s (Acc %s / Persona %s, delay=%ds)", chat_id, t_c["account_id"], t_c["persona_id"], second_delay)
             elif is_direct:
                 # Direct mention fallback with no explicit persona assigned
-                self.store.enqueue("draft_reply", chat_id, {"trigger": event.id, "trigger_sender": name, "trigger_text": event.raw_text, "auto_send": True},
-                                   dedupe_key=f"reply:{chat_id}:{event.id}", delay=max(4, int(self.orchestrator.calculate_deliberation_delay(event.raw_text))))
+                self.store.enqueue("draft_reply", chat_id, {
+                    "trigger": event.id,
+                    "trigger_sender": name,
+                    "trigger_text": raw_text,
+                    "is_admin": is_admin_sender,
+                    "auto_send": True
+                }, dedupe_key=f"reply:{chat_id}:{event.id}", delay=max(4, int(self.orchestrator.calculate_deliberation_delay(raw_text))))
         self.wake_event.set()
 
     # ---------- Queue worker ----------
@@ -1112,6 +1178,7 @@ class Daemon:
                     trigger_sender=trigger_sender,
                     trigger_text=trigger_text,
                     known_names=cand_names,
+                    is_admin=bool(p.get("is_admin")),
                     temperature=0.78
                 )
                 # Log AI token & latency usage

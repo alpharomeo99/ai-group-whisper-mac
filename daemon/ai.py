@@ -251,7 +251,7 @@ def format_short_telegram_text(text, names=None, max_chars=360):
     return format_telegram_message(text, names=names, max_chars=max_chars)
 
 
-async def draft_reply_with_meta(settings, title, persona, msgs, trigger_sender=None, trigger_text=None, known_names=None, temperature=0.76):
+async def draft_reply_with_meta(settings, title, persona, msgs, trigger_sender=None, trigger_text=None, known_names=None, is_admin=False, temperature=0.76):
     sep = chr(10)
     persona_prompt = persona or "You are a regular member of this Telegram group."
     rules = [
@@ -267,7 +267,7 @@ async def draft_reply_with_meta(settings, title, persona, msgs, trigger_sender=N
         "    '2ml is plenty ||| draw 10 units slow so no air bubbles'",
         "    'wait did you check the vial? ||| 5mg vs 10mg is totally different math'",
         "  Only burst when it feels completely organic. If a single short message is enough, do not force a burst. Never split a single sentence unnaturally.",
-        "- GROUP ADMIN & OWNER (@xbiolabs): Understand that @xbiolabs is the group admin, owner, and the one processing all orders. If someone is new to the group, asks where or how to order, asks about order tracking, payments, or processing, or if you or someone else has an admin question, naturally point them to or mention @xbiolabs (e.g. 'dm @xbiolabs he handles processing', 'ask @xbiolabs', '@xbiolabs can confirm that', 'pinging @xbiolabs').",
+        "- GROUP ADMIN & OWNER (@xbiolabs): Understand that @xbiolabs is the group admin, owner, and the one processing all orders. When @xbiolabs speaks, acknowledge and reply to them naturally and respectfully. If someone is new to the group, asks where or how to order, asks about order tracking, payments, or processing, or if you or someone else has an admin question, naturally point them to or mention @xbiolabs (e.g. 'dm @xbiolabs he handles processing', 'ask @xbiolabs', '@xbiolabs can confirm that', 'pinging @xbiolabs').",
         "- GROUNDED & HELPFUL: Give straightforward, practical advice or banter. Do not invent unprompted stories or fabrications.",
         "- Output ONLY the raw telegram message text."
     ]
@@ -276,8 +276,26 @@ async def draft_reply_with_meta(settings, title, persona, msgs, trigger_sender=N
     user_parts = [f"Group: {title}"]
     if msgs:
         user_parts.append(f"Recent Chat History:{sep}{transcript(msgs)}")
+
+    sender_label = trigger_sender or "a member"
+    is_admin_trigger = bool(
+        is_admin
+        or (trigger_sender and "xbiolabs" in trigger_sender.lower())
+        or (trigger_text and "@xbiolabs" in trigger_text.lower())
+    )
+
     if trigger_text:
-        user_parts.append(f'You are reacting or replying directly to this message in the chat:{sep}"{trigger_text}"')
+        if is_admin_trigger:
+            user_parts.append(
+                f'DIRECT ADMIN MESSAGE from @xbiolabs (Group Admin & Owner):{sep}"{trigger_text}"{sep}'
+                f'INSTRUCTION: @xbiolabs is the group owner/admin. Respond directly, respectfully, and naturally to @xbiolabs. '
+                f'If @xbiolabs asked a question, requested info, gave an update, or made an announcement, answer or acknowledge it like an active, engaged community member. Never ignore @xbiolabs.'
+            )
+        else:
+            user_parts.append(
+                f'You are reacting or replying directly to this message from {sender_label} in the chat:{sep}"{trigger_text}"{sep}'
+                f'Respond directly and helpfully to {sender_label} in a natural, casual, human tone.'
+            )
     elif msgs:
         user_parts.append("Respond naturally to the latest conversation above.")
     else:
@@ -291,10 +309,10 @@ async def draft_reply_with_meta(settings, title, persona, msgs, trigger_sender=N
     return format_telegram_message(raw_text, names=names_to_clean, max_chars=360), meta
 
 
-async def draft_reply(settings, title, persona, msgs, trigger_sender=None, trigger_text=None, known_names=None, temperature=0.76):
+async def draft_reply(settings, title, persona, msgs, trigger_sender=None, trigger_text=None, known_names=None, is_admin=False, temperature=0.76):
     content, _ = await draft_reply_with_meta(
         settings, title, persona, msgs,
         trigger_sender=trigger_sender, trigger_text=trigger_text,
-        known_names=known_names, temperature=temperature
+        known_names=known_names, is_admin=is_admin, temperature=temperature
     )
     return content

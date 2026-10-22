@@ -154,6 +154,19 @@ class DailyBatchEngine:
                     candidates.append(r)
                     seen.add(key)
 
+        # 5. Guaranteed Participation Fallback: Pair active accounts with available personas
+        if len(candidates) < 2:
+            all_personas = self.store.rows("SELECT id as persona_id, name as persona_name, details, prompt FROM personas")
+            all_active_accs = self.store.rows("SELECT id as account_id, name as account_name, phone as account_phone, username as account_username FROM accounts WHERE active=1")
+            for i, acc in enumerate(all_active_accs):
+                if all_personas:
+                    p = all_personas[i % len(all_personas)]
+                    cand = {**p, **acc}
+                    key = (cand["persona_id"], cand["account_id"])
+                    if key not in seen:
+                        candidates.append(cand)
+                        seen.add(key)
+
         return candidates
 
     async def generate_all_groups(self, count=None):
