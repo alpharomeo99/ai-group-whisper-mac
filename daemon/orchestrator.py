@@ -57,8 +57,8 @@ class PersonaCadenceOrchestrator:
 
         # Gaussian density
         curve = math.exp(-0.5 * ((diff / sigma) ** 2))
-        # Clamp to minimum baseline activity 0.08 (some humans check phone at night)
-        return max(0.70, curve)
+        # Deep night activity drops to realistic baseline [0.06] rather than 24/7 chatter
+        return max(0.06, min(1.0, curve))
 
     # ---------------- 2. Non-homogeneous Poisson Process & Delays ----------------
     def calculate_deliberation_delay(self, text, reading_cps=32.0, poisson_lambda=0.08):
