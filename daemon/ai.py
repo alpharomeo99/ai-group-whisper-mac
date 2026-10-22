@@ -34,10 +34,11 @@ async def chat_with_meta(settings, system, user, temperature=None, frequency_pen
                                          {"role": "user", "content": user}]}
     if temperature is not None:
         body["temperature"] = float(temperature)
-    if frequency_penalty is not None:
-        body["frequency_penalty"] = float(frequency_penalty)
-    if presence_penalty is not None:
-        body["presence_penalty"] = float(presence_penalty)
+    # Aggressively penalize repetition by default (frequency & presence penalties)
+    freq_pen = frequency_penalty if frequency_penalty is not None else 0.55
+    pres_pen = presence_penalty if presence_penalty is not None else 0.45
+    body["frequency_penalty"] = float(freq_pen)
+    body["presence_penalty"] = float(pres_pen)
 
     t0 = time.time()
     async with aiohttp.ClientSession() as s:
