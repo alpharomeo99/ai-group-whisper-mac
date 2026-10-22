@@ -190,13 +190,13 @@ def format_telegram_message(text, names=None, max_chars=360):
 
 def split_burst_bubbles(text, names=None, burstiness_pct=35, max_chars=360):
     """Splits a message into 1 to 3 distinct Telegram message bubbles for authentic multi-message texting.
-    Handles explicit markers (' ||| ') and applies natural stochastic sentence splitting calibrated
-    by the persona's burstiness tendency.
+    Handles explicit markers (' ||| '), conversational interjections, and natural stochastic sentence splitting
+    calibrated by persona burstiness.
     """
     if not text:
         return []
 
-    # Check explicit separators first
+    # 1. Check explicit separators first
     for sep in (" ||| ", "|||", "[SPLIT]", "\n---\n", "\n===SPLIT===\n"):
         if sep in text:
             parts = [_clean_single_telegram_bubble(p, names=names, max_chars=max_chars) for p in text.split(sep)]
@@ -209,25 +209,38 @@ def split_burst_bubbles(text, names=None, burstiness_pct=35, max_chars=360):
     if not cleaned:
         return []
 
-    # Check paragraph / double newline split
+    # 2. Check paragraph / double newline split
     if "\n\n" in text:
         paras = [_clean_single_telegram_bubble(p, names=names, max_chars=max_chars) for p in text.split("\n\n") if p.strip()]
         paras = [p for p in paras if p]
-        if 1 < len(paras) <= 3 and all(len(p) <= 180 for p in paras):
-            return paras
+        if 1 < len(paras) <= 3 and all(len(p) <= 200 for p in paras):
+            return paras[:3]
 
-    # Stochastic sentence split based on persona burstiness
     pct = float(burstiness_pct if burstiness_pct is not None else 35)
-    roll_chance = max(0.08, min(0.60, (pct / 100.0) * 0.70))
+
+    # 3. Conversational interjection / reaction opener split (authentic mobile habit)
+    interjection_match = re.match(
+        r"^(wait (?:nah|bro|what|hold up)|nah (?:bro|fr|tbh|man)|bro (?:honestly|listen|fr)|lol (?:nah|yeah|bro)|lmaooo?|fr though?|same (?:here|honestly)|100%|idk (?:tbh|man)|yo|nah)\s*[,.!?—\-]\s*(.+)$",
+        cleaned,
+        re.IGNORECASE
+    )
+    if interjection_match and pct >= 20:
+        opener = interjection_match.group(1).strip()
+        rest = interjection_match.group(2).strip()
+        if 2 <= len(opener) <= 30 and 4 <= len(rest) <= 220:
+            return [opener, rest]
+
+    # 4. Multi-sentence splitting based on persona burstiness
+    roll_chance = max(0.20, min(0.80, 0.30 + (pct / 100.0) * 0.50))
     if random.random() < roll_chance:
         sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+', cleaned) if s.strip()]
         if len(sentences) == 2:
             s1, s2 = sentences[0], sentences[1]
-            if len(s1) >= 4 and len(s2) >= 6 and (len(s1) + len(s2)) <= 220:
+            if 3 <= len(s1) <= 160 and 4 <= len(s2) <= 220:
                 return [s1, s2]
-        elif len(sentences) == 3 and pct >= 50:
-            if all(4 <= len(s) <= 90 for s in sentences) and sum(len(s) for s in sentences) <= 180:
-                return sentences
+        elif len(sentences) == 3 and pct >= 45:
+            if all(3 <= len(s) <= 110 for s in sentences):
+                return sentences[:3]
 
     return [cleaned]
 
