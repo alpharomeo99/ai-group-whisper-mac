@@ -1,3 +1,5 @@
+import random
+import math
 """Episodic and Semantic Memory Engine for AI Personas.
 
 Manages multi-tier persona memory retention:
@@ -282,26 +284,44 @@ class MemoryEngine:
             "retained": max(0, scanned - pruned)
         }
 
+    MEMORY_CATEGORIES = [
+        ("identity", "WHO YOU ARE (bio, job, location, family)", r"\b(i'?m|my (wife|gf|girlfriend|kid|kids|son|daughter|job|boss|work|dog|cat|mom|dad|brother|sister)|i work|years old|i live|moved to|from)\b"),
+        ("training", "TRAINING & PHYSIQUE", r"\b(gym|lift|bench|squat|deadlift|split|ppl|cardio|pr|bulk|cut|weigh|lbs|kg|bodyfat|physique|leg day|pump|run|hiit)\b"),
+        ("compounds", "COMPOUNDS YOU'VE MENTIONED (gear/sarms/peptides/supps)", r"\b(test|trt|tren|deca|anavar|var|dbol|primo|mast|cycle|blast|cruise|pct|sarm|rad|lgd|ostarine|mk-?677|bpc|tb500|tirz|reta|sema|peptide|semax|selank|creatine|nootropic|stack)\b"),
+        ("health", "HEALTH, LABS & SIDES", r"\b(blood ?work|labs|bloods|hematocrit|lipids|hdl|ldl|estradiol|e2|liver|blood pressure|bp|acne|hair|sleep|insomnia|doctor|injur|shoulder|knee|back pain|sick)\b"),
+        ("opinions", "YOUR OPINIONS & TAKES", r"\b(i think|imo|honestly|overrated|underrated|never again|love|hate|swear by|waste of|best|worst)\b"),
+        ("life", "LIFE, HOBBIES & NEWS YOU FOLLOW", r"\b(game|match|ufc|nba|nfl|football|soccer|f1|movie|show|netflix|trip|vacation|car|crypto|stocks|news|election|weather|food|cook|date|party|weekend)\b"),
+    ]
+
+    def _categorize(self, text):
+        t = (text or "").lower()
+        for key, _label, pat in self.MEMORY_CATEGORIES:
+            if re.search(pat, t):
+                return key
+        return "life"
+
     def get_prompt_memory_context(self, persona_id, chat_id=None, limit=10, query_text=None):
-        """Retrieves and ranks persona memories by topic relevance, tier anchor status, and salience.
-        Compiles them into clean, bulleted facts for seamless AI prompt injection.
+        """Categorized, relevance-ranked, diversity-balanced memory injection.
+        Scores each memory by query overlap, tier, salience, recency decay, chat locality and
+        under-use, de-duplicates near-identical facts, caps per category so one theme can't
+        dominate, then renders grouped sections plus a short 'avoid repeating' list.
         """
         if not persona_id:
             return ""
-
         now_ts = int(time.time())
-        # Fetch candidate active memories (permanent anchors and non-expired records)
         sql = """
-            SELECT id, kind, content, retention_tier, salience, created_at
+            SELECT id, kind, content, retention_tier, salience, created_at, chat_id, access_count
             FROM persona_memories
             WHERE persona_id=? AND (expires_at IS NULL OR expires_at > ?)
             ORDER BY CASE retention_tier WHEN 'long' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END, created_at DESC
-            LIMIT 40
+            LIMIT 120
         """
-        candidates = self.store.rows(sql, (persona_id, now_ts))
+        try:
+            candidates = self.store.rows(sql, (persona_id, now_ts))
+        except Exception:
+            candidates = self.store.rows(sql.replace(", chat_id, access_count", ""), (persona_id, now_ts))
         if not candidates:
             return ""
-
         query_keywords = extract_keywords(query_text) if query_text else set()
 
         def score_cand(cand):
@@ -311,37 +331,59 @@ class MemoryEngine:
             tier = cand.get("retention_tier")
             tier_score = 4.0 if tier == "long" else (2.0 if tier == "medium" else 0.8)
             salience = float(cand.get("salience") or 0.7)
-            return (overlap * 5.0) + tier_score + (salience * 2.0)
+            age_h = max(0.0, (now_ts - int(cand.get("created_at") or now_ts)) / 3600.0)
+            recency = 0.0 if tier == "long" else 2.5 * math.exp(-age_h / 72.0)
+            local = 1.0 if (chat_id and str(cand.get("chat_id") or "") == str(chat_id)) else 0.0
+            fresh = 1.2 / (1.0 + float(cand.get("access_count") or 0) * 0.15)
+            return overlap * 5.0 + tier_score + salience * 2.0 + recency + local + fresh + random.uniform(0, 0.6)
 
-        # Rank candidates by relevance
         ranked = sorted(candidates, key=score_cand, reverse=True)
-        selected = ranked[:limit]
-
-        # Update access stats
-        ids = [r["id"] for r in selected]
-        with self.store.lock:
-            cur = self.store.db.cursor()
-            placeholders = ",".join("?" * len(ids))
-            cur.execute(
-                f"UPDATE persona_memories SET access_count=access_count+1, last_accessed_at=? WHERE id IN ({placeholders})",
-                [now_ts] + ids
-            )
-            self.store.db.commit()
-
-        lines = [
-            "--- YOUR ESTABLISHED MEMORIES & BACKGROUND FACTS (STAY 100% CONSISTENT) ---"
-        ]
-        for r in selected:
-            clean_c = clean_memory_text(r["content"])
-            if not clean_c:
+        per_cat_cap = max(2, limit // 3)
+        seen_sigs, counts, selected = [], {}, []
+        for r in ranked:
+            c = clean_memory_text(r.get("content", ""))
+            if not c:
                 continue
-            tier_label = (
-                "[Permanent Fact]" if r["retention_tier"] == "long"
-                else "[Recent Context]"
-            )
-            lines.append(f"{tier_label} {clean_c}")
+            sig = extract_keywords(c)
+            if any(sig and len(sig & o) / max(1, len(sig | o)) > 0.6 for o in seen_sigs):
+                continue
+            cat = self._categorize(c)
+            if counts.get(cat, 0) >= per_cat_cap:
+                continue
+            counts[cat] = counts.get(cat, 0) + 1
+            seen_sigs.append(sig)
+            r["_cat"], r["_clean"] = cat, c
+            selected.append(r)
+            if len(selected) >= limit:
+                break
+        if not selected:
+            return ""
 
-        lines.append("ACCURACY & MEMORY CONSISTENCY: These facts represent your established history and past statements. Never contradict them or invent conflicting claims.")
+        ids = [r["id"] for r in selected]
+        try:
+            with self.store.lock:
+                cur = self.store.db.cursor()
+                cur.execute(
+                    f"UPDATE persona_memories SET access_count=access_count+1, last_accessed_at=? WHERE id IN ({','.join('?'*len(ids))})",
+                    [now_ts] + ids,
+                )
+                self.store.db.commit()
+        except Exception:
+            pass
+
+        lines = ["--- YOUR MEMORY (this is YOUR life; stay 100% consistent) ---"]
+        for key, label, _p in self.MEMORY_CATEGORIES:
+            items = [r for r in selected if r["_cat"] == key]
+            if not items:
+                continue
+            lines.append(f"{label}:")
+            for r in items:
+                tag = "core" if r.get("retention_tier") == "long" else "recent"
+                lines.append(f"  - ({tag}) {r['_clean']}")
+        recent_said = [r["_clean"] for r in selected if r.get("retention_tier") != "long"][:3]
+        if recent_said:
+            lines.append("DON'T REPEAT these recent points word-for-word; build on them or move on: " + " | ".join(x[:70] for x in recent_said))
+        lines.append("Use memories naturally and sparingly (max 1-2 per message), never recite them. Never contradict them.")
         return "\n".join(lines)
 
     def auto_record_statement(self, persona_id, account_id, chat_id, text, is_reply_to=None):
