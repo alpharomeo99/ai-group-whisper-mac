@@ -18,6 +18,63 @@ from datetime import datetime
 
 log = logging.getLogger("whisper.batch")
 
+COMMON_TYPOS = {
+    "their": "thier",
+    "there": "ther",
+    "weight": "weihgt",
+    "protein": "prtoein",
+    "dosing": "dosign",
+    "tomorrow": "tommorow",
+    "because": "becasue",
+    "definitely": "definately",
+    "honestly": "honstly",
+    "running": "runnign",
+    "fatigue": "fatgiue",
+    "sleep": "slepe",
+    "morning": "mornign",
+    "cardio": "cardoi",
+    "about": "abotu",
+}
+
+def maybe_inject_typo_correction(text, chance=0.07):
+    """Introduces realistic fast thumb typos with an immediate follow-up asterisk bubble."""
+    if not text or len(text) < 18 or random.random() > chance or " ||| " in text:
+        return text
+    words = text.split()
+    for idx, w in enumerate(words):
+        clean_w = re.sub(r'[^\w]', '', w.lower())
+        if clean_w in COMMON_TYPOS:
+            typo_word = COMMON_TYPOS[clean_w]
+            words[idx] = re.sub(clean_w, typo_word, w, flags=re.IGNORECASE)
+            correction = f"*{clean_w}" if random.random() < 0.65 else f"*{clean_w} lol"
+            return " ".join(words) + " ||| " + correction
+    return text
+
+def format_relationship_graph(candidates):
+    """Constructs dynamic relationship pairings and shared banter context between active group personas."""
+    if len(candidates) < 2:
+        return "Regular members who chat casually."
+    names = [c.get("persona_name") or c.get("account_name") for c in candidates if c.get("persona_name") or c.get("account_name")]
+    if len(names) < 2:
+        return "Regular members who chat casually."
+    dynamics = [
+        "Gym buddies: train heavy together, banter about leg day suffering and PRs.",
+        "Friendly skeptics: one asks for lab numbers and science when the other hypes a new protocol.",
+        "Supp banter duo: constantly roast each other's supplement stacks and overthinking.",
+        "Veteran & learner: one shares hard-earned lessons, the other asks practical everyday tips.",
+        "Work vs gym contrast: one complains about their corporate desk job, the other works freelance/trades."
+    ]
+    pairs = []
+    shuffled = list(names)
+    random.seed(int(time.time() // 86400))
+    random.shuffle(shuffled)
+    for i in range(0, len(shuffled) - 1, 2):
+        dyn = dynamics[(i // 2) % len(dynamics)]
+        pairs.append(f"{shuffled[i]} & {shuffled[i+1]} ({dyn})")
+    random.seed()
+    return "; ".join(pairs) if pairs else "Close community regulars who know each other's routines."
+
+
 
 class DailyBatchEngine:
     def __init__(self, store, ai_module, memory_engine=None):
@@ -142,51 +199,86 @@ class DailyBatchEngine:
                 transcript_lines.append(f"[{m.get('sender', 'Member')}]: {m.get('text')}")
         recent_transcript = "\n".join(transcript_lines) or "(Group chat is fresh / quiet)"
 
-        # Determine topic context before formatting persona summaries so query_text is grounded
+        # 2B. Build ABSOLUTE ZERO REPETITION blacklist from the last 48 hours
+        now_ts = int(time.time())
+        past_batch_msgs = self.store.rows(
+            "SELECT text FROM daily_batch_items WHERE chat_id=? AND (created_at > ? OR scheduled_ts > ?) "
+            "ORDER BY id DESC LIMIT 50",
+            (chat_id, now_ts - 172800, now_ts - 172800)
+        )
+        forbidden_snippets = []
+        for pbm in past_batch_msgs:
+            t = (pbm.get("text") or "").strip()
+            if t and len(t) > 12 and not t.startswith("[reaction:"):
+                forbidden_snippets.append(t[:75].replace("\n", " "))
+        for rm in recent_msgs:
+            t = (rm.get("text") or "").strip()
+            if t and len(t) > 12:
+                forbidden_snippets.append(t[:75].replace("\n", " "))
+
+        forbidden_snippets = list(dict.fromkeys(forbidden_snippets))[:30]
+        forbidden_block = "\n".join(f"  * {s}" for s in forbidden_snippets) if forbidden_snippets else "  * (None yet - keep discussion completely fresh)"
+
+        # 2C. Determine topic context with strict rotation across unused themes
+        recent_batches = self.store.rows(
+            "SELECT topic FROM daily_batches WHERE chat_id=? ORDER BY id DESC LIMIT 15",
+            (chat_id,)
+        )
+        used_past_topics = [b.get("topic") or "" for b in recent_batches]
+
+        default_themes = [
+            ("Training talk: splits, PRs, plateaus, form checks, leg day suffering.", "training gym split pr"),
+            ("Gear talk between experienced lifters: first cycle experiences, sides they dealt with, TRT life, bloodwork results, what they'd never run again.", "gear trt cycle bloodwork sides"),
+            ("SARMs chat: people comparing experiences, skepticism about quality, suppression, whether it was worth it vs just running TRT.", "sarms rad lgd ostarine suppression"),
+            ("Peptides and research compounds: what people noticed, healing injuries, GLP-1 appetite stories.", "peptides bpc tirz reta healing"),
+            ("Nootropics and focus: morning stacks, caffeine, brain fog, work productivity.", "nootropics focus caffeine work"),
+            ("Diet and food: meal prep, cheat meals, protein struggles, what they ate today, cooking fails.", "food diet protein meal cheat"),
+            ("Bloodwork and health: lab results, doctor visits, blood pressure, lipids, hair and skin worries.", "bloodwork labs doctor health"),
+            ("Sleep, recovery, sauna, cold plunge, injuries and physio.", "sleep recovery sauna injury"),
+            ("Current news and what's going on in the world, sports results, UFC fight night, F1, football, viral stuff.", "news sports ufc football viral"),
+            ("Work and money: annoying boss, side hustles, crypto/stocks losses, job stress.", "work job money crypto"),
+            ("Relationships and family: girlfriend/wife complaining about gym time, kids, dating stories.", "girlfriend wife kids dating"),
+            ("Weekend plans, travel, cars, movies and shows people are watching.", "weekend travel car movie show"),
+            ("Pure unserious banter, roasting each other, gym memes, gym crush stories, weird gym people.", "banter jokes roast meme"),
+            ("Someone newer asking the group general questions and veterans sharing honest experience and warnings.", "newbie question advice experience"),
+            ("Physique updates: bulk vs cut debates, scale weight, mirror check, bodyfat guesses.", "bulk cut weight physique"),
+            ("Someone venting about a bad day and the group actually supporting them, then joking to lighten it.", "bad day vent support"),
+            ("Random 2am thoughts, shower thoughts, conspiracy-lite debates that go nowhere.", "random thoughts debate"),
+            ("Music, gym playlists, podcasts, Joe Rogan clips, YouTube lifters people follow or hate.", "music podcast youtube"),
+            ("Gaming, phones, tech, AI stuff, someone's PC build or new iPhone.", "gaming tech phone ai"),
+            ("Pets: someone's dog ate their protein bar, cat videos, gym dog.", "dog cat pet"),
+            ("Hometown and culture: weather complaints, local food, holidays, where everyone's from.", "weather holiday hometown food"),
+            ("Health scares and getting older: back pain, hairline, knees cracking, first grey hair.", "aging hair back knees"),
+            ("Life wins: promotion, new car, engagement, first competition, someone hitting a goal weight.", "win promotion engaged goal"),
+            ("Disagreements: two members arguing a take (natty vs enhanced, cardio, carnivore) while others pick sides or make fun.", "debate natty enhanced carnivore"),
+            ("Old stories: worst gym injury, dumbest thing they did when young, first time in a gym.", "story injury young first"),
+            ("Shopping and style: gym clothes, sneakers, overpriced supplements, Amazon finds.", "clothes sneakers shopping"),
+            ("Group check-ins: who's alive, who disappeared, catching someone up on what they missed.", "checkin missed alive"),
+        ]
+
+        fresh_themes = [
+            (t, q) for (t, q) in default_themes
+            if not any(q in ut.lower() or t[:25].lower() in ut.lower() for ut in used_past_topics)
+        ]
+        if not fresh_themes:
+            fresh_themes = default_themes
+
+        chosen_theme, chosen_query = random.choice(fresh_themes)
+
         if topic_override:
             topic_prompt = topic_override
             topic_query = topic_override
-        elif transcript_lines:
-            recent_snippet = " ".join(m.get("text", "") for m in recent_msgs[-4:] if m.get("text"))[:180]
+        elif transcript_lines and random.random() < 0.25:
+            # 25% of the time: natural transition with immediate topic pivot
+            recent_snippet = " ".join(m.get("text", "") for m in recent_msgs[-3:] if m.get("text"))[:140]
             topic_prompt = (
-                "Organic continuation of ongoing community conversation based on recent messages above. "
-                "Talk like real people with full lives: training, gear/TRT/SARMs experiences, peptides, nootropics, "
-                "bloodwork, diet, sleep, injuries, but ALSO work, relationships, sports, news, money, travel, "
-                "shows, cars and pure banter. Drift between topics naturally like a real group chat."
+                f"Natural conversational transition: starting from a quick casual nod to recent chatter ('{recent_snippet}'), "
+                f"then immediately pivoting to a fresh angle on: {chosen_theme}. NEVER repeat previous points."
             )
-            topic_query = recent_snippet or "fitness nootropics wellness recovery banter"
+            topic_query = chosen_query
         else:
-            default_themes = [
-                ("Training talk: splits, PRs, plateaus, form checks, leg day suffering.", "training gym split pr"),
-                ("Gear talk between experienced lifters: first cycle experiences, sides they dealt with, TRT life, bloodwork results, what they'd never run again.", "gear trt cycle bloodwork sides"),
-                ("SARMs chat: people comparing experiences, skepticism about quality, suppression, whether it was worth it vs just running TRT.", "sarms rad lgd ostarine suppression"),
-                ("Peptides and research compounds: what people noticed, healing injuries, GLP-1 appetite stories.", "peptides bpc tirz reta healing"),
-                ("Nootropics and focus: morning stacks, caffeine, brain fog, work productivity.", "nootropics focus caffeine work"),
-                ("Diet and food: meal prep, cheat meals, protein struggles, what they ate today, cooking fails.", "food diet protein meal cheat"),
-                ("Bloodwork and health: lab results, doctor visits, blood pressure, lipids, hair and skin worries.", "bloodwork labs doctor health"),
-                ("Sleep, recovery, sauna, cold plunge, injuries and physio.", "sleep recovery sauna injury"),
-                ("Current news and what's going on in the world, sports results, UFC fight night, F1, football, viral stuff.", "news sports ufc football viral"),
-                ("Work and money: annoying boss, side hustles, crypto/stocks losses, job stress.", "work job money crypto"),
-                ("Relationships and family: girlfriend/wife complaining about gym time, kids, dating stories.", "girlfriend wife kids dating"),
-                ("Weekend plans, travel, cars, movies and shows people are watching.", "weekend travel car movie show"),
-                ("Pure unserious banter, roasting each other, gym memes, gym crush stories, weird gym people.", "banter jokes roast meme"),
-                ("Someone newer asking the group general questions and veterans sharing honest experience and warnings.", "newbie question advice experience"),
-                ("Physique updates: bulk vs cut debates, scale weight, mirror check, bodyfat guesses.", "bulk cut weight physique"),
-                ("Someone venting about a bad day and the group actually supporting them, then joking to lighten it.", "bad day vent support"),
-                ("Random 2am thoughts, shower thoughts, conspiracy-lite debates that go nowhere.", "random thoughts debate"),
-                ("Music, gym playlists, podcasts, Joe Rogan clips, YouTube lifters people follow or hate.", "music podcast youtube"),
-                ("Gaming, phones, tech, AI stuff, someone's PC build or new iPhone.", "gaming tech phone ai"),
-                ("Pets: someone's dog ate their protein bar, cat videos, gym dog.", "dog cat pet"),
-                ("Hometown and culture: weather complaints, local food, holidays, where everyone's from.", "weather holiday hometown food"),
-                ("Health scares and getting older: back pain, hairline, knees cracking, first grey hair.", "aging hair back knees"),
-                ("Life wins: promotion, new car, engagement, first competition, someone hitting a goal weight.", "win promotion engaged goal"),
-                ("Disagreements: two members arguing a take (natty vs enhanced, cardio, carnivore) while others pick sides or make fun.", "debate natty enhanced carnivore"),
-                ("Old stories: worst gym injury, dumbest thing they did when young, first time in a gym.", "story injury young first"),
-                ("Shopping and style: gym clothes, sneakers, overpriced supplements, Amazon finds.", "clothes sneakers shopping"),
-                ("Group check-ins: who's alive, who disappeared, catching someone up on what they missed.", "checkin missed alive"),
-            ]
-            chosen_theme, chosen_query = random.choice(default_themes)
-            topic_prompt = chosen_theme
+            # 75% of the time: fresh topic initiation from unused pool
+            topic_prompt = f"Fresh topic initiation: {chosen_theme}. One persona starts with a casual observation, question, or hot take."
             topic_query = chosen_query
 
         # 3. Format persona summaries with Telegram tags and distinct styles
@@ -228,6 +320,8 @@ class DailyBatchEngine:
                 f"  Brief: {c.get('prompt', '')[:160]}...{mem_str}"
             )
         persona_str = "\n\n".join(persona_summaries)
+        rel_graph = format_relationship_graph(candidates)
+        persona_str += f"\n\nINTER-PERSONA RELATIONSHIP DYNAMICS:\n{rel_graph}\n(Personas banter, reference shared history, and tag each other like close gym/online peers!)" 
 
         group_title = group.get("title") or f"Group {chat_id}"
         group_about = group.get("about") or "Telegram community discussion"
@@ -237,6 +331,18 @@ class DailyBatchEngine:
             "You orchestrate realistic, organic human conversations in specialist Telegram communities.\n"
             "You write authentic, casual group chat exchanges between real people texting from their phones.\n\n"
             "CRITICAL GUIDELINES FOR AUTHENTIC HUMAN MESSAGING:\n"
+            "CRITICAL: ABSOLUTE ZERO REPETITION MANDATE (STRICTLY ENFORCED):\n"
+            "Under NO circumstances should any persona repeat, rehash, copy, or paraphrase any of these recently discussed points, questions, jokes, or statements:\n"
+            f"{forbidden_block}\n"
+            "- Do NOT re-ask questions that were already discussed.\n"
+            "- Do NOT re-tell stories, cycles, or routines that were already mentioned.\n"
+            "- Introduce 100% fresh angles, new exercises, novel questions, or everyday banter.\n\n"
+            "TELEGRAM NATIVE EMOJI REACTIONS (MANDATORY 15-25% OF TURNS):\n"
+            "- Real people frequently react with emojis (🔥, 😂, 💀, 👍, 👀, 💯, 💪, ❤️) instead of typing full text!\n"
+            "- For 2 to 5 turns in this dialogue, return a native reaction by setting:\n"
+            "  \"reaction\": \"🔥\", \"reply_to_step\": <target step number>, \"text\": \"\"\n"
+            "- This makes the group feel authentic and buzzing without cluttering the chat with repetitive text.\n\n"
+
             "1. WILDLY ASYMMETRICAL LENGTH DIVERSITY (MANDATORY):\n"
             "   - Real humans NEVER type uniform-length messages! Distribute message lengths naturally:\n"
             "     * ULTRA-SHORT REACTIONS (25-30% of turns): 1 to 4 words. Examples: 'lol nah', 'fr tho💀', 'wait what?', 'bro😭', 'nah 2ml is plenty', 'same honestly', 'legend', 'yea 100%'.\n"
@@ -291,7 +397,8 @@ class DailyBatchEngine:
             "    \"sender_name\": \"<string>\",\n"
             "    \"reply_to_step\": <int or null>,\n"
             "    \"offset_minutes\": <int>,\n"
-            "    \"text\": \"<exact telegram message text>\"\n"
+            "    \"text\": \"<exact telegram message text>\",\n"
+            "    \"reaction\": \"<optional single emoji like 🔥, 😂, 💀, 👍, 👀, 💯, 💪, ❤️ or null>\"\n"
             "  }\n"
             "]"
         )
@@ -350,8 +457,9 @@ class DailyBatchEngine:
         try:
             cand_names = [c.get("persona_name") or c.get("account_name") for c in candidates if c.get("persona_name") or c.get("account_name")]
             for it in items:
-                if it.get("text"):
-                    it["text"] = self.ai.format_telegram_message(it["text"], names=cand_names, max_chars=360)
+                if it.get("text") and not it.get("reaction"):
+                    cleaned = self.ai.format_telegram_message(it["text"], names=cand_names, max_chars=360)
+                    it["text"] = maybe_inject_typo_correction(cleaned, chance=0.07)
         except Exception as e:
             log.warning("Error formatting batch items: %s", e)
 
@@ -455,8 +563,11 @@ class DailyBatchEngine:
             cand_usage[(pid, aid)] = cand_usage.get((pid, aid), 0) + 1
 
             text = (item.get("text") or "").strip()
-            if not text:
+            reaction = (item.get("reaction") or "").strip()
+            if not text and not reaction:
                 continue
+            if not text and reaction:
+                text = f"[reaction: {reaction}]" 
 
             scheduled_min = offsets_min[idx] if idx < len(offsets_min) else (curr_min + (idx * 2))
             jitter_sec = random.randint(-18, 25)
@@ -487,6 +598,7 @@ class DailyBatchEngine:
                     "account_id": aid,
                     "persona_id": pid,
                     "text": text,
+                    "reaction": reaction if reaction else None,
                     "reply_to_item_id": parent_item_id
                 },
                 dedupe_key=f"batch_send:{item_id}",
