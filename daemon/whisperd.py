@@ -1181,6 +1181,29 @@ class Daemon:
                     if rep_rows and rep_rows[0].get("telegram_msg_id"):
                         reply_to_msg_id = rep_rows[0]["telegram_msg_id"]
 
+                # Native Telegram Emoji Reaction Execution
+                react_emoji = p.get("reaction")
+                if react_emoji and reply_to_msg_id:
+                    async with self.account_session(aid) as cl:
+                        try:
+                            from telethon.tl.functions.messages import SendReactionRequest
+                            from telethon.tl.types import ReactionEmoji
+                            await asyncio.sleep(random.uniform(1.2, 3.2))
+                            await cl(SendReactionRequest(
+                                peer=job["chat_id"],
+                                msg_id=int(reply_to_msg_id),
+                                reaction=[ReactionEmoji(emoticon=str(react_emoji).strip())]
+                            ))
+                            log.info("Sent native Telegram reaction '%s' to msg %s in %s (account %s)", react_emoji, reply_to_msg_id, job["chat_id"], aid)
+                            if p.get("batch_item_id"):
+                                self.store.mark_batch_item_sent(p["batch_item_id"], int(time.time()), telegram_msg_id=reply_to_msg_id)
+                            self.usage.log_event("reaction_sent", persona_id=eff_pid, account_id=aid, chat_id=job["chat_id"])
+                            if eff_pid:
+                                self.orchestrator.record_activity(job["chat_id"], eff_pid)
+                            return
+                        except Exception as react_err:
+                            log.warning("Safe reaction fallback (%s): %s. Proceeding to text bubbles.", react_emoji, react_err)
+
                 async with self.account_session(aid) as cl:
                     sent_msg = None
                     for b_idx, bubble_text in enumerate(bubbles):
@@ -1301,6 +1324,29 @@ class Daemon:
                     rep_rows = self.store.rows("SELECT telegram_msg_id FROM daily_batch_items WHERE id=?", (p["reply_to_item_id"],))
                     if rep_rows and rep_rows[0].get("telegram_msg_id"):
                         reply_to_msg_id = rep_rows[0]["telegram_msg_id"]
+
+                # Native Telegram Emoji Reaction Execution
+                react_emoji = p.get("reaction")
+                if react_emoji and reply_to_msg_id:
+                    async with self.account_session(aid) as cl:
+                        try:
+                            from telethon.tl.functions.messages import SendReactionRequest
+                            from telethon.tl.types import ReactionEmoji
+                            await asyncio.sleep(random.uniform(1.2, 3.2))
+                            await cl(SendReactionRequest(
+                                peer=job["chat_id"],
+                                msg_id=int(reply_to_msg_id),
+                                reaction=[ReactionEmoji(emoticon=str(react_emoji).strip())]
+                            ))
+                            log.info("Sent native Telegram reaction '%s' to msg %s in %s (account %s)", react_emoji, reply_to_msg_id, job["chat_id"], aid)
+                            if p.get("batch_item_id"):
+                                self.store.mark_batch_item_sent(p["batch_item_id"], int(time.time()), telegram_msg_id=reply_to_msg_id)
+                            self.usage.log_event("reaction_sent", persona_id=eff_pid, account_id=aid, chat_id=job["chat_id"])
+                            if eff_pid:
+                                self.orchestrator.record_activity(job["chat_id"], eff_pid)
+                            return
+                        except Exception as react_err:
+                            log.warning("Safe reaction fallback (%s): %s. Proceeding to text bubbles.", react_emoji, react_err)
 
                 async with self.account_session(aid) as cl:
                     sent_msg = None
