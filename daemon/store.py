@@ -215,7 +215,14 @@ class Store:
             "CREATE INDEX IF NOT EXISTS idx_hm_chat_sender ON human_memories(chat_id, sender)",
             "CREATE INDEX IF NOT EXISTS idx_ga_acc ON group_accounts(account_id)",
             "CREATE INDEX IF NOT EXISTS idx_gp_acc ON group_personas(account_id)",
-            "CREATE INDEX IF NOT EXISTS idx_msgs_chat_bot ON messages(chat_id, is_bot, ts)"
+            "CREATE INDEX IF NOT EXISTS idx_msgs_chat_bot ON messages(chat_id, is_bot, ts)",
+            "ALTER TABLE persona_memories ADD COLUMN slot_key TEXT DEFAULT NULL",
+            "ALTER TABLE persona_memories ADD COLUMN is_active INTEGER DEFAULT 1",
+            "CREATE INDEX IF NOT EXISTS idx_mem_pid_slot ON persona_memories(persona_id, slot_key, is_active)",
+            "ALTER TABLE human_memories ADD COLUMN slot_key TEXT DEFAULT NULL",
+            "ALTER TABLE human_memories ADD COLUMN is_active INTEGER DEFAULT 1",
+            "ALTER TABLE human_memories ADD COLUMN status TEXT DEFAULT 'open'",
+            "CREATE INDEX IF NOT EXISTS idx_hm_chat_sender_slot ON human_memories(chat_id, sender, slot_key, is_active)"
 ):
             try:
                 self.db.execute(ddl)
