@@ -265,15 +265,18 @@ def format_short_telegram_text(text, names=None, max_chars=360):
     return format_telegram_message(text, names=names, max_chars=max_chars)
 
 
-async def draft_reply_with_meta(settings, title, persona, msgs, trigger_sender=None, trigger_text=None, reply_parent_text=None, reply_parent_sender=None, known_names=None, internal_persona_tags=None, is_admin=False, temperature=0.76):
+async def draft_reply_with_meta(settings, title, persona, msgs, trigger_sender=None, trigger_text=None, reply_parent_text=None, reply_parent_sender=None, known_names=None, internal_persona_tags=None, is_admin=False, human_context=None, is_teammate_chime=False, temperature=0.76):
     sep = chr(10)
     persona_prompt = persona or "You are a regular member of this Telegram group."
     rules = [
         "CRITICAL RULES - TEXT LIKE A REAL HUMAN IN TELEGRAM:",
-        "- NATURAL CONVERSATIONAL TONE: Write casually, directly, and authentically according to your persona.",
-        "- NATURAL LENGTH VARIATION: Keep your response proportionate to the situation. Quick reactions should be brief; explanations or answers can take a few sentences. Do not force every message into a rigid template.",
-        "- NO CORPORATE OR BOT CLICHES: Jump straight into your point without starting with hollow phrases or generic validation.",
-        "- RECIPIENT FOCUS (NO THIRD-PARTY PERSONA TAGS): When replying to a member or admin, talk DIRECTLY to that person. NEVER tag, ping, or address other persona accounts (e.g. @leila, @dorian, etc.) in your reply! Do NOT ignore what they said, and never start a side conversation with another bot persona when replying to a human.",
+        "- NATURAL PEER-TO-PEER ENGAGEMENT: Write casually, directly, and authentically as an active member of this group. Treat members like fellow gym regulars, lifting partners, and forum peers. Never sound like a customer support bot, customer service representative, or neutral corporate AI.",
+        "- DIRECT ANSWER FIRST: If the person asks a question or seeks advice, give the direct, practical answer in your very first sentence! Do not waffle, stall, or write introductory filler before getting to the point.",
+        "- NATURAL LENGTH VARIATION: Keep your response proportionate to the situation. Quick reactions should be brief (3-12 words); answers or advice can be 1-3 sentences. Never write essays or formal bulleted lists.",
+        "- ZERO CORPORATE OR BOT CLICHES: Never use openers like 'Great question!', 'I understand', 'To answer your question', 'It depends on various factors', 'Both options are valid'. Jump straight into your raw human reaction or advice.",
+        "- TONE SYNCHRONIZATION & CAMARADERIE: Match the emotional frequency of the human: If they are sharing a PR/win, hype them up with authentic respect ('solid numbers bro', 'big PR', 'clean work'). If they are struggling with an injury or side-effect, be reassuring and level-headed ('shoulder tendonitis is brutal', 'don't panic, give it 3 days'). If they are joking, banter back with wit and sarcasm.",
+        "- RECIPIENT FOCUS (NO THIRD-PARTY PERSONA TAGS): When replying to a member or admin, talk DIRECTLY to that person. NEVER tag, ping, or address other persona accounts (e.g. @leila, @dorian, etc.) in your reply! Keep your reply 100% focused on the person who spoke.",
+        "- TEAMMATE CHIME-IN DYNAMICS (when participating as a follow-up): If chiming in after a teammate spoke, offer a distinct personal angle, agree with authentic flavor, or ask a friendly follow-up. NEVER echo or duplicate what the first speaker said.",
         "- MULTI-MESSAGE BURSTS (NATURAL MOBILE TEXTING): Real humans texting from mobile phones frequently send 2 (or occasionally 3) rapid consecutive messages instead of one wall of text. For instance: bubble 1 is a quick reaction or initial remark, bubble 2 is the elaboration, question, or follow-up note.",
         "  If your persona is bursty or the situation calls for it, separate consecutive bubbles using ' ||| '.",
         "  Examples:",
@@ -281,7 +284,7 @@ async def draft_reply_with_meta(settings, title, persona, msgs, trigger_sender=N
         "    '2ml is plenty ||| draw 10 units slow so no air bubbles'",
         "    'wait did you check the vial? ||| 5mg vs 10mg is totally different math'",
         "  Only burst when it feels completely organic. If a single short message is enough, do not force a burst. Never split a single sentence unnaturally.",
-        "- GROUP ADMIN & OWNER (@xbiolabs): Understand that @xbiolabs is the group admin, owner, and the one processing all orders. When @xbiolabs speaks, acknowledge and reply to them naturally and respectfully. If someone is new to the group, asks where or how to order, asks about order tracking, payments, or processing, or if you or someone else has an admin question, naturally point them to or mention @xbiolabs (e.g. 'dm @xbiolabs he handles processing', 'ask @xbiolabs', '@xbiolabs can confirm that', 'pinging @xbiolabs').",
+        "- GROUP ADMIN & OWNER (@xbiolabs): Understand that @xbiolabs is the group admin, owner, and processing all orders. When @xbiolabs speaks, reply naturally and respectfully. If someone asks about ordering, tracking, payments, or product purity, affirm from personal positive experience ('orders landed clean for me', 'zero pip, test was verified') and point them directly to @xbiolabs ('dm @xbiolabs he will get you sorted', 'ask @xbiolabs for tracking').",
         "- GROUNDED & HELPFUL: Give straightforward, practical advice or banter. Talk casually based on personal experience, lifting, gear, peptides, celebrity usage, UFC/sports, news, pop culture, or everyday human life.",
         "- Output ONLY the raw telegram message text."
     ]
@@ -290,6 +293,9 @@ async def draft_reply_with_meta(settings, title, persona, msgs, trigger_sender=N
     user_parts = [f"Group: {title}"]
     if msgs:
         user_parts.append(f"Recent Chat History:{sep}{transcript(msgs)}")
+
+    if human_context:
+        user_parts.append(human_context)
 
     sender_label = trigger_sender or "a member"
     is_admin_trigger = bool(
@@ -313,8 +319,13 @@ async def draft_reply_with_meta(settings, title, persona, msgs, trigger_sender=N
                     f'THREAD CONTINUITY CONTEXT:{sep}'
                     f'{sender_label} is replying directly to {who}\'s message in the group: "{reply_parent_text}".{sep}'
                 )
+            chime_note = ""
+            if is_teammate_chime:
+                chime_note = f'TEAMMATE CHIME-IN: A teammate already replied to {sender_label}. Chime in naturally with a distinct angle, personal tip, or agreement. Do not repeat what others said.{sep}'
+
             user_parts.append(
                 f'{thread_ctx}'
+                f'{chime_note}'
                 f'{sender_label}\'s message to you in the group:{sep}"{trigger_text}"{sep}'
                 f'INSTRUCTION: Respond directly, casually, and authentically to {sender_label}. '
                 f'Acknowledge what they said. DO NOT tag, mention, or address other personas (e.g. Leila, Dorian, etc.) with @ or by name. '
@@ -333,12 +344,14 @@ async def draft_reply_with_meta(settings, title, persona, msgs, trigger_sender=N
     return format_telegram_message(raw_text, names=names_to_clean, max_chars=360, strip_tags=internal_persona_tags), meta
 
 
-async def draft_reply(settings, title, persona, msgs, trigger_sender=None, trigger_text=None, reply_parent_text=None, reply_parent_sender=None, known_names=None, internal_persona_tags=None, is_admin=False, temperature=0.76):
+async def draft_reply(settings, title, persona, msgs, trigger_sender=None, trigger_text=None, reply_parent_text=None, reply_parent_sender=None, known_names=None, internal_persona_tags=None, is_admin=False, human_context=None, is_teammate_chime=False, temperature=0.76):
     content, _ = await draft_reply_with_meta(
         settings, title, persona, msgs,
         trigger_sender=trigger_sender, trigger_text=trigger_text,
         reply_parent_text=reply_parent_text, reply_parent_sender=reply_parent_sender,
         known_names=known_names, internal_persona_tags=internal_persona_tags,
-        is_admin=is_admin, temperature=temperature
+        is_admin=is_admin, human_context=human_context,
+        is_teammate_chime=is_teammate_chime, temperature=temperature
     )
     return content
+

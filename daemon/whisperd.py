@@ -753,6 +753,13 @@ class Daemon:
             })
             log.info("%s DETECTED in %s: %s", sender_label, g_title, raw_text[:80])
 
+            # Record meaningful human disclosures for conversational continuity
+            if not is_admin_sender and raw_text and not raw_text.startswith("["):
+                try:
+                    self.memory.record_human_interaction(chat_id, name, sender_id, sender_username, raw_text)
+                except Exception as mem_err:
+                    log.warning("Memory recording notice: %s", mem_err)
+
             # Detect direct replies and mentions across ALL persona accounts & @xbiolabs
             is_direct = bool(getattr(event, 'mentioned', False)) or is_admin_sender
             target_persona_id = None
@@ -762,14 +769,29 @@ class Daemon:
             reply_parent_id = None
 
             # A. Check reply target: was a persona message replied to?
-            if getattr(event, 'is_reply', False):
+            # 1. First, check infallible local SQLite message table (0ms, 100% reliable)
+            if getattr(event, 'is_reply', False) or getattr(event, 'reply_to_msg_id', None):
+                r_id = getattr(event, 'reply_to_msg_id', None)
+                if r_id:
+                    reply_parent_id = r_id
+                    p_rows = self.store.rows("SELECT sender, text, persona_id, account_id, is_bot FROM messages WHERE chat_id=? AND msg_id=?", (chat_id, r_id))
+                    if p_rows:
+                        reply_parent_sender = p_rows[0].get("sender") or ""
+                        reply_parent_text = p_rows[0].get("text") or ""
+                        if p_rows[0].get("persona_id") and p_rows[0].get("account_id"):
+                            is_direct = True
+                            target_persona_id = p_rows[0]["persona_id"]
+                            target_account_id = p_rows[0]["account_id"]
+
+            # 2. Second, verify with Telethon get_reply_message if target not fully resolved
+            if not target_persona_id and getattr(event, 'is_reply', False):
                 try:
                     rep = await event.get_reply_message()
                     if rep:
                         reply_parent_id = rep.id
-                        reply_parent_text = rep.text or rep.raw_text or ""
+                        reply_parent_text = reply_parent_text or rep.text or rep.raw_text or ""
                         if rep.sender:
-                            reply_parent_sender = " ".join(x for x in (getattr(rep.sender, 'first_name', None), getattr(rep.sender, 'last_name', None)) if x) or getattr(rep.sender, 'username', None) or ""
+                            reply_parent_sender = reply_parent_sender or " ".join(x for x in (getattr(rep.sender, 'first_name', None), getattr(rep.sender, 'last_name', None)) if x) or getattr(rep.sender, 'username', None) or ""
                         if rep.sender_id:
                             for a in all_accounts:
                                 if a.get("user_id") == rep.sender_id:
@@ -783,19 +805,12 @@ class Daemon:
                 except Exception:
                     pass
 
-            if not reply_parent_text and getattr(event, 'reply_to_msg_id', None):
-                p_rows = self.store.rows("SELECT sender, text FROM messages WHERE chat_id=? AND msg_id=?", (chat_id, event.reply_to_msg_id))
-                if p_rows:
-                    reply_parent_id = event.reply_to_msg_id
-                    reply_parent_sender = p_rows[0].get("sender") or ""
-                    reply_parent_text = p_rows[0].get("text") or ""
-
             # B. Check handle / username mention in text
             if not target_persona_id and raw_text:
                 text_lower = raw_text.lower()
                 for a in all_accounts:
                     uname = (a.get("username") or "").lower().lstrip("@")
-                    if uname and uname != "xbiolabs" and (f"@{uname}" in text_lower or re.search(rf"{re.escape(uname)}", text_lower)):
+                    if uname and uname != "xbiolabs" and (f"@{uname}" in text_lower or re.search(r"(?:\b|_)" + re.escape(uname) + r"(?:\b|_)", text_lower)):
                         is_direct = True
                         target_account_id = a["id"]
                         target_persona_id = a.get("persona_id")
@@ -806,7 +821,7 @@ class Daemon:
                 text_lower = raw_text.lower()
                 for p in all_personas:
                     pname = (p.get("name") or "").lower()
-                    if pname and len(pname) >= 3 and re.search(rf"{re.escape(pname)}", text_lower):
+                    if pname and len(pname) >= 2 and re.search(r"(?:\b|_)" + re.escape(pname) + r"(?:\b|_)", text_lower):
                         is_direct = True
                         target_persona_id = p["id"]
                         matching_accs = [a for a in all_accounts if a.get("persona_id") == p["id"] and a.get("active", 1)]
@@ -882,6 +897,8 @@ class Daemon:
                                     "account_id": t_c["account_id"],
                                     "persona_id": t_c["persona_id"],
                                     "is_admin": is_admin_sender,
+                                    "is_teammate_chime": True,
+                                    "primary_persona_id": pid,
                                     "reason": "Teammate natural follow-up chime-in"
                                 },
                                 dedupe_key=f"teammate_reply:{chat_id}:{event.id}",
@@ -1213,6 +1230,9 @@ class Daemon:
                 if trigger_sender and trigger_sender not in cand_names:
                     cand_names.append(trigger_sender)
 
+                # Fetch relational memory context about this specific human member
+                human_ctx = self.memory.get_human_context(job["chat_id"], trigger_sender)
+
                 text, meta = await ai.draft_reply_with_meta(
                     settings,
                     g.get("title", ""),
@@ -1225,6 +1245,8 @@ class Daemon:
                     known_names=cand_names,
                     internal_persona_tags=list(internal_persona_tags),
                     is_admin=bool(p.get("is_admin")),
+                    human_context=human_ctx,
+                    is_teammate_chime=bool(p.get("is_teammate_chime")),
                     temperature=0.78
                 )
                 # Log AI token & latency usage
@@ -1341,7 +1363,8 @@ class Daemon:
                                 self.store.q("UPDATE accounts SET user_id=? WHERE id=?", (sender_id, aid))
                         self.store.add_message(
                             job["chat_id"], sent_msg.id, p.get("sender_name") or "Me",
-                            bubble_text, int(time.time()), is_bot=1, sender_id=sender_id
+                            bubble_text, int(time.time()), is_bot=1, sender_id=sender_id,
+                            persona_id=eff_pid, account_id=aid
                         )
                         if eff_pid:
                             self.memory.auto_record_statement(eff_pid, aid, job["chat_id"], bubble_text)

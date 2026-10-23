@@ -209,6 +209,10 @@ class Store:
             "CREATE INDEX IF NOT EXISTS idx_usage_ts ON usage_logs(timestamp)",
             "CREATE INDEX IF NOT EXISTS idx_usage_pid ON usage_logs(persona_id, timestamp)",
             "ALTER TABLE accounts ADD COLUMN last_synced_at INTEGER DEFAULT 0",
+            "ALTER TABLE messages ADD COLUMN persona_id INTEGER",
+            "ALTER TABLE messages ADD COLUMN account_id INTEGER",
+            "CREATE TABLE IF NOT EXISTS human_memories (id INTEGER PRIMARY KEY AUTOINCREMENT, chat_id INTEGER NOT NULL, sender TEXT NOT NULL, sender_id INTEGER, sender_username TEXT, fact TEXT NOT NULL, category TEXT DEFAULT 'general', created_at INTEGER NOT NULL, last_referenced_at INTEGER)",
+            "CREATE INDEX IF NOT EXISTS idx_hm_chat_sender ON human_memories(chat_id, sender)",
             "CREATE INDEX IF NOT EXISTS idx_ga_acc ON group_accounts(account_id)",
             "CREATE INDEX IF NOT EXISTS idx_gp_acc ON group_personas(account_id)",
             "CREATE INDEX IF NOT EXISTS idx_msgs_chat_bot ON messages(chat_id, is_bot, ts)"
@@ -661,13 +665,14 @@ class Store:
                (key, json.dumps(value)))
 
     # messages
-    def add_message(self, chat_id, msg_id, sender, text, ts, is_bot=0, sender_id=None):
+    def add_message(self, chat_id, msg_id, sender, text, ts, is_bot=0, sender_id=None, persona_id=None, account_id=None):
         self.q(
-            "INSERT INTO messages(chat_id, msg_id, sender, text, ts, is_bot, sender_id) "
-            "VALUES(?,?,?,?,?,?,?) "
+            "INSERT INTO messages(chat_id, msg_id, sender, text, ts, is_bot, sender_id, persona_id, account_id) "
+            "VALUES(?,?,?,?,?,?,?,?,?) "
             "ON CONFLICT(chat_id, msg_id) DO UPDATE SET "
-            "text=excluded.text, sender=excluded.sender, is_bot=excluded.is_bot, sender_id=excluded.sender_id",
-            (chat_id, msg_id, sender, text, ts, 1 if is_bot else 0, sender_id)
+            "text=excluded.text, sender=excluded.sender, is_bot=excluded.is_bot, sender_id=excluded.sender_id, "
+            "persona_id=COALESCE(excluded.persona_id, messages.persona_id), account_id=COALESCE(excluded.account_id, messages.account_id)",
+            (chat_id, msg_id, sender, text, ts, 1 if is_bot else 0, sender_id, persona_id, account_id)
         )
 
     def get_last_human_message_ts(self, chat_id):

@@ -440,3 +440,88 @@ class MemoryEngine:
             retention_tier=tier,
             salience=salience
         )
+
+    def record_human_interaction(self, chat_id, sender_name, sender_id=None, sender_username=None, text=""):
+        """Extracts and persists meaningful context about external human members for relationship continuity."""
+        text = (text or "").strip()
+        if len(text) < 8 or not sender_name or text.startswith("/"):
+            return None
+        lower = text.lower()
+
+        cat = "general"
+        fact = None
+        if any(k in lower for k in ["xbiolabs", "order", "ordered", "shipping", "tracking", "package", "landed", "batch", "purity", "janoshik", "payment", "usps", "carrier"]):
+            cat = "order_vendor"
+            fact = text[:150]
+        elif any(re.search(r"\b" + re.escape(k) + r"\b", lower) for k in ["bpc", "bpc157", "bpc-157", "tb500", "tb-500", "tirz", "tirzepatide", "reta", "retatrutide", "sema", "semaglutide", "test", "trt", "tren", "deca", "anavar", "var", "dbol", "primo", "sarms", "rad140", "mk677", "semax", "selank", "modafinil", "gh", "hgh", "hcg", "reconstituted", "bac water"]):
+            cat = "protocol"
+            fact = text[:150]
+        elif any(re.search(r"\b" + re.escape(k) + r"\b", lower) for k in ["shoulder", "rotator cuff", "tendon", "tendonitis", "knee", "elbow", "back pain", "sciatica", "tear", "sprain", "inflammation", "gut", "nausea", "fatigue", "insomnia", "bloodwork", "labs"]):
+            cat = "injury_health"
+            fact = text[:150]
+        elif any(re.search(r"\b" + re.escape(k) + r"\b", lower) for k in ["bench", "squat", "deadlift", "pr", "split", "ppl", "bulk", "cutting", "bodyfat", "hypertrophy", "cardio", "macros", "creatine"]):
+            cat = "lifting_fitness"
+            fact = text[:150]
+        elif re.search(r"\b(?:i am|i'm|im|my weight|my height|years lifting|training for)\b", lower):
+            cat = "personal"
+            fact = text[:150]
+        elif "?" in text and len(text) >= 15:
+            cat = "inquiry"
+            fact = text[:150]
+
+        if not fact:
+            return None
+
+        now_ts = int(time.time())
+        try:
+            with self.store.lock:
+                cur = self.store.db.cursor()
+                cur.execute(
+                    "SELECT id, fact FROM human_memories WHERE chat_id=? AND sender=? ORDER BY id DESC LIMIT 10",
+                    (chat_id, sender_name)
+                )
+                existing = cur.fetchall()
+                fact_words = extract_keywords(fact)
+                for ex_id, ex_fact in existing:
+                    ex_words = extract_keywords(ex_fact)
+                    if fact_words and ex_words:
+                        overlap = len(fact_words & ex_words) / max(1, len(fact_words | ex_words))
+                        if overlap > 0.60:
+                            cur.execute("UPDATE human_memories SET last_referenced_at=? WHERE id=?", (now_ts, ex_id))
+                            self.store.db.commit()
+                            return ex_id
+
+                cur.execute(
+                    "INSERT INTO human_memories(chat_id, sender, sender_id, sender_username, fact, category, created_at, last_referenced_at) "
+                    "VALUES(?,?,?,?,?,?,?,?)",
+                    (chat_id, sender_name, sender_id, sender_username, fact, cat, now_ts, now_ts)
+                )
+                self.store.db.commit()
+        except Exception as e:
+            log.warning("Failed to record human interaction: %s", e)
+        return None
+
+    def get_human_context(self, chat_id, sender_name, limit=4):
+        """Retrieves conversational memory and known history about a specific human member."""
+        if not sender_name:
+            return ""
+        try:
+            with self.store.lock:
+                cur = self.store.db.cursor()
+                cur.execute(
+                    "SELECT fact, category, created_at FROM human_memories "
+                    "WHERE chat_id=? AND sender=? "
+                    "ORDER BY id DESC LIMIT ?",
+                    (chat_id, sender_name, limit)
+                )
+                rows = cur.fetchall()
+            if not rows:
+                return ""
+            lines = [f"--- WHAT WE KNOW ABOUT {sender_name.upper()} (Treat them like a familiar peer) ---"]
+            for fact, cat, _ts in rows:
+                lines.append(f"  * ({cat}) {fact}")
+            lines.append("Use this background naturally if relevant to what they said. Show genuine memory and continuity.")
+            return "\n".join(lines)
+        except Exception as e:
+            log.warning("Failed to get human context: %s", e)
+            return ""

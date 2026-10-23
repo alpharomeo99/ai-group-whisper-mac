@@ -293,20 +293,15 @@ class PersonaCadenceOrchestrator:
         scored_candidates.sort(key=lambda x: x["utility"], reverse=True)
         best = scored_candidates[0]
 
-        # Check threshold: for human and admin messages, personas ALWAYS respond
-        effective_threshold = 0.0 if (is_direct_mention or is_admin) else float(cfg.get("base_threshold", 0.10)) * 0.2
-
-        if best["utility"] < effective_threshold:
-            # Fallback: always elect the best candidate for live group participants
-            best_cand = scored_candidates[0]
-            delay = self.calculate_deliberation_delay(msg_text, reading_cps=cfg["reading_cps"], poisson_lambda=cfg["poisson_lambda"]) + inter_spacing_offset
-            return best_cand["persona_id"], best_cand["account_id"], delay, f"Elected fallback for human speaker (utility: {best_cand['utility']:.2f})"
-
-        # Calculate stochastic Poisson delay for cognitive deliberation
+        # Calculate deliberation delay with natural human reading & hesitation cadence
         delay = self.calculate_deliberation_delay(
             msg_text,
-            reading_cps=cfg["reading_cps"],
-            poisson_lambda=cfg["poisson_lambda"]
+            reading_cps=cfg.get("reading_cps", 32.0),
+            poisson_lambda=cfg.get("poisson_lambda", 0.08)
         ) + inter_spacing_offset
 
-        return best["persona_id"], best["account_id"], delay, f"Elected (utility: {best['utility']:.2f}, fatigue: {best['fatigue']:.2f}, freshness: {best['freshness']:.2f}, delay: {delay:.1f}s)"
+        label = "direct target" if (target_persona_id or is_direct_mention) else "best affinity"
+        return best["persona_id"], best["account_id"], delay, (
+            f"Elected ({label}, utility: {best['utility']:.2f}, "
+            f"relevance: {best['rel_score']:.2f}, fatigue: {best['fatigue']:.2f}, delay: {delay:.1f}s)"
+        )
