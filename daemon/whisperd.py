@@ -1233,6 +1233,23 @@ class Daemon:
                 # Fetch relational memory context about this specific human member
                 human_ctx = self.memory.get_human_context(job["chat_id"], trigger_sender)
 
+                # Resolve persona details & burstiness prior to drafting
+                burstiness = 35
+                eff_pid = p.get("persona_id")
+                dt = None
+                p_disp_name = p.get("persona_name") or p.get("name")
+                if eff_pid:
+                    p_row = self.store.rows("SELECT name, details FROM personas WHERE id=?", (eff_pid,))
+                    if p_row:
+                        if not p_disp_name and p_row[0].get("name"):
+                            p_disp_name = p_row[0]["name"]
+                        if p_row[0].get("details"):
+                            try:
+                                dt = json.loads(p_row[0]["details"] or "{}")
+                                burstiness = int(dt.get("burstiness") or dt.get("burstiness_percent") or 35)
+                            except Exception:
+                                dt = None
+
                 text, meta = await ai.draft_reply_with_meta(
                     settings,
                     g.get("title", ""),
@@ -1247,25 +1264,15 @@ class Daemon:
                     is_admin=bool(p.get("is_admin")),
                     human_context=human_ctx,
                     is_teammate_chime=bool(p.get("is_teammate_chime")),
-                    temperature=0.78
+                    temperature=0.78,
+                    persona_name=p_disp_name,
+                    persona_details=dt
                 )
                 # Log AI token & latency usage
                 self.usage.log_ai("ai_chat", persona_id=p.get("persona_id"), account_id=p.get("account_id"),
                                   chat_id=job["chat_id"], tokens_prompt=meta.get("prompt_tokens"),
                                   tokens_completion=meta.get("completion_tokens"), latency_ms=meta.get("latency_ms"),
                                   model=meta.get("model"))
-
-                # Resolve persona burstiness
-                burstiness = 35
-                eff_pid = p.get("persona_id")
-                if eff_pid:
-                    p_row = self.store.rows("SELECT details FROM personas WHERE id=?", (eff_pid,))
-                    if p_row and p_row[0].get("details"):
-                        try:
-                            dt = json.loads(p_row[0]["details"] or "{}")
-                            burstiness = int(dt.get("burstiness") or dt.get("burstiness_percent") or 35)
-                        except Exception:
-                            pass
 
                 bubbles = ai.split_burst_bubbles(text, names=cand_names, burstiness_pct=burstiness)
 

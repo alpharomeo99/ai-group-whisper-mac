@@ -265,9 +265,108 @@ def format_short_telegram_text(text, names=None, max_chars=360):
     return format_telegram_message(text, names=names, max_chars=max_chars)
 
 
-async def draft_reply_with_meta(settings, title, persona, msgs, trigger_sender=None, trigger_text=None, reply_parent_text=None, reply_parent_sender=None, known_names=None, internal_persona_tags=None, is_admin=False, human_context=None, is_teammate_chime=False, temperature=0.76):
+
+def resolve_persona_temperament(name=None, details=None, prompt=None, trigger_text=None):
+    """
+    Classifies a persona into one of three distinct behavioral tiers:
+    - 'aggressive_low_patience': Raw, zero-filter internet vernacular, impatient with dumb/lazy questions, roasts bad takes.
+    - 'dry_sarcastic': Deadpan, weary, skeptical one-liners, rolls eyes at drama.
+    - 'chill_grounded': Grounded, calm, practical peer without corporate AI fluff.
+
+    Also calculates an ephemeral situational mood trigger based on context and probabilistic roll ("sometimes").
+    """
+    dt = details or {}
+    unhinged = int(dt.get("unhinged_level", 0))
+    combative = int(dt.get("combative", 0))
+    cynicism = int(dt.get("cynicism", 0))
+    slang = str(dt.get("slang_tier", "")).lower()
+
+    if combative >= 60 or unhinged >= 65 or slang in ("crypto_degen", "gym_bro_aggressive", "raw_internet", "unfiltered"):
+        tier = "aggressive_low_patience"
+    elif cynicism >= 55 or combative >= 40 or unhinged >= 40 or slang in ("tech_founder", "gen_z_internet"):
+        tier = "dry_sarcastic"
+    elif unhinged > 0 or combative > 0 or cynicism > 0:
+        tier = "chill_grounded"
+    else:
+        # Check prompt & name text
+        combined = (str(prompt or "") + " " + str(name or "")).lower()
+        if any(w in combined for w in ["unhinged", "degen", "combative", "aggressive", "no filter", "contrarian", "conspiracy", "shitpost"]):
+            tier = "aggressive_low_patience"
+        elif any(w in combined for w in ["cynic", "sarcastic", "deadpan", "skeptic", "lurker"]):
+            tier = "dry_sarcastic"
+        elif any(w in combined for w in ["diplomat", "calm", "pragmat", "support", "doctor", "coach", "veteran", "scientist", "nerd"]):
+            tier = "chill_grounded"
+        else:
+            # Deterministic hash split across names so every group has natural variety
+            h = abs(hash(str(name or ""))) % 10
+            if h in (0, 1, 2):  # 30% of unclassified personas
+                tier = "aggressive_low_patience"
+            elif h in (3, 4):   # 20%
+                tier = "dry_sarcastic"
+            else:              # 50%
+                tier = "chill_grounded"
+
+    # Situational and probabilistic mood roll ("sometimes dude")
+    is_triggered_low_patience = False
+    if tier == "aggressive_low_patience":
+        text_lower = (trigger_text or "").lower()
+        naive_triggers = [
+            "can i", "is it safe", "how fast", "first time", "will i get",
+            "what if i", "help", "afraid", "needle", "legal", "scared", "tell me what to take"
+        ]
+        if any(w in text_lower for w in naive_triggers) and len(text_lower) > 5:
+            is_triggered_low_patience = True
+        else:
+            # Random mood roll (~50% chance of active raw vernacular in regular chat)
+            is_triggered_low_patience = (random.random() < 0.50)
+
+    return {
+        "tier": tier,
+        "is_triggered_low_patience": is_triggered_low_patience
+    }
+
+
+async def draft_reply_with_meta(settings, title, persona, msgs, trigger_sender=None, trigger_text=None, reply_parent_text=None, reply_parent_sender=None, known_names=None, internal_persona_tags=None, is_admin=False, human_context=None, is_teammate_chime=False, temperature=0.76, persona_name=None, persona_details=None):
     sep = chr(10)
     persona_prompt = persona or "You are a regular member of this Telegram group."
+    temp_info = resolve_persona_temperament(
+        name=persona_name,
+        details=persona_details,
+        prompt=persona,
+        trigger_text=trigger_text
+    )
+    p_tier = temp_info["tier"]
+    p_low_pat = temp_info["is_triggered_low_patience"]
+
+    if p_tier == "aggressive_low_patience":
+        if p_low_pat and not (is_admin or (trigger_sender and "xbiolabs" in trigger_sender.lower())):
+            tone_instruction = (
+                "- RAW, AGGRESSIVE & LOW-PATIENCE INTERNET VERNACULAR (ACTIVE): "
+                "You have ZERO patience for corporate politeness, hand-holding, or dumb questions right now. "
+                "Text like a raw, blunt internet regular with zero filter: Use dismissive, sharp internet vernacular "
+                "('bro what are you even saying rn', 'who told you that bs💀', 'are you serious with this question', 'lol nah', "
+                "'stop overthinking simple shit and just train', 'zero chance', 'why would you even touch that'). "
+                "Never comfort, sugarcoat, or use polite customer-support phrasing. Cut straight through nonsense with sharp reality checks. "
+                "Keep it short, biting, and punchy (1 to 2 short sentences or rapid burst). No polite preamble."
+            )
+        else:
+            tone_instruction = (
+                "- BLUNT & INFORMAL PEER: You are direct, punchy, and informal. You don't sugarcoat or waste words, but you aren't raging right now. "
+                "Give the direct verdict in 1-2 short sentences without corporate fluff ('clean numbers bro', 'drop caffeine after 1pm', '2ml is standard')."
+            )
+    elif p_tier == "dry_sarcastic":
+        tone_instruction = (
+            "- DRY, DEADPAN & SKEPTICAL VERNACULAR: You are unimpressed by hype, drama, or bro-science. "
+            "Drop short, sarcastic, deadpan one-liners or weary reality checks ('sure bro whatever you say', 'rip your sleep schedule', 'fascinating theory💀', 'good luck with that'). "
+            "Don't get openly furious, but have zero patience for hype or drama."
+        )
+    else:  # chill_grounded
+        tone_instruction = (
+            "- CHILL, GROUNDED & PRACTICAL PEER: You are relaxed, level-headed, and helpful without being a bot. "
+            "You explain things clearly peer-to-peer ('yeah 2ml bac water is standard, 10 units on the insulin pin gives you 250mcg', 'shoulder tendonitis takes a minute to heal, back off heavy pressing'). "
+            "Never sound like corporate support or an AI disclaimer."
+        )
+
     rules = [
         "CRITICAL RULES - TEXT LIKE A REAL HUMAN IN TELEGRAM:",
         "- NATURAL PEER-TO-PEER ENGAGEMENT: Write casually, directly, and authentically as an active member of this group. Treat members like fellow gym regulars, lifting partners, and forum peers. Never sound like a customer support bot, customer service representative, or neutral corporate AI.",
@@ -285,7 +384,7 @@ async def draft_reply_with_meta(settings, title, persona, msgs, trigger_sender=N
         "    'wait did you check the vial? ||| 5mg vs 10mg is totally different math'",
         "  Only burst when it feels completely organic. If a single short message is enough, do not force a burst. Never split a single sentence unnaturally.",
         "- GROUP ADMIN & OWNER (@xbiolabs): Understand that @xbiolabs is the group admin, owner, and processing all orders. When @xbiolabs speaks, reply naturally and respectfully. If someone asks about ordering, tracking, payments, or product purity, affirm from personal positive experience ('orders landed clean for me', 'zero pip, test was verified') and point them directly to @xbiolabs ('dm @xbiolabs he will get you sorted', 'ask @xbiolabs for tracking').",
-        "- GROUNDED & HELPFUL: Give straightforward, practical advice or banter. Talk casually based on personal experience, lifting, gear, peptides, celebrity usage, UFC/sports, news, pop culture, or everyday human life.",
+        tone_instruction,
         "- Output ONLY the raw telegram message text."
     ]
     system = persona_prompt + sep + sep + sep.join(rules)
@@ -344,14 +443,14 @@ async def draft_reply_with_meta(settings, title, persona, msgs, trigger_sender=N
     return format_telegram_message(raw_text, names=names_to_clean, max_chars=360, strip_tags=internal_persona_tags), meta
 
 
-async def draft_reply(settings, title, persona, msgs, trigger_sender=None, trigger_text=None, reply_parent_text=None, reply_parent_sender=None, known_names=None, internal_persona_tags=None, is_admin=False, human_context=None, is_teammate_chime=False, temperature=0.76):
+async def draft_reply(settings, title, persona, msgs, trigger_sender=None, trigger_text=None, reply_parent_text=None, reply_parent_sender=None, known_names=None, internal_persona_tags=None, is_admin=False, human_context=None, is_teammate_chime=False, temperature=0.76, persona_name=None, persona_details=None):
     content, _ = await draft_reply_with_meta(
         settings, title, persona, msgs,
         trigger_sender=trigger_sender, trigger_text=trigger_text,
         reply_parent_text=reply_parent_text, reply_parent_sender=reply_parent_sender,
         known_names=known_names, internal_persona_tags=internal_persona_tags,
         is_admin=is_admin, human_context=human_context,
-        is_teammate_chime=is_teammate_chime, temperature=temperature
+        is_teammate_chime=is_teammate_chime, temperature=temperature, persona_name=persona_name, persona_details=persona_details
     )
     return content
 

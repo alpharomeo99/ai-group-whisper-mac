@@ -406,9 +406,30 @@ class DailyBatchEngine:
                     mem_lines.append("Core Established Facts:\n" + "\n".join(f"  * {mr['content']}" for mr in m_rows))
             mem_str = ("\n  " + "\n  ".join(mem_lines)) if mem_lines else ""
 
+            c_dt = {}
+            if c.get("details"):
+                try:
+                    c_dt = json.loads(c["details"]) if isinstance(c["details"], str) else c["details"]
+                except Exception:
+                    c_dt = {}
+
+            temp_res = ai.resolve_persona_temperament(
+                name=c.get("persona_name"),
+                details=c_dt,
+                prompt=c.get("prompt")
+            )
+            c_tier = temp_res["tier"]
+            if c_tier == "aggressive_low_patience":
+                c_temperament = "RAW & LOW-PATIENCE INTERNET VERNACULAR (Zero filter, roasts dumb takes/questions, cuts through nonsense with sharp dismissive internet slang, e.g. 'bro what are you even saying', 'lol nah', 'who told you that garbage💀')"
+            elif c_tier == "dry_sarcastic":
+                c_temperament = "DRY & SKEPTICAL OBSERVER (Deadpan, rolls eyes at hype, weary one-liners, sarcastic reality checks)"
+            else:
+                c_temperament = "CHILL & GROUNDED PRACTICAL PEER (Calm, knowledgeable, explains reconstitution or protocol details without corporate tone)"
+
             persona_summaries.append(
                 f"- ID: {c['persona_id']}, AccountID: {c['account_id']}, Name: {c['persona_name']}, Telegram Tag: {tag}\n"
                 f"  Vibe/Role: {role}\n"
+                f"  Temperament & Speech Profile: [{c_tier.upper()}] - {c_temperament}\n"
                 f"  Signature Emojis: {emojis} (habit: {emoji_habit})\n"
                 f"  Typing: {typing}\n"
                 f"  Brief: {c.get('prompt', '')[:160]}...{mem_str}"
@@ -425,7 +446,15 @@ class DailyBatchEngine:
             "You orchestrate realistic, organic human conversations in specialist Telegram communities.\n"
             "You write authentic, casual group chat exchanges between real people texting from their phones.\n\n"
             "CRITICAL GUIDELINES FOR AUTHENTIC HUMAN MESSAGING:\n"
-            "CRITICAL: ABSOLUTE ZERO REPETITION MANDATE (STRICTLY ENFORCED):\n"
+            "AUTHENTIC CONVERSATIONAL FRICTION & ASYMMETRIC TEMPERAMENTS (MANDATORY):\n"
+            "- Group chats are NEVER unanimous or polite corporate meetings! Members have completely different social temperaments:\n"
+            "  * LOW-PATIENCE / RAW VERNACULAR PERSONAS: When they speak, they have zero corporate filter and low patience. When someone asks a silly question, overcomplicates basic protocols, or drops bad takes, they fire back with raw, aggressive, low-patience internet vernacular:\n"
+            "    'bro what are you even saying rn', 'who told you that garbage💀', 'lol nah', 'are you serious with this question', 'stop overcomplicating basic shit and just train', 'why would you even touch that'.\n"
+            "    They do NOT sugarcoat or write polite explanations.\n"
+            "  * DRY / SARCASTIC PERSONAS: Drop deadpan, cynical one-liners, rolling their eyes at gym drama or over-hyped compounds ('sure bro whatever you say', 'rip your sleep schedule', 'fascinating theory💀').\n"
+            "  * CHILL / GROUNDED PERSONAS: Balance the room out. They are calm, experienced, and give straightforward practical answers and reconstitution math without getting heated.\n"
+            "- The low-patience members roast and push back, the skeptics tease, and the chill members balance it out. This asymmetrical friction is what makes the group feel authentic and alive!\n\n"
+            "CRITICAL: ABSOLUTE ZERO REPETITION MANDATE (STRICTLY ENFORCED):\n" 
             "Under NO circumstances should any persona repeat, rehash, copy, or paraphrase any of these recently discussed points, questions, jokes, or statements:\n"
             f"{forbidden_block}\n"
             "- Do NOT re-ask questions that were already discussed.\n"
