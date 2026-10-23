@@ -757,20 +757,38 @@ class Daemon:
             is_direct = bool(getattr(event, 'mentioned', False)) or is_admin_sender
             target_persona_id = None
             target_account_id = None
+            reply_parent_text = None
+            reply_parent_sender = None
+            reply_parent_id = None
 
             # A. Check reply target: was a persona message replied to?
             if getattr(event, 'is_reply', False):
                 try:
                     rep = await event.get_reply_message()
-                    if rep and rep.sender_id:
-                        for a in all_accounts:
-                            if a.get("user_id") == rep.sender_id:
-                                is_direct = True
-                                target_account_id = a["id"]
-                                target_persona_id = a.get("persona_id")
-                                break
+                    if rep:
+                        reply_parent_id = rep.id
+                        reply_parent_text = rep.text or rep.raw_text or ""
+                        if rep.sender:
+                            reply_parent_sender = " ".join(x for x in (getattr(rep.sender, 'first_name', None), getattr(rep.sender, 'last_name', None)) if x) or getattr(rep.sender, 'username', None) or ""
+                        if rep.sender_id:
+                            for a in all_accounts:
+                                if a.get("user_id") == rep.sender_id:
+                                    is_direct = True
+                                    target_account_id = a["id"]
+                                    target_persona_id = a.get("persona_id")
+                                    for p in all_personas:
+                                        if p.get("id") == target_persona_id:
+                                            reply_parent_sender = p.get("name") or reply_parent_sender
+                                    break
                 except Exception:
                     pass
+
+            if not reply_parent_text and getattr(event, 'reply_to_msg_id', None):
+                p_rows = self.store.rows("SELECT sender, text FROM messages WHERE chat_id=? AND msg_id=?", (chat_id, event.reply_to_msg_id))
+                if p_rows:
+                    reply_parent_id = event.reply_to_msg_id
+                    reply_parent_sender = p_rows[0].get("sender") or ""
+                    reply_parent_text = p_rows[0].get("text") or ""
 
             # B. Check handle / username mention in text
             if not target_persona_id and raw_text:
@@ -806,6 +824,14 @@ class Daemon:
                 candidates = self.daily_batch.get_group_candidates(chat_id)
 
             if candidates:
+                if target_persona_id and target_account_id:
+                    if not any(c.get("persona_id") == target_persona_id for c in candidates):
+                        candidates.append({
+                            "persona_id": target_persona_id,
+                            "account_id": target_account_id,
+                            "persona_name": reply_parent_sender or "Target Persona"
+                        })
+
                 pid, aid_chosen, delay, reason = self.orchestrator.arbiter_decision(
                     chat_id, candidates,
                     {"text": raw_text, "sender": name, "id": event.id},
@@ -822,6 +848,9 @@ class Daemon:
                             "trigger": event.id,
                             "trigger_sender": name,
                             "trigger_text": raw_text,
+                            "reply_parent_text": reply_parent_text,
+                            "reply_parent_sender": reply_parent_sender,
+                            "reply_parent_id": reply_parent_id,
                             "auto_send": True,
                             "account_id": aid_chosen,
                             "persona_id": pid,
@@ -1153,11 +1182,25 @@ class Daemon:
             elif job["kind"] == "draft_reply":
                 trigger_sender = p.get("trigger_sender") or ""
                 trigger_text = p.get("trigger_text") or ""
+                reply_parent_text = p.get("reply_parent_text") or ""
+                reply_parent_sender = p.get("reply_parent_sender") or ""
                 if not trigger_text and p.get("trigger"):
                     trig_rows = self.store.rows("SELECT sender, text FROM messages WHERE chat_id=? AND msg_id=?", (job["chat_id"], p["trigger"]))
                     if trig_rows:
                         trigger_sender = trig_rows[0].get("sender") or ""
                         trigger_text = trig_rows[0].get("text") or ""
+
+                all_accs = self.store.rows("SELECT username, name FROM accounts")
+                all_pers = self.store.rows("SELECT name FROM personas")
+                internal_persona_tags = set()
+                for a in all_accs:
+                    uname = (a.get("username") or "").lower().lstrip("@")
+                    if uname and uname != "xbiolabs":
+                        internal_persona_tags.add(uname)
+                for pr in all_pers:
+                    pname = (pr.get("name") or "").lower()
+                    if pname and len(pname) >= 3:
+                        internal_persona_tags.add(pname)
 
                 chosen_persona = self.persona_for(
                     g,
@@ -1177,7 +1220,10 @@ class Daemon:
                     self.store.recent(job["chat_id"], 25),
                     trigger_sender=trigger_sender,
                     trigger_text=trigger_text,
+                    reply_parent_text=reply_parent_text,
+                    reply_parent_sender=reply_parent_sender,
                     known_names=cand_names,
+                    internal_persona_tags=list(internal_persona_tags),
                     is_admin=bool(p.get("is_admin")),
                     temperature=0.78
                 )

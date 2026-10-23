@@ -130,7 +130,19 @@ def naturalize_mobile_text(text):
     return text
 
 
-def _clean_single_telegram_bubble(text, names=None, max_chars=360):
+def strip_internal_tags(text, tags_to_strip):
+    if not text or not tags_to_strip:
+        return text
+    for tag in tags_to_strip:
+        clean = tag.lower().lstrip('@')
+        if not clean or clean == 'xbiolabs':
+            continue
+        pat = rf'@?\b{re.escape(clean)}\b\s*[,:]?\s*'
+        text = re.sub(pat, '', text, flags=re.IGNORECASE)
+    return re.sub(r'\s{2,}', ' ', text).strip()
+
+
+def _clean_single_telegram_bubble(text, names=None, max_chars=360, strip_tags=None):
     """Sanitizes a single message bubble: strips labels, salutations, markdown lists, and caps length."""
     if not text:
         return ""
@@ -140,6 +152,8 @@ def _clean_single_telegram_bubble(text, names=None, max_chars=360):
 
     # Clean out formal email-style salutations (e.g. 'Hey Dave, ' -> '')
     text = strip_addressing_names(text, names=names)
+    if strip_tags:
+        text = strip_internal_tags(text, strip_tags)
 
     raw_lines = [l.strip() for l in text.splitlines() if l.strip()]
     if not raw_lines:
@@ -174,7 +188,7 @@ def _clean_single_telegram_bubble(text, names=None, max_chars=360):
     return text.strip()
 
 
-def format_telegram_message(text, names=None, max_chars=360):
+def format_telegram_message(text, names=None, max_chars=360, strip_tags=None):
     """Cleans LLM formatting artifacts from generated Telegram messages while preserving natural grammar, tone, and casing.
     Preserves multi-bubble burst markers (' ||| ', '[SPLIT]', etc.) by formatting each bubble independently.
     """
@@ -183,10 +197,10 @@ def format_telegram_message(text, names=None, max_chars=360):
     text = text.strip()
     for sep in (" ||| ", "|||", "[SPLIT]", "\n---\n", "\n===SPLIT===\n"):
         if sep in text:
-            parts = [_clean_single_telegram_bubble(p, names=names, max_chars=max_chars) for p in text.split(sep)]
+            parts = [_clean_single_telegram_bubble(p, names=names, max_chars=max_chars, strip_tags=strip_tags) for p in text.split(sep)]
             parts = [p for p in parts if p]
             return " ||| ".join(parts[:3])
-    return _clean_single_telegram_bubble(text, names=names, max_chars=max_chars)
+    return _clean_single_telegram_bubble(text, names=names, max_chars=max_chars, strip_tags=strip_tags)
 
 
 def split_burst_bubbles(text, names=None, burstiness_pct=35, max_chars=360):
@@ -251,7 +265,7 @@ def format_short_telegram_text(text, names=None, max_chars=360):
     return format_telegram_message(text, names=names, max_chars=max_chars)
 
 
-async def draft_reply_with_meta(settings, title, persona, msgs, trigger_sender=None, trigger_text=None, known_names=None, is_admin=False, temperature=0.76):
+async def draft_reply_with_meta(settings, title, persona, msgs, trigger_sender=None, trigger_text=None, reply_parent_text=None, reply_parent_sender=None, known_names=None, internal_persona_tags=None, is_admin=False, temperature=0.76):
     sep = chr(10)
     persona_prompt = persona or "You are a regular member of this Telegram group."
     rules = [
@@ -259,7 +273,7 @@ async def draft_reply_with_meta(settings, title, persona, msgs, trigger_sender=N
         "- NATURAL CONVERSATIONAL TONE: Write casually, directly, and authentically according to your persona.",
         "- NATURAL LENGTH VARIATION: Keep your response proportionate to the situation. Quick reactions should be brief; explanations or answers can take a few sentences. Do not force every message into a rigid template.",
         "- NO CORPORATE OR BOT CLICHES: Jump straight into your point without starting with hollow phrases or generic validation.",
-        "- AUTHENTIC EMOJIS & REPLIES: Use emojis naturally where fitting. Use Telegram reply quotes and @mentions when directly addressing a peer.",
+        "- RECIPIENT FOCUS (NO THIRD-PARTY PERSONA TAGS): When replying to a member or admin, talk DIRECTLY to that person. NEVER tag, ping, or address other persona accounts (e.g. @leila, @dorian, etc.) in your reply! Do NOT ignore what they said, and never start a side conversation with another bot persona when replying to a human.",
         "- MULTI-MESSAGE BURSTS (NATURAL MOBILE TEXTING): Real humans texting from mobile phones frequently send 2 (or occasionally 3) rapid consecutive messages instead of one wall of text. For instance: bubble 1 is a quick reaction or initial remark, bubble 2 is the elaboration, question, or follow-up note.",
         "  If your persona is bursty or the situation calls for it, separate consecutive bubbles using ' ||| '.",
         "  Examples:",
@@ -292,9 +306,19 @@ async def draft_reply_with_meta(settings, title, persona, msgs, trigger_sender=N
                 f'If @xbiolabs asked a question, requested info, gave an update, or made an announcement, answer or acknowledge it like an active, engaged community member. Never ignore @xbiolabs.'
             )
         else:
+            thread_ctx = ""
+            if reply_parent_text:
+                who = reply_parent_sender or "your previous remark"
+                thread_ctx = (
+                    f'THREAD CONTINUITY CONTEXT:{sep}'
+                    f'{sender_label} is replying directly to {who}\'s message in the group: "{reply_parent_text}".{sep}'
+                )
             user_parts.append(
-                f'You are reacting or replying directly to this message from {sender_label} in the chat:{sep}"{trigger_text}"{sep}'
-                f'Respond directly and helpfully to {sender_label} in a natural, casual, human tone.'
+                f'{thread_ctx}'
+                f'{sender_label}\'s message to you in the group:{sep}"{trigger_text}"{sep}'
+                f'INSTRUCTION: Respond directly, casually, and authentically to {sender_label}. '
+                f'Acknowledge what they said. DO NOT tag, mention, or address other personas (e.g. Leila, Dorian, etc.) with @ or by name. '
+                f'Keep your reply 100% focused on {sender_label}.'
             )
     elif msgs:
         user_parts.append("Respond naturally to the latest conversation above.")
@@ -306,13 +330,15 @@ async def draft_reply_with_meta(settings, title, persona, msgs, trigger_sender=N
     names_to_clean = list(known_names or [])
     if trigger_sender and trigger_sender not in names_to_clean:
         names_to_clean.append(trigger_sender)
-    return format_telegram_message(raw_text, names=names_to_clean, max_chars=360), meta
+    return format_telegram_message(raw_text, names=names_to_clean, max_chars=360, strip_tags=internal_persona_tags), meta
 
 
-async def draft_reply(settings, title, persona, msgs, trigger_sender=None, trigger_text=None, known_names=None, is_admin=False, temperature=0.76):
+async def draft_reply(settings, title, persona, msgs, trigger_sender=None, trigger_text=None, reply_parent_text=None, reply_parent_sender=None, known_names=None, internal_persona_tags=None, is_admin=False, temperature=0.76):
     content, _ = await draft_reply_with_meta(
         settings, title, persona, msgs,
         trigger_sender=trigger_sender, trigger_text=trigger_text,
-        known_names=known_names, is_admin=is_admin, temperature=temperature
+        reply_parent_text=reply_parent_text, reply_parent_sender=reply_parent_sender,
+        known_names=known_names, internal_persona_tags=internal_persona_tags,
+        is_admin=is_admin, temperature=temperature
     )
     return content

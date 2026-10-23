@@ -196,6 +196,14 @@ class PersonaCadenceOrchestrator:
                         poisson_lambda=cfg.get("poisson_lambda", 0.08)
                     )
                     return target_persona_id, target_account_id or cp["account_id"], delay, f"Directly addressed persona {target_persona_id}"
+            # Direct reply or mention guarantee: if target account is known, honor it even if missing in filtered pool
+            if target_account_id:
+                delay = self.calculate_deliberation_delay(
+                    msg_text,
+                    reading_cps=cfg.get("reading_cps", 32.0),
+                    poisson_lambda=cfg.get("poisson_lambda", 0.08)
+                )
+                return target_persona_id, target_account_id, delay, f"Target persona {target_persona_id} override (direct reply)"
 
         # Multi-persona turn-taking & anti-dogpile control:
         inter_spacing_offset = 0.0
