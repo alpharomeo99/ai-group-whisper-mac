@@ -732,10 +732,14 @@ class Daemon:
         )
         self.usage.log_event("msg_recv", account_id=aid, chat_id=chat_id)
 
-        # STRICT RULE: Internal Bot-to-bot dialogue is governed strictly by the Daily Batch Schedule.
-        # Messages sent by any persona bot in our system DO NOT trigger live AI replies!
+        # Active peer dynamic: Persona messages wake the queue, and can organically trigger
+        # spontaneous chime-ins from awake teammates (controlled probability + anti-loop cooldown).
         if is_internal_bot:
             self.wake_event.set()
+            try:
+                await self.maybe_trigger_peer_chime_in(chat_id, event, raw_text, sender_id, all_accounts, all_personas)
+            except Exception as e:
+                log.debug("maybe_trigger_peer_chime_in notice: %s", e)
             return
 
         # 4. LIVE AI ORCHESTRATION: Triggered when an external HUMAN or @xbiolabs ADMIN sends a message!
@@ -1385,7 +1389,7 @@ class Daemon:
 
             elif job["kind"] == "batch_scheduled_send":
                 now_ts = int(time.time())
-                configured_pause = int(self.store.get("batch_human_pause_seconds", 300))
+                configured_pause = int(self.store.get("batch_human_pause_seconds", 90))
 
                 # Fetch recent human activity (last 15m) to evaluate chat velocity
                 human_count, last_human_ts, avg_gap = self.store.get_recent_human_message_stats(job["chat_id"], window_secs=900)
@@ -1404,16 +1408,16 @@ class Daemon:
 
                 if is_starving:
                     # Hard starvation ceiling: scale pause down to natural slip-in gap so personas never freeze indefinitely
-                    effective_pause = max(25, min(40, configured_pause))
+                    effective_pause = max(18, min(30, configured_pause))
                 elif is_active_chat:
                     # Dynamic velocity cadence: match natural conversation pauses
-                    effective_pause = max(30, min(configured_pause, 60))
+                    effective_pause = max(20, min(configured_pause, 45))
                 else:
                     # Quiet chat: observe full configured pause
                     effective_pause = configured_pause
 
                 # Strict safety gap: never barge in if a human typed within 20s
-                min_safety_gap = 20
+                min_safety_gap = 15
                 required_wait = max(min_safety_gap, effective_pause)
 
                 if last_human_ts and (now_ts - last_human_ts) < required_wait:
@@ -1793,6 +1797,75 @@ class Daemon:
                     except Exception as e:
                         log.debug("account %s disconnect after dialog sync failed: %s", aid, e)
 
+    async def maybe_trigger_peer_chime_in(self, chat_id, event, raw_text, sender_id, all_accounts, all_personas):
+        """Allows awake peer personas to spontaneously react or follow up on a teammate's message
+        with strict anti-loop, anti-dogpile, and pacing controls. Creates lively natural peer banter."""
+        if not raw_text or len(raw_text.strip()) < 8:
+            return
+
+        now_ts = int(time.time())
+        # Cooldown guard: at least 150 seconds between spontaneous peer chime-ins in the same group
+        last_chime_ts = int(self.store.get(f"last_peer_chime_{chat_id}") or 0)
+        if (now_ts - last_chime_ts) < 150:
+            return
+
+        # Identify sender persona/account
+        sender_acc = [a for a in all_accounts if a.get("user_id") == sender_id]
+        sender_pid = sender_acc[0].get("persona_id") if sender_acc else None
+        sender_aid = sender_acc[0]["id"] if sender_acc else None
+
+        candidates = self.daily_batch.get_group_candidates(chat_id)
+        # Filter for other personas that are NOT the sender
+        peer_cands = [c for c in candidates if c.get("persona_id") != sender_pid and c.get("account_id") != sender_aid]
+        if not peer_cands:
+            return
+
+        # Filter for candidates who are awake in their personal timezone right now
+        awake_peers = [c for c in peer_cands if self.orchestrator.is_persona_awake(c, ts=now_ts)]
+        eligible = awake_peers if awake_peers else peer_cands
+
+        # Probability roll: higher chance on questions or controversial prompts
+        has_question = ("?" in raw_text)
+        prob = 0.42 if has_question else 0.25
+        if random.random() > prob:
+            return
+
+        # Pick responder using arbiter decision
+        pid, aid_chosen, delay, reason = self.orchestrator.arbiter_decision(
+            chat_id, eligible,
+            {"text": raw_text, "sender": getattr(event, "sender_id", sender_id), "id": event.id},
+            is_direct_mention=has_question,
+            is_admin=False
+        )
+        if not pid or not aid_chosen:
+            return
+
+        # Natural deliberation & reading delay (10 to 32 seconds)
+        effective_delay = max(10.0, min(delay + random.uniform(3.0, 8.0), 32.0))
+
+        # Record chime-in timestamp to prevent looping
+        self.store.set(f"last_peer_chime_{chat_id}", now_ts + int(effective_delay))
+        self.orchestrator.record_activity(chat_id, pid)
+
+        # Enqueue reply
+        self.store.enqueue(
+            "scheduled_reply", chat_id,
+            {
+                "account_id": aid_chosen,
+                "persona_id": pid,
+                "incoming_text": raw_text,
+                "reply_to": event.id,
+                "reply_parent_sender": "Teammate",
+                "reply_parent_text": raw_text,
+                "reply_to_human": False,
+                "is_peer_chime_in": True,
+                "context": f"Spontaneous peer reaction to group member comment: '{raw_text[:120]}'"
+            },
+            delay=int(effective_delay),
+            priority=2
+        )
+        log.info("Spontaneous peer chime-in scheduled in group %s (persona %s in %.1fs)", chat_id, pid, effective_delay)
+
     async def auto_sync_loop(self):
         """Continuous background dialog sync loop with gentle cadence for VPN stability."""
         await asyncio.sleep(15)
@@ -1831,21 +1904,21 @@ class Daemon:
                             should_generate = False
                             if not existing_batches:
                                 should_generate = True
-                            elif not pending_items:
-                                # Prior batch is completely finished (all sent). Follow-up session after interval
+                            elif len(pending_items) <= 1:
+                                # Prior batch is finished or nearly exhausted (<= 1 item). Trigger next rolling wave
                                 last_sent = self.store.rows(
                                     "SELECT MAX(sent_ts) as last_ts FROM daily_batch_items WHERE chat_id=? AND status='sent'",
                                     (cid,)
                                 )
                                 last_ts = (last_sent[0]["last_ts"] or 0) if last_sent else 0
-                                interval_secs = int(self.store.get("batch_session_interval_seconds", 900))
+                                interval_secs = int(self.store.get("batch_session_interval_seconds", 450))
                                 if (int(time.time()) - last_ts) >= interval_secs:
                                     should_generate = True
 
                             if should_generate:
                                 cands = self.daily_batch.get_group_candidates(cid)
                                 if len(cands) >= 1:
-                                    count = int(self.store.get("batch_messages_count", 24))
+                                    count = int(self.store.get("batch_messages_count", 48))
                                     log.info("Auto-Pilot: Generating batch for group %s (%d candidates, %d messages)", cid, len(cands), count)
                                     await self.daily_batch.generate_batch_for_group(cid, count=count)
                                     self.wake_event.set()

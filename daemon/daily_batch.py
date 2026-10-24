@@ -77,6 +77,33 @@ def format_relationship_graph(candidates):
 
 
 class DailyBatchEngine:
+    def is_candidate_awake(self, cand, ts=None):
+        """Checks if a persona is awake at a given timestamp according to their individual sleep window."""
+        if ts is None:
+            ts = time.time()
+        p_seed_str = str(cand.get("persona_id") or cand.get("id") or cand.get("persona_name") or "default")
+        seed_hash = sum(ord(c) for c in p_seed_str)
+        archetype_idx = seed_hash % 6
+        SCHEDULES = [
+            (22.5, 6.0, 13.0, "early_bird"),
+            (23.5, 7.5, 15.0, "standard"),
+            (1.0, 8.5, 17.0, "moderate_night_owl"),
+            (3.0, 10.5, 20.0, "late_night_owl"),
+            (5.0, 12.5, 22.0, "graveyard_shift"),
+            (21.5, 5.0, 12.0, "morning_athlete"),
+        ]
+        base = SCHEDULES[archetype_idx]
+        tz_offset = ((seed_hash % 7) - 3) * 1.0
+        from datetime import datetime as _dt
+        utc_dt = _dt.fromtimestamp(ts)
+        local_hour = (utc_dt.hour + (utc_dt.minute / 60.0) + tz_offset) % 24.0
+        s_start, s_end = base[0], base[1]
+        if s_start <= s_end:
+            asleep = (s_start <= local_hour < s_end)
+        else:
+            asleep = (local_hour >= s_start or local_hour < s_end)
+        return not asleep
+
     def __init__(self, store, ai_module, memory_engine=None):
         self.store = store
         self.ai = ai_module
@@ -190,7 +217,7 @@ class DailyBatchEngine:
                     log.warning("Failed to generate batch for group %s: %s", cid, e)
         return results
 
-    async def generate_batch_for_group(self, chat_id, count=24, topic_override=None):
+    async def generate_batch_for_group(self, chat_id, count=48, topic_override=None):
         """Generates today's batch schedule for a watched group."""
         chat_id = int(chat_id)
         g_rows = self.store.rows("SELECT * FROM groups WHERE chat_id=?", (chat_id,))
@@ -609,30 +636,10 @@ class DailyBatchEngine:
         now_ts = int(time.time())
         created_items = []
 
-        # Determine circadian & diurnal cluster timing: natural awake hours, quiet hours, and organic gap pacing
-        from datetime import datetime as _dt
-        now_dt = _dt.fromtimestamp(now_ts)
-        cur_hour = now_dt.hour + (now_dt.minute / 60.0)
-
-        # Quiet / sleep hours: midnight to 7:45 AM
-        quiet_start = 0.0
-        quiet_end = 7.75
-        if quiet_start <= cur_hour < quiet_end:
-            # Postpone start until morning waking hours (~08:15 - 08:45 AM)
-            start_delay_min = ((quiet_end - cur_hour) * 60.0) + random.uniform(15.0, 45.0)
-        elif cur_hour >= 23.5:
-            # Late night: postpone until morning waking hours
-            start_delay_min = (((24.0 - cur_hour) + quiet_end) * 60.0) + random.uniform(15.0, 45.0)
-        else:
-            # Active daytime: start naturally within 1 to 4 minutes
-            start_delay_min = random.uniform(1.2, 3.8)
-
-        # Calculate available daytime waking hours until bedtime (~23:45)
-        start_hour = (cur_hour + (start_delay_min / 60.0)) % 24.0
-        if start_hour < 23.5:
-            avail_hours = max(3.0, 23.75 - start_hour)
-        else:
-            avail_hours = 14.0
+        # Round-the-clock individual sleep timing:
+        # Instead of a global quiet blackout, each persona has their own sleep window and timezone.
+        # Batches start immediately with tight, high-velocity conversation intervals.
+        start_delay_min = random.uniform(0.5, 2.2)
 
         # Partition items into organic clusters of 1 to 4 messages (conversational arcs)
         clusters = []
@@ -643,22 +650,23 @@ class DailyBatchEngine:
             rem_items -= c_size
 
         num_clusters = len(clusters)
-        target_cluster_gap_min = max(25.0, min(115.0, (avail_hours * 60.0) / max(num_clusters, 1)))
+        # High-activity pacing: lively cluster gaps of 7 to 20 minutes between conversation arcs
+        target_cluster_gap_min = max(6.5, min(20.0, 900.0 / max(num_clusters, 1)))
 
         offsets_min = []
         cluster_cur_min = start_delay_min
 
         for c_idx, c_size in enumerate(clusters):
             if c_idx > 0:
-                # Organic gap between conversation arcs: 30 to 95 minutes with natural jitter
-                gap = target_cluster_gap_min * random.uniform(0.70, 1.30)
+                # Dynamic organic pacing between conversation clusters: 7 to 22 minutes
+                gap = target_cluster_gap_min * random.uniform(0.70, 1.25)
                 cluster_cur_min += gap
 
             msg_time = cluster_cur_min
             for msg_i in range(c_size):
                 if msg_i > 0:
-                    # Rapid mobile back-and-forth texting interval: 22 to 85 seconds
-                    msg_time += random.uniform(0.35, 1.4)
+                    # Rapid mobile back-and-forth texting interval: 18 to 60 seconds
+                    msg_time += random.uniform(0.30, 1.0)
                 offsets_min.append(msg_time)
 
         cand_usage = { (c["persona_id"], c["account_id"]): 0 for c in candidates }
@@ -676,7 +684,12 @@ class DailyBatchEngine:
             if not cand_match and sname:
                 cand_match = [c for c in candidates if sname in (c.get("persona_name") or "").lower() or sname in (c.get("account_name") or "").lower()]
             if not cand_match:
-                least_used = sorted(candidates, key=lambda c: cand_usage.get((c["persona_id"], c["account_id"]), 0))[0]
+                sched_m = offsets_min[idx] if idx < len(offsets_min) else (idx * 3.0)
+                target_ts = now_ts + int(sched_m * 60)
+                # Prioritize awake candidates who haven't spoken excessively
+                awake_cands = [c for c in candidates if self.is_candidate_awake(c, ts=target_ts)]
+                pool = awake_cands if awake_cands else candidates
+                least_used = sorted(pool, key=lambda c: cand_usage.get((c["persona_id"], c["account_id"]), 0))[0]
                 cand_match = [least_used]
 
             chosen_cand = cand_match[0]
@@ -797,7 +810,7 @@ class DailyBatchEngine:
             "auto_pilot": auto_pilot,
             "batch_messages_count": batch_count,
             "human_pause_minutes": human_pause,
-            "session_interval_seconds": int(self.store.get("batch_session_interval_seconds", 3600)),
+            "session_interval_seconds": int(self.store.get("batch_session_interval_seconds", 450)),
             "last_human_event": last_human,
             "stats": {
                 "total": total,

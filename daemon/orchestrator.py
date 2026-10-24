@@ -60,6 +60,94 @@ class PersonaCadenceOrchestrator:
         # Deep night activity drops to realistic baseline [0.06] rather than 24/7 chatter
         return max(0.06, min(1.0, curve))
 
+    def get_persona_circadian_profile(self, persona):
+        """Computes or extracts the persona's individual circadian schedule and sleeping window.
+        Every persona has distinct waking and sleeping hours so night-time is personalized
+        and groups remain actively populated 24/7 with who is awake.
+        """
+        details = {}
+        if isinstance(persona, dict):
+            raw_dt = persona.get("details")
+            if isinstance(raw_dt, str):
+                try:
+                    details = json.loads(raw_dt or "{}")
+                except Exception:
+                    details = {}
+            elif isinstance(raw_dt, dict):
+                details = raw_dt
+
+        # Deterministic seed based on persona id or name so it's consistent across reboots
+        p_seed_str = str(persona.get("persona_id") or persona.get("id") or persona.get("name") or persona.get("persona_name") or "default")
+        seed_hash = sum(ord(c) for c in p_seed_str)
+
+        # Archetype sleep/circadian categories
+        archetype_idx = seed_hash % 6
+        SCHEDULES = [
+            # (sleep_start, sleep_end, peak_hour, sigma, label)
+            (22.5, 6.0, 13.0, 4.5, "early_bird"),
+            (23.5, 7.5, 15.0, 5.0, "standard"),
+            (1.0, 8.5, 17.0, 5.0, "moderate_night_owl"),
+            (3.0, 10.5, 20.0, 4.5, "late_night_owl"),
+            (5.0, 12.5, 22.0, 4.5, "graveyard_shift"),
+            (21.5, 5.0, 12.0, 4.0, "morning_athlete"),
+        ]
+        base = SCHEDULES[archetype_idx]
+        sleep_start = float(details.get("sleep_start", base[0]))
+        sleep_end = float(details.get("sleep_end", base[1]))
+        peak_hour = float(details.get("peak_hour", base[2]))
+        sigma = float(details.get("sigma", base[3]))
+        tz_offset = float(details.get("tz_offset", ((seed_hash % 7) - 3) * 1.0))
+
+        return {
+            "sleep_start": sleep_start,
+            "sleep_end": sleep_end,
+            "peak_hour": peak_hour,
+            "sigma": sigma,
+            "tz_offset": tz_offset,
+            "profile_type": base[4]
+        }
+
+    def is_persona_awake(self, persona, ts=None):
+        """Returns True if this persona is currently awake according to their personal night schedule."""
+        prof = self.get_persona_circadian_profile(persona)
+        if ts is None:
+            ts = time.time()
+        
+        utc_dt = datetime.fromtimestamp(ts)
+        utc_hour = utc_dt.hour + (utc_dt.minute / 60.0) + (utc_dt.second / 3600.0)
+        local_hour = (utc_hour + prof["tz_offset"]) % 24.0
+
+        s_start = prof["sleep_start"]
+        s_end = prof["sleep_end"]
+
+        if s_start <= s_end:
+            asleep = (s_start <= local_hour < s_end)
+        else:
+            asleep = (local_hour >= s_start or local_hour < s_end)
+
+        return not asleep
+
+    def persona_circadian_factor(self, persona, ts=None):
+        """Calculates normalized activity factor [0.08, 1.0] for this specific persona
+        based on their individual sleep cycle and peak active hours."""
+        if ts is None:
+            ts = time.time()
+        prof = self.get_persona_circadian_profile(persona)
+        utc_dt = datetime.fromtimestamp(ts)
+        local_hour = (utc_dt.hour + (utc_dt.minute / 60.0) + prof["tz_offset"]) % 24.0
+
+        if not self.is_persona_awake(persona, ts=ts):
+            # In deep personal sleep window: light baseline for rare night emergency/mention, but normally asleep
+            return 0.08
+
+        # Distance to personal peak hour
+        diff = abs(local_hour - prof["peak_hour"])
+        if diff > 12:
+            diff = 24 - diff
+        curve = math.exp(-0.5 * ((diff / prof["sigma"]) ** 2))
+        return max(0.40, min(1.0, curve))
+
+
     # ---------------- 2. Non-homogeneous Poisson Process & Delays ----------------
     def calculate_deliberation_delay(self, text, reading_cps=32.0, poisson_lambda=0.08):
         """Calculates human-realistic response delay:
@@ -228,15 +316,9 @@ class PersonaCadenceOrchestrator:
             if time_since_last < inter_spacing and not is_direct_mention and not is_admin:
                 inter_spacing_offset += max(2.0, inter_spacing - time_since_last)
 
-        # Calculate time-of-day circadian activity factor
-        circadian_mod = 1.0
-        if cfg["circadian_enabled"]:
-            circadian_mod = self.circadian_factor(
-                peak_hour=cfg["circadian_peak_hour"],
-                sigma=cfg["circadian_sigma"]
-            )
-        # Real humans and admin speaking always get active attention (never suppressed to 0)
-        circadian_mod = max(0.85, circadian_mod)
+        # Individualized circadian modeling: each persona has their own sleep hours & timezone.
+        # Personas awake in their timezone maintain full active presence.
+        pass
 
         scored_candidates = []
 
@@ -245,6 +327,14 @@ class PersonaCadenceOrchestrator:
             aid = cp["account_id"]
             if not pid or not aid:
                 continue
+
+            # 0. Individualized Persona Circadian & Sleep Factor
+            is_awake = self.is_persona_awake(cp, ts=now)
+            circadian_mod = 1.0
+            if cfg.get("circadian_enabled", True):
+                circadian_mod = self.persona_circadian_factor(cp, ts=now)
+            if is_direct_mention or is_admin:
+                circadian_mod = max(0.85, circadian_mod)
 
             # 1. Relevance score
             rel_score = self.compute_relevance_score(msg_text, cp)
@@ -271,8 +361,9 @@ class PersonaCadenceOrchestrator:
             # 5. Freshness / Novelty Boost
             freshness_boost = 0.30 if fatigue < 0.05 else (0.15 if fatigue < 0.20 else 0.0)
 
-            # 6. Total probability utility score
-            utility = ((rel_score + salience_boost) * circadian_mod) - fatigue_penalty + freshness_boost + balance_mod
+            # 6. Total probability utility score with individual sleep awareness
+            sleep_mod = 0.0 if (is_awake or is_direct_mention or is_admin) else -0.45
+            utility = ((rel_score + salience_boost) * circadian_mod) - fatigue_penalty + freshness_boost + balance_mod + sleep_mod
 
             # Add stochastic perturbation to break ties
             perturbed_utility = utility + random.uniform(-0.03, 0.03)
