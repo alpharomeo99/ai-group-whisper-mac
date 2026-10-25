@@ -50,7 +50,7 @@ CREATE TABLE IF NOT EXISTS queue (
 CREATE TABLE IF NOT EXISTS accounts (
   id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER UNIQUE, phone TEXT, name TEXT,
   username TEXT, session TEXT, active INTEGER DEFAULT 1, created INTEGER,
-  last_synced_at INTEGER DEFAULT 0
+  last_synced_at INTEGER DEFAULT 0, is_admin INTEGER DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS proxies (
   id INTEGER PRIMARY KEY AUTOINCREMENT, label TEXT, url TEXT, last_ip TEXT,
@@ -222,6 +222,7 @@ class Store:
             "ALTER TABLE human_memories ADD COLUMN slot_key TEXT DEFAULT NULL",
             "ALTER TABLE human_memories ADD COLUMN is_active INTEGER DEFAULT 1",
             "ALTER TABLE human_memories ADD COLUMN status TEXT DEFAULT 'open'",
+            "ALTER TABLE accounts ADD COLUMN is_admin INTEGER DEFAULT 0",
             "CREATE INDEX IF NOT EXISTS idx_hm_chat_sender_slot ON human_memories(chat_id, sender, slot_key, is_active)"
 ):
             try:

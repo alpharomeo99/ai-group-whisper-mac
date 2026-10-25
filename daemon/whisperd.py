@@ -7,6 +7,7 @@ import os
 import secrets
 import sys
 import random
+import re
 import json
 import time
 
@@ -672,7 +673,8 @@ class Daemon:
             return
 
         # 2. Handle Group Messages
-        if not event.is_group or not event.raw_text:
+        is_group_chat = bool(getattr(event, 'is_group', False) or (getattr(event, 'chat_id', None) and event.chat_id < 0))
+        if not is_group_chat or not event.raw_text:
             return
         chat_id = event.chat_id
 
@@ -711,7 +713,12 @@ class Daemon:
         raw_text = event.raw_text or ""
 
         # Fetch accounts and personas to identify sender role
-        all_accounts = self.store.rows("SELECT id, user_id, name, username, phone, persona_id, is_admin FROM accounts")
+        try:
+            all_accounts = self.store.rows("SELECT id, user_id, name, username, phone, persona_id, is_admin FROM accounts")
+        except Exception:
+            all_accounts = self.store.rows("SELECT id, user_id, name, username, phone, persona_id FROM accounts")
+            for a in all_accounts:
+                a["is_admin"] = 0
         all_personas = self.store.rows("SELECT id, name, details FROM personas")
 
         # Check if sender is @xbiolabs or admin
@@ -837,18 +844,32 @@ class Daemon:
             if is_admin_sender or ("@xbiolabs" in raw_text.lower()):
                 is_direct = True
 
+            if target_persona_id and not target_account_id:
+                matching_accs = [a for a in all_accounts if a.get("persona_id") == target_persona_id and a.get("active", 1)]
+                if not matching_accs:
+                    matching_accs = [a for a in all_accounts if a.get("persona_id") == target_persona_id]
+                if matching_accs:
+                    target_account_id = matching_accs[0]["id"]
+
             candidates = self.daily_batch.get_group_candidates(chat_id)
             if not candidates:
                 self.ensure_group_personas_assigned(chat_id)
                 candidates = self.daily_batch.get_group_candidates(chat_id)
 
             if candidates:
+                if target_persona_id and not target_account_id:
+                    target_account_id = candidates[0].get("account_id")
                 if target_persona_id and target_account_id:
                     if not any(c.get("persona_id") == target_persona_id for c in candidates):
+                        p_name = reply_parent_sender or "Target Persona"
+                        for p in all_personas:
+                            if p.get("id") == target_persona_id:
+                                p_name = p.get("name") or p_name
+                                break
                         candidates.append({
                             "persona_id": target_persona_id,
                             "account_id": target_account_id,
-                            "persona_name": reply_parent_sender or "Target Persona"
+                            "persona_name": p_name
                         })
 
                 pid, aid_chosen, delay, reason = self.orchestrator.arbiter_decision(
