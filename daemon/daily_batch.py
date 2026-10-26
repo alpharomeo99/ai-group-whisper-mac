@@ -642,7 +642,8 @@ class DailyBatchEngine:
         # Round-the-clock individual sleep timing:
         # Instead of a global quiet blackout, each persona has their own sleep window and timezone.
         # Batches start immediately with tight, high-velocity conversation intervals.
-        start_delay_min = random.uniform(0.5, 2.2)
+        # Rapid immediate start: batch begins within 10 to 30 seconds
+        start_delay_min = random.uniform(0.15, 0.45)
 
         # Partition items into organic clusters of 1 to 4 messages (conversational arcs)
         clusters = []
@@ -653,23 +654,23 @@ class DailyBatchEngine:
             rem_items -= c_size
 
         num_clusters = len(clusters)
-        # High-activity pacing: lively cluster gaps between conversation arcs (4 to 12 minutes)
-        target_cluster_gap_min = max(4.0, min(12.0, 480.0 / max(num_clusters, 1)))
+        # Hyper-active pacing: tight 1.0 to 2.5 minute gaps between conversation arcs
+        target_cluster_gap_min = max(1.0, min(2.5, 75.0 / max(num_clusters, 1)))
 
         offsets_min = []
         cluster_cur_min = start_delay_min
 
         for c_idx, c_size in enumerate(clusters):
             if c_idx > 0:
-                # Dynamic organic pacing between conversation clusters: 4 to 12 minutes
-                gap = target_cluster_gap_min * random.uniform(0.75, 1.20)
+                # Dynamic organic pacing between conversation clusters: 1.0 to 2.5 minutes
+                gap = target_cluster_gap_min * random.uniform(0.80, 1.15)
                 cluster_cur_min += gap
 
             msg_time = cluster_cur_min
             for msg_i in range(c_size):
                 if msg_i > 0:
-                    # Rapid mobile back-and-forth texting interval: 15 to 45 seconds
-                    msg_time += random.uniform(0.25, 0.75)
+                    # Snappy rapid mobile texting interval: 8 to 22 seconds between personas
+                    msg_time += random.uniform(0.13, 0.36)
                 offsets_min.append(msg_time)
 
         cand_usage = { (c["persona_id"], c["account_id"]): 0 for c in candidates }
@@ -709,7 +710,7 @@ class DailyBatchEngine:
                 text = f"[reaction: {reaction}]" 
 
             scheduled_min = offsets_min[idx] if idx < len(offsets_min) else (curr_min + (idx * 2))
-            jitter_sec = random.randint(-18, 25)
+            jitter_sec = random.randint(-5, 8)
             scheduled_ts = max(now_ts + 5, now_ts + int(scheduled_min * 60) + jitter_sec)
 
             # Determine parent_item_id for native Telegram reply quotes:
@@ -803,8 +804,8 @@ class DailyBatchEngine:
                 scout_info = acc[0]
 
         auto_pilot = bool(self.store.get("daily_batch_auto_pilot", True))
-        batch_count = int(self.store.get("batch_messages_count", 24))
-        human_pause = int(self.store.get("batch_human_pause_seconds", 600)) // 60
+        batch_count = int(self.store.get("batch_messages_count", 48))
+        human_pause = max(0.5, round(int(self.store.get("batch_human_pause_seconds", 30)) / 60.0, 1))
         last_human = self.store.get("last_human_event")
 
         return {
@@ -813,7 +814,7 @@ class DailyBatchEngine:
             "auto_pilot": auto_pilot,
             "batch_messages_count": batch_count,
             "human_pause_minutes": human_pause,
-            "session_interval_seconds": int(self.store.get("batch_session_interval_seconds", 450)),
+            "session_interval_seconds": int(self.store.get("batch_session_interval_seconds", 90)),
             "last_human_event": last_human,
             "stats": {
                 "total": total,

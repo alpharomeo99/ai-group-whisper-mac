@@ -37,7 +37,7 @@ class PersonaCadenceOrchestrator:
             "reading_cps": float(cfg.get("reading_cps", 32.0)),             # ~320 wpm reading speed
             "fatigue_decay_tau": float(cfg.get("fatigue_decay_tau", 150.0)),# 4 min fatigue half-life
             "fatigue_increment": float(cfg.get("fatigue_increment", 0.45)),
-            "anti_dogpile_window": float(cfg.get("anti_dogpile_window", 6.0)), # sec between bot teammates
+            "anti_dogpile_window": float(cfg.get("anti_dogpile_window", 3.5)), # sec between bot teammates
             "allow_spontaneous": cfg.get("allow_spontaneous", True),        # can speak without explicit @mention
         }
 
@@ -160,12 +160,11 @@ class PersonaCadenceOrchestrator:
         u = max(random.random(), 1e-6)
         deliberation_time = -math.log(u) / max(poisson_lambda, 0.01)
 
-        # Clamp deliberation to realistic ranges [3.0s, 22.0s]
-        deliberation_time = max(3.0, min(deliberation_time, 22.0))
-        total_delay = read_time + deliberation_time
-        # Add random human hesitation jitter
-        total_delay += random.uniform(1.0, 3.5)
-        return max(4.0, min(total_delay, 35.0))
+        # Fast, snappy deliberation for active group flow [1.5s, 8.0s]
+        deliberation_time = max(1.5, min(deliberation_time, 8.0))
+        total_delay = (read_time * 0.35) + deliberation_time
+        total_delay += random.uniform(0.5, 1.8)
+        return max(2.5, min(total_delay, 14.0))
 
     # ---------------- 3. Fatigue & Cooldown Dynamics (Hawkes Decay) ----------------
     def compute_fatigue(self, chat_id, persona_id, tau=240.0):
@@ -299,7 +298,7 @@ class PersonaCadenceOrchestrator:
 
             # 1. Self-suppression / Refractory period:
             # Prevent the SAME persona from monopolizing the conversation and talking to itself
-            same_speaker_cooldown = float(cfg.get("same_speaker_cooldown", 28.0))
+            same_speaker_cooldown = float(cfg.get("same_speaker_cooldown", 12.0))
             if time_since_last < same_speaker_cooldown and not is_direct_mention and not is_admin:
                 other_candidates = [cp for cp in candidate_personas if cp.get("persona_id") != last_pid]
                 if other_candidates:

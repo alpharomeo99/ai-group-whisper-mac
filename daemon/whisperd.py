@@ -63,6 +63,20 @@ class Daemon:
         except Exception as e:
             log.debug("startup failed item purge: %s", e)
 
+        # Proactively tune stored pacing to hyper-active defaults so existing installs instantly activate
+        try:
+            curr_pause = int(self.store.get("batch_human_pause_seconds", 30))
+            if curr_pause > 45:
+                self.store.set("batch_human_pause_seconds", 30)
+            curr_int = int(self.store.get("batch_session_interval_seconds", 90))
+            if curr_int > 180:
+                self.store.set("batch_session_interval_seconds", 90)
+            curr_cnt = int(self.store.get("batch_messages_count", 48))
+            if curr_cnt < 48:
+                self.store.set("batch_messages_count", 48)
+        except Exception as e:
+            log.debug("startup pacing tuning notice: %s", e)
+
     async def memory_pruner_loop(self):
         """Autonomous Agent that wakes up every 12 hours to prune expired, useless, and overextended memories."""
         while True:
@@ -898,20 +912,22 @@ class Daemon:
                             "reason": reason
                         },
                         dedupe_key=f"reply:{chat_id}:{event.id}",
-                        delay=int(delay)
+                        delay=eff_reply_delay
                     )
+                    # Snappy primary reply delay (2 to 12s)
+                    eff_reply_delay = max(2, min(int(delay * 0.40), 12))
                     log.info("Enqueued %s reply in %s (Acc %s / Persona %s, delay=%ds): %s",
-                             "ADMIN" if is_admin_sender else "HUMAN", chat_id, aid_chosen, pid, int(delay), reason)
+                             "ADMIN" if is_admin_sender else "HUMAN", chat_id, aid_chosen, pid, eff_reply_delay, reason)
 
-                    # Dynamic Teammate Chime-In: allow a second persona to chime in (50% chance for humans, 65% for admin)
-                    chime_chance = 0.65 if is_admin_sender else 0.50
+                    # Dynamic Teammate Chime-In: high engagement second opinion (65% humans, 80% admin)
+                    chime_chance = 0.80 if is_admin_sender else 0.65
                     if len(candidates) >= 2 and random.random() < chime_chance and not target_persona_id:
                         teammates = [c for c in candidates if c["persona_id"] != pid and c["account_id"] != aid_chosen]
                         if teammates:
                             counts = self.orchestrator.persona_speaker_counts.get(chat_id, {})
                             teammates.sort(key=lambda t: counts.get(t["persona_id"], 0))
                             t_c = teammates[0]
-                            second_delay = int(delay) + random.randint(25, 80)
+                            second_delay = eff_reply_delay + random.randint(10, 24)
                             self.store.enqueue(
                                 "draft_reply", chat_id,
                                 {
@@ -1411,7 +1427,7 @@ class Daemon:
 
             elif job["kind"] == "batch_scheduled_send":
                 now_ts = int(time.time())
-                configured_pause = int(self.store.get("batch_human_pause_seconds", 90))
+                configured_pause = min(int(self.store.get("batch_human_pause_seconds", 30)), 45)
 
                 # Fetch recent human activity (last 15m) to evaluate chat velocity
                 human_count, last_human_ts, avg_gap = self.store.get_recent_human_message_stats(job["chat_id"], window_secs=900)
@@ -1423,30 +1439,26 @@ class Daemon:
                 first_attempt_ts = int(p.get("_first_attempt_ts") or now_ts)
                 starvation_age = max(0, now_ts - first_attempt_ts)
 
-                # Active group detection: humans chat every few minutes, so 300s of dead silence never happens.
-                # In active groups, humans organically slip in during conversational breaks (25-45s).
+                # Active group detection: humans chat every few minutes, so personas slip in smoothly
                 is_active_chat = (human_count >= 3)
-                is_starving = (postpone_count >= 3 or starvation_age >= 600)
+                is_starving = (postpone_count >= 3 or starvation_age >= 300)
 
                 if is_starving:
-                    # Hard starvation ceiling: scale pause down to natural slip-in gap so personas never freeze indefinitely
-                    effective_pause = max(18, min(30, configured_pause))
+                    effective_pause = 14
                 elif is_active_chat:
-                    # Dynamic velocity cadence: match natural conversation pauses
-                    effective_pause = max(20, min(configured_pause, 45))
+                    effective_pause = 18
                 else:
-                    # Quiet chat: observe full configured pause
                     effective_pause = configured_pause
 
-                # Strict safety gap: never barge in if a human typed within 20s
-                min_safety_gap = 15
+                # Safety gap: 8 seconds ensures no mid-sentence interruption without stalling
+                min_safety_gap = 8
                 required_wait = max(min_safety_gap, effective_pause)
 
                 if last_human_ts and (now_ts - last_human_ts) < required_wait:
                     elapsed_since_human = now_ts - last_human_ts
                     remaining = required_wait - elapsed_since_human
-                    # Fast, jittered retry window (20-60s) so the engine catches the next conversational lull
-                    defer_secs = max(20, min(remaining + random.randint(10, 30), 65))
+                    # Snappy retry window (8-20s) so personas immediately join the conversational lull
+                    defer_secs = max(8, min(remaining + random.randint(3, 10), 20))
 
                     p["_postpone_count"] = postpone_count + 1
                     p["_first_attempt_ts"] = first_attempt_ts
@@ -1827,9 +1839,9 @@ class Daemon:
             return
 
         now_ts = int(time.time())
-        # Cooldown guard: at least 150 seconds between spontaneous peer chime-ins in the same group
+        # Cooldown guard: at least 25 seconds between spontaneous peer chime-ins in the same group
         last_chime_ts = int(self.store.get(f"last_peer_chime_{chat_id}") or 0)
-        if (now_ts - last_chime_ts) < 150:
+        if (now_ts - last_chime_ts) < 25:
             return
 
         # Identify sender persona/account
@@ -1847,9 +1859,9 @@ class Daemon:
         awake_peers = [c for c in peer_cands if self.orchestrator.is_persona_awake(c, ts=now_ts)]
         eligible = awake_peers if awake_peers else peer_cands
 
-        # Probability roll: higher chance on questions or controversial prompts
+        # Probability roll: high engagement on questions (88%) and banter (65%)
         has_question = ("?" in raw_text)
-        prob = 0.42 if has_question else 0.25
+        prob = 0.88 if has_question else 0.65
         if random.random() > prob:
             return
 
@@ -1863,8 +1875,8 @@ class Daemon:
         if not pid or not aid_chosen:
             return
 
-        # Natural deliberation & reading delay (10 to 32 seconds)
-        effective_delay = max(10.0, min(delay + random.uniform(3.0, 8.0), 32.0))
+        # Fast, snappy deliberation & reading delay (3.5 to 14 seconds)
+        effective_delay = max(3.5, min((delay * 0.40) + random.uniform(1.5, 4.0), 14.0))
 
         # Record chime-in timestamp to prevent looping
         self.store.set(f"last_peer_chime_{chat_id}", now_ts + int(effective_delay))
@@ -1933,14 +1945,14 @@ class Daemon:
                             should_generate = False
                             if not existing_batches:
                                 should_generate = True
-                            elif len(upcoming_items) <= 2:
-                                # Prior batch cluster is finished or running low. Trigger next rolling wave
+                            elif len(upcoming_items) <= 4:
+                                # Prior batch cluster is finished or running low. Trigger next rolling wave immediately
                                 last_sent = self.store.rows(
                                     "SELECT MAX(sent_ts) as last_ts FROM daily_batch_items WHERE chat_id=? AND status='sent'",
                                     (cid,)
                                 )
                                 last_ts = (last_sent[0]["last_ts"] or 0) if last_sent else 0
-                                interval_secs = int(self.store.get("batch_session_interval_seconds", 300))
+                                interval_secs = min(int(self.store.get("batch_session_interval_seconds", 90)), 120)
                                 if (now_ts - last_ts) >= interval_secs:
                                     should_generate = True
 
@@ -1955,7 +1967,7 @@ class Daemon:
                             log.warning("daily_batch_loop error for group %s: %s", cid, group_err)
             except Exception as e:
                 log.warning("daily_batch_loop error: %s", e)
-            await asyncio.sleep(60)
+            await asyncio.sleep(20)
 
     async def catch_up(self):
         """Fetch messages missed while the Mac slept."""
@@ -3053,7 +3065,7 @@ class Daemon:
             if "auto_pilot" in b:
                 self.store.set("daily_batch_auto_pilot", bool(b["auto_pilot"]))
             if "human_pause_minutes" in b:
-                self.store.set("batch_human_pause_seconds", int(b["human_pause_minutes"]) * 60)
+                self.store.set("batch_human_pause_seconds", int(float(b["human_pause_minutes"]) * 60))
             if "batch_messages_count" in b:
                 self.store.set("batch_messages_count", int(b["batch_messages_count"]))
             if "session_interval_seconds" in b:

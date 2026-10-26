@@ -2126,7 +2126,7 @@ if ($('batch-scout-set-btn')) {
 if ($('batch-hold-minutes')) {
   $('batch-hold-minutes').onchange = async (e) => {
     try {
-      await api('POST', '/daily-batch/settings', { human_pause_minutes: parseInt(e.target.value, 10) });
+      await api('POST', '/daily-batch/settings', { human_pause_minutes: parseFloat(e.target.value) });
     } catch (err) {
       console.warn('Failed to update pause setting:', err);
     }
