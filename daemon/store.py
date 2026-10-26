@@ -678,7 +678,7 @@ class Store:
             "INSERT INTO messages(chat_id, msg_id, sender, text, ts, is_bot, sender_id, persona_id, account_id) "
             "VALUES(?,?,?,?,?,?,?,?,?) "
             "ON CONFLICT(chat_id, msg_id) DO UPDATE SET "
-            "text=excluded.text, sender=excluded.sender, is_bot=excluded.is_bot, sender_id=excluded.sender_id, "
+            "text=excluded.text, sender=excluded.sender, is_bot=MAX(messages.is_bot, excluded.is_bot), sender_id=COALESCE(excluded.sender_id, messages.sender_id), "
             "persona_id=COALESCE(excluded.persona_id, messages.persona_id), account_id=COALESCE(excluded.account_id, messages.account_id)",
             (chat_id, msg_id, sender, text, ts, 1 if is_bot else 0, sender_id, persona_id, account_id)
         )
@@ -688,6 +688,9 @@ class Store:
             SELECT ts FROM messages
             WHERE chat_id=? AND is_bot=0
               AND (sender_id IS NULL OR sender_id NOT IN (SELECT user_id FROM accounts WHERE user_id IS NOT NULL))
+              AND LOWER(sender) NOT IN (SELECT LOWER(name) FROM personas WHERE name IS NOT NULL)
+              AND LOWER(sender) NOT IN (SELECT LOWER(name) FROM accounts WHERE name IS NOT NULL)
+              AND LOWER(sender) NOT IN (SELECT LOWER(username) FROM accounts WHERE username IS NOT NULL)
             ORDER BY ts DESC LIMIT 1
         """, (chat_id,)).fetchone()
         return r[0] if r else None
@@ -700,6 +703,9 @@ class Store:
             SELECT ts FROM messages
             WHERE chat_id=? AND is_bot=0 AND ts >= ?
               AND (sender_id IS NULL OR sender_id NOT IN (SELECT user_id FROM accounts WHERE user_id IS NOT NULL))
+              AND LOWER(sender) NOT IN (SELECT LOWER(name) FROM personas WHERE name IS NOT NULL)
+              AND LOWER(sender) NOT IN (SELECT LOWER(name) FROM accounts WHERE name IS NOT NULL)
+              AND LOWER(sender) NOT IN (SELECT LOWER(username) FROM accounts WHERE username IS NOT NULL)
             ORDER BY ts ASC
         """, (chat_id, cutoff)).fetchall()
         if not rows:
@@ -724,7 +730,7 @@ class Store:
         err_msg = str(reason or 'Postponed')[:255]
         self.q("UPDATE daily_batch_items SET status='postponed', scheduled_ts=?, error=? WHERE id=?", (new_ts, err_msg, item_id))
 
-    def stagger_overdue_batch_jobs(self, min_spacing_secs=90):
+    def stagger_overdue_batch_jobs(self, min_spacing_secs=25):
         """Sleep/wake anti-burst protection:
         Finds pending batch_scheduled_send jobs whose not_before is overdue by >120s.
         Smoothly spaces them into the future (starting now + 15s) so waking from sleep
@@ -763,7 +769,7 @@ class Store:
                             )
                     except Exception:
                         pass
-                    offset += min_spacing_secs + random.randint(15, 60)
+                    offset += max(12, min_spacing_secs) + random.randint(8, 25)
                     rearranged += 1
             self.db.commit()
             return rearranged
@@ -825,12 +831,13 @@ class Store:
                         continue
                     raise
 
-    def finish(self, qid, ok, error=None, retry_in=None):
+    def finish(self, qid, ok, error=None, retry_in=None, count_attempt=True):
         now = int(time.time())
         if ok:
             self.q("UPDATE queue SET status='done', updated=? WHERE id=?", (now, qid))
         elif retry_in is not None:
-            self.q("UPDATE queue SET status='pending', attempts=attempts+1, last_error=?, not_before=?, updated=? "
+            attempt_clause = "attempts=attempts+1" if count_attempt else "attempts=attempts"
+            self.q(f"UPDATE queue SET status='pending', {attempt_clause}, last_error=?, not_before=?, updated=? "
                    "WHERE id=?", (error, now + retry_in, now, qid))
         else:
             self.q("UPDATE queue SET status='failed', attempts=attempts+1, last_error=?, updated=? WHERE id=?",

@@ -109,43 +109,41 @@ class PersonaCadenceOrchestrator:
 
     def is_persona_awake(self, persona, ts=None):
         """Returns True if this persona is currently awake according to their personal night schedule."""
-        prof = self.get_persona_circadian_profile(persona)
         if ts is None:
             ts = time.time()
-        
-        utc_dt = datetime.fromtimestamp(ts)
-        utc_hour = utc_dt.hour + (utc_dt.minute / 60.0) + (utc_dt.second / 3600.0)
-        local_hour = (utc_hour + prof["tz_offset"]) % 24.0
+        local_dt = datetime.fromtimestamp(ts)
+        local_hour = local_dt.hour + (local_dt.minute / 60.0)
 
+        # Daytime hours (08:00 to 23:30) are 100% active and awake for all personas
+        if 8.0 <= local_hour < 23.5:
+            return True
+
+        prof = self.get_persona_circadian_profile(persona)
         s_start = prof["sleep_start"]
         s_end = prof["sleep_end"]
-
         if s_start <= s_end:
             asleep = (s_start <= local_hour < s_end)
         else:
             asleep = (local_hour >= s_start or local_hour < s_end)
-
         return not asleep
 
     def persona_circadian_factor(self, persona, ts=None):
-        """Calculates normalized activity factor [0.08, 1.0] for this specific persona
+        """Calculates normalized activity factor [0.15, 1.0] for this specific persona
         based on their individual sleep cycle and peak active hours."""
         if ts is None:
             ts = time.time()
-        prof = self.get_persona_circadian_profile(persona)
-        utc_dt = datetime.fromtimestamp(ts)
-        local_hour = (utc_dt.hour + (utc_dt.minute / 60.0) + prof["tz_offset"]) % 24.0
+        local_dt = datetime.fromtimestamp(ts)
+        local_hour = local_dt.hour + (local_dt.minute / 60.0)
 
         if not self.is_persona_awake(persona, ts=ts):
-            # In deep personal sleep window: light baseline for rare night emergency/mention, but normally asleep
-            return 0.08
+            return 0.15
 
-        # Distance to personal peak hour
+        prof = self.get_persona_circadian_profile(persona)
         diff = abs(local_hour - prof["peak_hour"])
         if diff > 12:
             diff = 24 - diff
-        curve = math.exp(-0.5 * ((diff / prof["sigma"]) ** 2))
-        return max(0.40, min(1.0, curve))
+        curve = math.exp(-0.5 * ((diff / max(prof["sigma"], 1.0)) ** 2))
+        return max(0.50, min(1.0, curve))
 
 
     # ---------------- 2. Non-homogeneous Poisson Process & Delays ----------------

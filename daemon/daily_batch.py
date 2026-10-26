@@ -81,23 +81,26 @@ class DailyBatchEngine:
         """Checks if a persona is awake at a given timestamp according to their individual sleep window."""
         if ts is None:
             ts = time.time()
+        from datetime import datetime as _dt
+        local_dt = _dt.fromtimestamp(ts)
+        local_hour = local_dt.hour + (local_dt.minute / 60.0)
+
+        # Daytime hours (08:00 to 23:30) are 100% active and awake for all personas
+        if 8.0 <= local_hour < 23.5:
+            return True
+
         p_seed_str = str(cand.get("persona_id") or cand.get("id") or cand.get("persona_name") or "default")
         seed_hash = sum(ord(c) for c in p_seed_str)
         archetype_idx = seed_hash % 6
         SCHEDULES = [
-            (22.5, 6.0, 13.0, "early_bird"),
-            (23.5, 7.5, 15.0, "standard"),
-            (1.0, 8.5, 17.0, "moderate_night_owl"),
-            (3.0, 10.5, 20.0, "late_night_owl"),
-            (5.0, 12.5, 22.0, "graveyard_shift"),
-            (21.5, 5.0, 12.0, "morning_athlete"),
+            (23.5, 6.5),  # early_bird
+            (0.5, 7.5),   # standard
+            (1.5, 8.0),   # moderate_night_owl
+            (2.0, 8.5),   # late_night_owl
+            (2.5, 8.5),   # night_owl_bro
+            (23.0, 6.0),  # morning_athlete
         ]
-        base = SCHEDULES[archetype_idx]
-        tz_offset = ((seed_hash % 7) - 3) * 1.0
-        from datetime import datetime as _dt
-        utc_dt = _dt.fromtimestamp(ts)
-        local_hour = (utc_dt.hour + (utc_dt.minute / 60.0) + tz_offset) % 24.0
-        s_start, s_end = base[0], base[1]
+        s_start, s_end = SCHEDULES[archetype_idx]
         if s_start <= s_end:
             asleep = (s_start <= local_hour < s_end)
         else:
@@ -650,23 +653,23 @@ class DailyBatchEngine:
             rem_items -= c_size
 
         num_clusters = len(clusters)
-        # High-activity pacing: lively cluster gaps of 7 to 20 minutes between conversation arcs
-        target_cluster_gap_min = max(6.5, min(20.0, 900.0 / max(num_clusters, 1)))
+        # High-activity pacing: lively cluster gaps between conversation arcs (4 to 12 minutes)
+        target_cluster_gap_min = max(4.0, min(12.0, 480.0 / max(num_clusters, 1)))
 
         offsets_min = []
         cluster_cur_min = start_delay_min
 
         for c_idx, c_size in enumerate(clusters):
             if c_idx > 0:
-                # Dynamic organic pacing between conversation clusters: 7 to 22 minutes
-                gap = target_cluster_gap_min * random.uniform(0.70, 1.25)
+                # Dynamic organic pacing between conversation clusters: 4 to 12 minutes
+                gap = target_cluster_gap_min * random.uniform(0.75, 1.20)
                 cluster_cur_min += gap
 
             msg_time = cluster_cur_min
             for msg_i in range(c_size):
                 if msg_i > 0:
-                    # Rapid mobile back-and-forth texting interval: 18 to 60 seconds
-                    msg_time += random.uniform(0.30, 1.0)
+                    # Rapid mobile back-and-forth texting interval: 15 to 45 seconds
+                    msg_time += random.uniform(0.25, 0.75)
                 offsets_min.append(msg_time)
 
         cand_usage = { (c["persona_id"], c["account_id"]): 0 for c in candidates }

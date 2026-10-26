@@ -1367,6 +1367,7 @@ class Daemon:
                             self.usage.log_event("reaction_sent", persona_id=eff_pid, account_id=aid, chat_id=job["chat_id"])
                             if eff_pid:
                                 self.orchestrator.record_activity(job["chat_id"], eff_pid)
+                            self.store.finish(job["id"], True)
                             return
                         except Exception as react_err:
                             log.warning("Safe reaction fallback (%s): %s. Proceeding to text bubbles.", react_emoji, react_err)
@@ -1458,7 +1459,7 @@ class Daemon:
                         f"Postponed: human spoke {elapsed_since_human}s ago "
                         f"(adaptive pause {required_wait}s, deferral #{postpone_count + 1})"
                     )
-                    self.store.finish(job["id"], False, reason, retry_in=defer_secs)
+                    self.store.finish(job["id"], False, reason, retry_in=defer_secs, count_attempt=False)
                     return
 
                 aid = p.get("account_id") or g.get("account_id")
@@ -1512,6 +1513,7 @@ class Daemon:
                             self.usage.log_event("reaction_sent", persona_id=eff_pid, account_id=aid, chat_id=job["chat_id"])
                             if eff_pid:
                                 self.orchestrator.record_activity(job["chat_id"], eff_pid)
+                            self.store.finish(job["id"], True)
                             return
                         except Exception as react_err:
                             log.warning("Safe reaction fallback (%s): %s. Proceeding to text bubbles.", react_emoji, react_err)
@@ -1868,22 +1870,25 @@ class Daemon:
         self.store.set(f"last_peer_chime_{chat_id}", now_ts + int(effective_delay))
         self.orchestrator.record_activity(chat_id, pid)
 
-        # Enqueue reply
+        # Enqueue reply as draft_reply with auto_send=True so it executes cleanly
         self.store.enqueue(
-            "scheduled_reply", chat_id,
+            "draft_reply", chat_id,
             {
+                "trigger": event.id,
+                "trigger_sender": getattr(event, "sender_name", None) or "Teammate",
+                "trigger_text": raw_text,
+                "reply_parent_text": raw_text,
+                "reply_parent_sender": "Teammate",
+                "reply_parent_id": event.id,
+                "auto_send": True,
                 "account_id": aid_chosen,
                 "persona_id": pid,
-                "incoming_text": raw_text,
-                "reply_to": event.id,
-                "reply_parent_sender": "Teammate",
-                "reply_parent_text": raw_text,
-                "reply_to_human": False,
-                "is_peer_chime_in": True,
-                "context": f"Spontaneous peer reaction to group member comment: '{raw_text[:120]}'"
+                "is_admin": False,
+                "is_teammate_chime": True,
+                "reason": "Spontaneous peer banter"
             },
-            delay=int(effective_delay),
-            priority=2
+            dedupe_key=f"peer_chime:{chat_id}:{event.id}",
+            delay=int(effective_delay)
         )
         log.info("Spontaneous peer chime-in scheduled in group %s (persona %s in %.1fs)", chat_id, pid, effective_delay)
 
@@ -1916,24 +1921,27 @@ class Daemon:
                     for cid in all_cids:
                         try:
                             # Check if today has pending/scheduled batch items
+                            now_ts = int(time.time())
                             pending_items = self.store.rows(
-                                "SELECT id FROM daily_batch_items WHERE chat_id=? AND status IN ('pending', 'postponed') AND created_at >= ?",
-                                (cid, int(time.time()) - 86400)
+                                "SELECT id, scheduled_ts FROM daily_batch_items WHERE chat_id=? AND status IN ('pending', 'postponed') AND created_at >= ?",
+                                (cid, now_ts - 86400)
                             )
                             existing_batches = self.store.rows("SELECT id FROM daily_batches WHERE chat_id=? AND date_str=?", (cid, today))
+
+                            upcoming_items = [it for it in pending_items if (it.get("scheduled_ts") or 0) > now_ts]
 
                             should_generate = False
                             if not existing_batches:
                                 should_generate = True
-                            elif len(pending_items) <= 1:
-                                # Prior batch is finished or nearly exhausted (<= 1 item). Trigger next rolling wave
+                            elif len(upcoming_items) <= 2:
+                                # Prior batch cluster is finished or running low. Trigger next rolling wave
                                 last_sent = self.store.rows(
                                     "SELECT MAX(sent_ts) as last_ts FROM daily_batch_items WHERE chat_id=? AND status='sent'",
                                     (cid,)
                                 )
                                 last_ts = (last_sent[0]["last_ts"] or 0) if last_sent else 0
-                                interval_secs = int(self.store.get("batch_session_interval_seconds", 450))
-                                if (int(time.time()) - last_ts) >= interval_secs:
+                                interval_secs = int(self.store.get("batch_session_interval_seconds", 300))
+                                if (now_ts - last_ts) >= interval_secs:
                                     should_generate = True
 
                             if should_generate:
@@ -1954,14 +1962,37 @@ class Daemon:
         ready = await self.ensure_clients()
         if not ready:
             return
+        all_accs = {a["user_id"]: a for a in self.store.rows("SELECT id, user_id, persona_id, name, username FROM accounts") if a.get("user_id")}
+        acc_unames = {(a.get("username") or "").lower().lstrip("@"): a for a in all_accs.values() if a.get("username")}
+        acc_names = {(a.get("name") or "").lower(): a for a in all_accs.values() if a.get("name")}
+
         for g in self.store.rows("SELECT * FROM groups WHERE watched=1"):
             c = ready.get(g["account_id"]) or next(iter(ready.values()))
             last = self.store.q("SELECT MAX(msg_id) FROM messages WHERE chat_id=?", (g["chat_id"],)).fetchone()[0] or 0
             async for m in c.iter_messages(g["chat_id"], min_id=last, limit=200):
                 if m.raw_text:
                     s = await m.get_sender()
-                    self.store.add_message(g["chat_id"], m.id, getattr(s, "first_name", None) or "unknown",
-                                           m.raw_text, int(m.date.timestamp()))
+                    sender_id = getattr(s, "id", None)
+                    s_uname = (getattr(s, "username", "") or "").lower().lstrip("@")
+                    s_first = (getattr(s, "first_name", "") or "").lower()
+                    matched = None
+                    if sender_id and sender_id in all_accs:
+                        matched = all_accs[sender_id]
+                    elif s_uname and s_uname in acc_unames:
+                        matched = acc_unames[s_uname]
+                    elif s_first and s_first in acc_names:
+                        matched = acc_names[s_first]
+
+                    is_b = 1 if matched else 0
+                    m_aid = matched["id"] if matched else None
+                    m_pid = matched["persona_id"] if matched else None
+
+                    self.store.add_message(
+                        g["chat_id"], m.id, getattr(s, "first_name", None) or "unknown",
+                        m.raw_text, int(m.date.timestamp()),
+                        is_bot=is_b, sender_id=sender_id,
+                        persona_id=m_pid, account_id=m_aid
+                    )
 
     # ---------- HTTP API ----------
     def routes(self):
