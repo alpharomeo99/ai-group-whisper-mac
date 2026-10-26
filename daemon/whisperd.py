@@ -44,7 +44,11 @@ class Daemon:
         self.avatars_dir = os.path.join(data_dir, "avatars")
         os.makedirs(self.avatars_dir, exist_ok=True)
         self.suspended = False
-        self.paused_reason = self.store.get("paused_reason")  # persisted AI pause (402/403)
+        # Clear stale paused_reason so transient AI limits from earlier never freeze daemon on restart
+        self.paused_reason = None
+        self.store.set("paused_reason", None)
+        if self.store.get("system_enabled") is None:
+            self.store.set("system_enabled", True)
         self._adopt_legacy_session()
         self.wake_event = asyncio.Event()
         self.prov = Provisioner(self)
@@ -411,8 +415,8 @@ class Daemon:
                     except Exception:
                         pass
 
-                    # Human linger duration (15 to 45 seconds)
-                    linger = random.uniform(15.0, 45.0)
+                    # Snappy check-in: 5 to 12s so account locks are promptly released for sending
+                    linger = random.uniform(5.0, 12.0)
                     log.info("Casual presence: Account %s (%s) online for quick check (~%ds)", aid, account_info.get("name"), int(linger))
 
                     try:
@@ -896,6 +900,8 @@ class Daemon:
                 )
                 if pid and aid_chosen:
                     self.orchestrator.record_activity(chat_id, pid)
+                    # Snappy primary reply delay (2 to 12s)
+                    eff_reply_delay = max(2, min(int(delay * 0.40), 12))
                     self.store.enqueue(
                         "draft_reply", chat_id,
                         {
@@ -914,8 +920,6 @@ class Daemon:
                         dedupe_key=f"reply:{chat_id}:{event.id}",
                         delay=eff_reply_delay
                     )
-                    # Snappy primary reply delay (2 to 12s)
-                    eff_reply_delay = max(2, min(int(delay * 0.40), 12))
                     log.info("Enqueued %s reply in %s (Acc %s / Persona %s, delay=%ds): %s",
                              "ADMIN" if is_admin_sender else "HUMAN", chat_id, aid_chosen, pid, eff_reply_delay, reason)
 
@@ -1187,7 +1191,21 @@ class Daemon:
                 return await cl.send_message(entity, text, reply_to=reply_to)
             except Exception:
                 try:
-                    await cl.get_dialogs(limit=100)
+                    dialogs = await cl.get_dialogs(limit=100)
+                    target_entity = None
+                    for d in dialogs:
+                        if d.id == chat_id or getattr(d.entity, 'id', None) == chat_id:
+                            target_entity = d.entity
+                            break
+                        if isinstance(chat_id, int) and chat_id < 0:
+                            norm_cid = abs(chat_id)
+                            if str(norm_cid).startswith('100') and len(str(norm_cid)) > 10:
+                                norm_cid = int(str(norm_cid)[3:])
+                            if getattr(d.entity, 'id', None) == norm_cid or d.id == norm_cid:
+                                target_entity = d.entity
+                                break
+                    if target_entity:
+                        return await cl.send_message(target_entity, text, reply_to=reply_to)
                     return await cl.send_message(chat_id, text, reply_to=None)
                 except Exception as final_err:
                     log.error("Could not resolve peer %s for account %s: %s", chat_id, aid, final_err)
@@ -1441,24 +1459,28 @@ class Daemon:
 
                 # Active group detection: humans chat every few minutes, so personas slip in smoothly
                 is_active_chat = (human_count >= 3)
-                is_starving = (postpone_count >= 3 or starvation_age >= 300)
+                is_starving = (postpone_count >= 2 or starvation_age >= 60)
 
                 if is_starving:
-                    effective_pause = 14
+                    effective_pause = 0
                 elif is_active_chat:
-                    effective_pause = 18
+                    effective_pause = 12
                 else:
                     effective_pause = configured_pause
 
-                # Safety gap: 8 seconds ensures no mid-sentence interruption without stalling
-                min_safety_gap = 8
+                min_safety_gap = 6
                 required_wait = max(min_safety_gap, effective_pause)
 
-                if last_human_ts and (now_ts - last_human_ts) < required_wait:
-                    elapsed_since_human = now_ts - last_human_ts
-                    remaining = required_wait - elapsed_since_human
-                    # Snappy retry window (8-20s) so personas immediately join the conversational lull
-                    defer_secs = max(8, min(remaining + random.randint(3, 10), 20))
+                # Clock skew guard: if Telegram server ts is ahead of Mac system clock
+                if last_human_ts and last_human_ts > now_ts:
+                    last_human_ts = now_ts - min_safety_gap - 1
+
+                elapsed_since_human = max(0, now_ts - last_human_ts) if last_human_ts else 999999
+
+                # If starving, NEVER postpone: personas slip right into the chatter
+                if not is_starving and last_human_ts and elapsed_since_human < required_wait:
+                    remaining = max(1, required_wait - elapsed_since_human)
+                    defer_secs = max(4, min(remaining + random.randint(2, 6), 12))
 
                     p["_postpone_count"] = postpone_count + 1
                     p["_first_attempt_ts"] = first_attempt_ts
@@ -1554,7 +1576,8 @@ class Daemon:
                                 self.store.q("UPDATE accounts SET user_id=? WHERE id=?", (sender_id, aid))
                         self.store.add_message(
                             job["chat_id"], sent_msg.id, p.get("sender_name") or "Me",
-                            bubble_text, int(time.time()), is_bot=1, sender_id=sender_id
+                            bubble_text, int(time.time()), is_bot=1, sender_id=sender_id,
+                            persona_id=eff_pid, account_id=aid
                         )
                         if eff_pid:
                             self.memory.auto_record_statement(eff_pid, aid, job["chat_id"], bubble_text)
