@@ -420,7 +420,7 @@ class DailyBatchEngine:
             emoji_habit = dt.get("emoji_habit") or "moderate"
             typing = dt.get("typing_style") or "casual phone texting"
             uname = c.get("account_username")
-            tag = f"@{uname}" if uname else f"@{(c.get('persona_name') or 'member').split()[0].lower()}"
+            # Telegram tags removed per zero-tag mandate
 
             mem_lines = []
             if self.memory:
@@ -458,7 +458,7 @@ class DailyBatchEngine:
                 c_temperament = "CHILL & GROUNDED PRACTICAL PEER (Calm, knowledgeable, explains reconstitution or protocol details without corporate tone)"
 
             persona_summaries.append(
-                f"- ID: {c['persona_id']}, AccountID: {c['account_id']}, Name: {c['persona_name']}, Telegram Tag: {tag}\n"
+                f"- ID: {c['persona_id']}, AccountID: {c['account_id']}, Name: {c['persona_name']}\n"
                 f"  Vibe/Role: {role}\n"
                 f"  Temperament & Speech Profile: [{c_tier.upper()}] - {c_temperament}\n"
                 f"  Signature Emojis: {emojis} (habit: {emoji_habit})\n"
@@ -467,7 +467,7 @@ class DailyBatchEngine:
             )
         persona_str = "\n\n".join(persona_summaries)
         rel_graph = format_relationship_graph(candidates)
-        persona_str += f"\n\nINTER-PERSONA RELATIONSHIP DYNAMICS:\n{rel_graph}\n(Personas banter, reference shared history, and tag each other like close gym/online peers!)" 
+        persona_str += f"\n\nINTER-PERSONA RELATIONSHIP DYNAMICS:\n{rel_graph}\n(Personas banter, reference shared history, and chat like close gym/online peers without using @tags!)" 
 
         group_title = group.get("title") or f"Group {chat_id}"
         group_about = group.get("about") or "Telegram community discussion"
@@ -708,7 +708,11 @@ class DailyBatchEngine:
             if not text and not reaction:
                 continue
             if not text and reaction:
-                text = f"[reaction: {reaction}]" 
+                text = f"[reaction: {reaction}]"
+            elif text:
+                text = self.ai.format_telegram_message(text, names=cand_names, max_chars=360)
+                if not text:
+                    continue 
 
             scheduled_min = offsets_min[idx] if idx < len(offsets_min) else (curr_min + (idx * 2))
             jitter_sec = random.randint(-5, 8)

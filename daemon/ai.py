@@ -130,16 +130,37 @@ def naturalize_mobile_text(text):
     return text
 
 
+def strip_all_tags(text):
+    """Removes all @tags, @usernames, and @handles from message text while keeping natural phrasing."""
+    if not text:
+        return ""
+    # Replace phrasing like 'dm @xbiolabs' or 'ask @handle' with 'dm admin' / 'ask admin'
+    text = re.sub(r'\b(dm|message|ask|ping|contact|tell)\s+@\w+\b', r'\1 admin', text, flags=re.IGNORECASE)
+    # Remove any remaining @handle or @username entirely
+    text = re.sub(r'@\w{2,32}\b\s*[,:]?\s*', ' ', text)
+    # Fix spacing around punctuation: e.g. 'bro !!' -> 'bro!!', 'bro , ' -> 'bro, '
+    text = re.sub(r'\s+([,.!?:;])', r'\1', text)
+    # Clean double spaces
+    text = re.sub(r'\s{2,}', ' ', text)
+    # Clean leading punctuation like ': ' or ', '
+    text = re.sub(r'^\s*[,:;-]\s*', '', text)
+    return text.strip()
+
+
 def strip_internal_tags(text, tags_to_strip):
-    if not text or not tags_to_strip:
+    if not text:
+        return ""
+    text = strip_all_tags(text)
+    if not tags_to_strip:
         return text
     for tag in tags_to_strip:
         clean = tag.lower().lstrip('@')
-        if not clean or clean == 'xbiolabs':
+        if not clean:
             continue
         pat = rf'@?\b{re.escape(clean)}\b\s*[,:]?\s*'
-        text = re.sub(pat, '', text, flags=re.IGNORECASE)
-    return re.sub(r'\s{2,}', ' ', text).strip()
+        text = re.sub(pat, ' ', text, flags=re.IGNORECASE)
+    text = re.sub(r'\s{2,}', ' ', text).strip()
+    return text
 
 
 def _clean_single_telegram_bubble(text, names=None, max_chars=360, strip_tags=None):
@@ -150,8 +171,9 @@ def _clean_single_telegram_bubble(text, names=None, max_chars=360, strip_tags=No
     # Strip LLM sender labels like '[Dave]: ' or 'Alice: '
     text = re.sub(r'^(?:\[[^\]]+\]:?|\w+:\s*)\s*', '', text).strip()
 
-    # Clean out formal email-style salutations (e.g. 'Hey Dave, ' -> '')
+    # Clean out formal email-style salutations and all @tags/usernames
     text = strip_addressing_names(text, names=names)
+    text = strip_all_tags(text)
     if strip_tags:
         text = strip_internal_tags(text, strip_tags)
 
@@ -374,7 +396,7 @@ async def draft_reply_with_meta(settings, title, persona, msgs, trigger_sender=N
         "- NATURAL LENGTH VARIATION: Keep your response proportionate to the situation. Quick reactions should be brief (3-12 words); answers or advice can be 1-3 sentences. Never write essays or formal bulleted lists.",
         "- ZERO CORPORATE OR BOT CLICHES: Never use openers like 'Great question!', 'I understand', 'To answer your question', 'It depends on various factors', 'Both options are valid'. Jump straight into your raw human reaction or advice.",
         "- TONE SYNCHRONIZATION & CAMARADERIE: Match the emotional frequency of the human: If they are sharing a PR/win, hype them up with authentic respect ('solid numbers bro', 'big PR', 'clean work'). If they are struggling with an injury or side-effect, be reassuring and level-headed ('shoulder tendonitis is brutal', 'don't panic, give it 3 days'). If they are joking, banter back with wit and sarcasm.",
-        "- RECIPIENT FOCUS (NO THIRD-PARTY PERSONA TAGS): When replying to a member or admin, talk DIRECTLY to that person. NEVER tag, ping, or address other persona accounts (e.g. @leila, @dorian, etc.) in your reply! Keep your reply 100% focused on the person who spoke.",
+        "- STRICT ZERO @TAGS / USERNAMES MANDATE: NEVER include @tags, usernames, or @handles in your message (NO '@handle', NO '@xbiolabs', NO '@username'). Real Telegram users use the native reply feature instead of typing usernames into message text. When replying or answering someone, just speak directly to them without tagging their name or handle.",
         "- TEAMMATE CHIME-IN DYNAMICS (when participating as a follow-up): If chiming in after a teammate spoke, offer a distinct personal angle, agree with authentic flavor, or ask a friendly follow-up. NEVER echo or duplicate what the first speaker said.",
         "- MULTI-MESSAGE BURSTS (NATURAL MOBILE TEXTING): Real humans texting from mobile phones frequently send 2 (or occasionally 3) rapid consecutive messages instead of one wall of text. For instance: bubble 1 is a quick reaction or initial remark, bubble 2 is the elaboration, question, or follow-up note.",
         "  If your persona is bursty or the situation calls for it, separate consecutive bubbles using ' ||| '.",
@@ -383,7 +405,7 @@ async def draft_reply_with_meta(settings, title, persona, msgs, trigger_sender=N
         "    '2ml is plenty ||| draw 10 units slow so no air bubbles'",
         "    'wait did you check the vial? ||| 5mg vs 10mg is totally different math'",
         "  Only burst when it feels completely organic. If a single short message is enough, do not force a burst. Never split a single sentence unnaturally.",
-        "- GROUP ADMIN & OWNER (@xbiolabs): Understand that @xbiolabs is the group admin, owner, and processing all orders. When @xbiolabs speaks, reply naturally and respectfully. If someone asks about ordering, tracking, payments, or product purity, affirm from personal positive experience ('orders landed clean for me', 'zero pip, test was verified') and point them directly to @xbiolabs ('dm @xbiolabs he will get you sorted', 'ask @xbiolabs for tracking').",
+        "- GROUP ADMIN & OWNER: Understand that the group owner/admin processes all orders. When admin speaks, reply naturally and respectfully. If someone asks about ordering, tracking, payments, or product purity, affirm from personal positive experience ('orders landed clean for me', 'zero pip, test was verified') and point them directly to admin ('dm admin he will get you sorted', 'ask admin for tracking'). NEVER type @tags or usernames.",
         tone_instruction,
         "- Output ONLY the raw telegram message text."
     ]
@@ -427,7 +449,7 @@ async def draft_reply_with_meta(settings, title, persona, msgs, trigger_sender=N
                 f'{chime_note}'
                 f'{sender_label}\'s message to you in the group:{sep}"{trigger_text}"{sep}'
                 f'INSTRUCTION: Respond directly, casually, and authentically to {sender_label}. '
-                f'Acknowledge what they said. DO NOT tag, mention, or address other personas (e.g. Leila, Dorian, etc.) with @ or by name. '
+                f'Acknowledge what they said. DO NOT tag, mention, or address anyone with @ or by username. Use ZERO @tags or handles. '
                 f'Keep your reply 100% focused on {sender_label}.'
             )
     elif msgs:
