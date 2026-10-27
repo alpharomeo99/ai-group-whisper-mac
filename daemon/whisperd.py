@@ -1191,7 +1191,7 @@ class Daemon:
                 return await cl.send_message(entity, text, reply_to=reply_to)
             except Exception:
                 try:
-                    dialogs = await cl.get_dialogs(limit=100)
+                    dialogs = await cl.get_dialogs(limit=250)
                     target_entity = None
                     for d in dialogs:
                         if d.id == chat_id or getattr(d.entity, 'id', None) == chat_id:
@@ -1206,20 +1206,40 @@ class Daemon:
                                 break
                     if target_entity:
                         return await cl.send_message(target_entity, text, reply_to=reply_to)
-                    return await cl.send_message(chat_id, text, reply_to=None)
-                except Exception as final_err:
-                    log.error("Could not resolve peer %s for account %s: %s", chat_id, aid, final_err)
-                    raise peer_err
+                except Exception as search_err:
+                    log.debug("Dialog search in %s for account %s: %s", chat_id, aid, search_err)
+
+                # Resilient fallback: Re-route to Scout account or any verified active group account
+                scout_aid = self.get_scout_account_id()
+                alt_aids = []
+                if scout_aid and scout_aid != aid:
+                    alt_aids.append(scout_aid)
+                for r in self.store.rows("SELECT a.id FROM group_accounts ga JOIN accounts a ON a.id=ga.account_id WHERE ga.chat_id=? AND a.active=1 AND a.id != ?", (chat_id, aid)):
+                    if r["id"] not in alt_aids:
+                        alt_aids.append(r["id"])
+                for alt_aid in alt_aids:
+                    try:
+                        log.info("Peer resolution fallback in %s: re-routing from account %s to verified account %s", chat_id, aid, alt_aid)
+                        async with self.account_session(alt_aid) as alt_cl:
+                            return await alt_cl.send_message(chat_id, text, reply_to=None)
+                    except Exception as alt_err:
+                        log.debug("Alternate account %s delivery fallback error in %s: %s", alt_aid, chat_id, alt_err)
+                raise peer_err
         except (errors.rpcerrorlist.ChatWriteForbiddenError, errors.rpcerrorlist.UserBannedInChannelError, errors.rpcerrorlist.ChannelPrivateError) as perm_err:
-            alt_accs = self.store.rows(
-                "SELECT a.id FROM group_accounts ga JOIN accounts a ON a.id=ga.account_id WHERE ga.chat_id=? AND a.active=1 AND a.id != ? LIMIT 1",
-                (chat_id, aid)
-            )
-            if alt_accs:
-                alt_aid = alt_accs[0]["id"]
-                log.warning("Account %s cannot send in %s (%s). Re-routing to alternate account %s", aid, chat_id, perm_err, alt_aid)
-                async with self.account_session(alt_aid) as alt_cl:
-                    return await alt_cl.send_message(chat_id, text, reply_to=None)
+            scout_aid = self.get_scout_account_id()
+            alt_aids = []
+            if scout_aid and scout_aid != aid:
+                alt_aids.append(scout_aid)
+            for r in self.store.rows("SELECT a.id FROM group_accounts ga JOIN accounts a ON a.id=ga.account_id WHERE ga.chat_id=? AND a.active=1 AND a.id != ?", (chat_id, aid)):
+                if r["id"] not in alt_aids:
+                    alt_aids.append(r["id"])
+            for alt_aid in alt_aids:
+                try:
+                    log.warning("Account %s cannot send in %s (%s). Re-routing to verified account %s", aid, chat_id, perm_err, alt_aid)
+                    async with self.account_session(alt_aid) as alt_cl:
+                        return await alt_cl.send_message(chat_id, text, reply_to=None)
+                except Exception as alt_err:
+                    log.debug("Alternate account %s permission fallback error in %s: %s", alt_aid, chat_id, alt_err)
             raise perm_err
 
     async def auto_generate_daily_if_needed(self):
@@ -1229,7 +1249,8 @@ class Daemon:
             all_cids = [r["chat_id"] for r in self.store.rows(
                 "SELECT chat_id FROM groups WHERE watched=1 "
                 "UNION SELECT chat_id FROM group_personas "
-                "UNION SELECT chat_id FROM group_accounts"
+                "UNION SELECT chat_id FROM group_accounts "
+                "UNION SELECT chat_id FROM groups"
             )]
             for cid in all_cids:
                 existing = self.store.rows("SELECT id FROM daily_batches WHERE chat_id=? AND date_str=?", (cid, today))
@@ -1950,7 +1971,8 @@ class Daemon:
                     all_cids = [r["chat_id"] for r in self.store.rows(
                         "SELECT chat_id FROM groups WHERE watched=1 "
                         "UNION SELECT chat_id FROM group_personas "
-                        "UNION SELECT chat_id FROM group_accounts"
+                        "UNION SELECT chat_id FROM group_accounts "
+                        "UNION SELECT chat_id FROM groups"
                     )]
 
                     for cid in all_cids:
@@ -3685,6 +3707,7 @@ async def main():
     asyncio.create_task(d.daily_batch_loop())
     asyncio.create_task(d.memory_pruner_loop())
     asyncio.create_task(d.casual_presence_loop())
+    asyncio.create_task(d.auto_generate_daily_if_needed())
     try:
         await d.ensure_clients()
     except Exception as e:  # noqa

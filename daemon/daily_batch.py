@@ -15,6 +15,7 @@ import random
 import re
 import time
 from datetime import datetime
+import ai
 
 log = logging.getLogger("whisper.batch")
 
