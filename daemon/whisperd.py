@@ -244,7 +244,10 @@ class Daemon:
             acc = self.store.rows("SELECT id FROM accounts WHERE id=? AND active=1", (int(scout_aid),))
             if acc:
                 return acc[0]["id"]
-        first_active = self.store.rows("SELECT id FROM accounts WHERE active=1 ORDER BY id ASC LIMIT 1")
+        first_active = self.store.rows(
+            "SELECT a.id FROM accounts a LEFT JOIN group_accounts ga ON ga.account_id=a.id "
+            "WHERE a.active=1 AND LOWER(COALESCE(a.username,''))<>'xbiolabs' "
+            "GROUP BY a.id ORDER BY COUNT(ga.chat_id) DESC, a.id ASC LIMIT 1")
         return first_active[0]["id"] if first_active else None
 
     async def ensure_clients(self):
@@ -711,10 +714,10 @@ class Daemon:
         except Exception:
             pass
 
-        # Deduplication check: ignore if this message was already received and processed
-        existing = self.store.rows("SELECT id FROM messages WHERE chat_id=? AND msg_id=?", (chat_id, event.id))
-        if existing:
+        # Deduplication: a message is skipped only if it was already HANDLED (not merely stored by sync/catch-up).
+        if not self.store.claim_incoming(chat_id, event.id):
             return
+        msg_age = int(time.time()) - int(event.date.timestamp()) if getattr(event, "date", None) else 0
 
         g = self.store.rows("SELECT * FROM groups WHERE chat_id=?", (chat_id,))
         if not g:
@@ -748,7 +751,7 @@ class Daemon:
 
         # Check if sender is an internal bot persona (excluding admin/xbiolabs)
         bot_user_ids = {a["user_id"] for a in all_accounts if a.get("user_id") and not a.get("is_admin") and (a.get("username") or "").lower() != "xbiolabs"}
-        is_internal_bot = bool(not is_admin_sender and (event.out or (sender_id and sender_id in bot_user_ids)))
+        is_internal_bot = bool(not is_admin_sender and (getattr(event, "out", False) or (sender_id and sender_id in bot_user_ids)))
 
         # Record message with is_bot flag
         self.store.add_message(
@@ -769,6 +772,9 @@ class Daemon:
 
         # 4. LIVE AI ORCHESTRATION: Triggered when an external HUMAN or @xbiolabs ADMIN sends a message!
         system_enabled = bool(self.store.get("system_enabled", True))
+        if msg_age > 900:
+            log.info("Skipping reply to stale message %s in %s (%ds old)", event.id, chat_id, msg_age)
+            system_enabled = False
         if system_enabled:
             g_title = g[0].get("title") if g else f"Group {chat_id}"
             sender_label = "ADMIN (@xbiolabs)" if is_admin_sender else f"HUMAN ({name})"
@@ -950,9 +956,17 @@ class Daemon:
                                 delay=second_delay
                             )
                             log.info("Enqueued teammate follow-up in %s (Acc %s / Persona %s, delay=%ds)", chat_id, t_c["account_id"], t_c["persona_id"], second_delay)
-            elif is_direct:
-                # Direct mention fallback with no explicit persona assigned
+            else:
+                # No candidates resolved: still answer from any persona account that is in this group
+                fallback = self.store.rows(
+                    "SELECT a.id, a.persona_id FROM accounts a JOIN group_accounts ga ON ga.account_id=a.id "
+                    "WHERE ga.chat_id=? AND a.active=1 AND a.persona_id IS NOT NULL "
+                    "AND LOWER(COALESCE(a.username,''))<>'xbiolabs' ORDER BY RANDOM() LIMIT 1", (chat_id,))
+                log.warning("No reply candidates for %s in %s; fallback account=%s", sender_label, chat_id,
+                            fallback[0]["id"] if fallback else None)
                 self.store.enqueue("draft_reply", chat_id, {
+                    "account_id": fallback[0]["id"] if fallback else None,
+                    "persona_id": fallback[0]["persona_id"] if fallback else None,
                     "trigger": event.id,
                     "trigger_sender": name,
                     "trigger_text": raw_text,
@@ -1353,6 +1367,20 @@ class Daemon:
                                   chat_id=job["chat_id"], tokens_prompt=meta.get("prompt_tokens"),
                                   tokens_completion=meta.get("completion_tokens"), latency_ms=meta.get("latency_ms"),
                                   model=meta.get("model"))
+
+                if not (text or "").strip():
+                    log.warning("Empty draft for job %s; redrafting once", job["id"])
+                    text, meta = await ai.draft_reply_with_meta(
+                        settings, g.get("title", ""), chosen_persona, self.store.recent(job["chat_id"], 12),
+                        trigger_sender=trigger_sender, trigger_text=trigger_text,
+                        reply_parent_text=reply_parent_text, reply_parent_sender=reply_parent_sender,
+                        known_names=cand_names, internal_persona_tags=list(internal_persona_tags),
+                        is_admin=bool(p.get("is_admin")), human_context=human_ctx,
+                        is_teammate_chime=bool(p.get("is_teammate_chime")), temperature=0.92,
+                        persona_name=p_disp_name, persona_details=dt
+                    )
+                if not (text or "").strip():
+                    raise RuntimeError("AI returned an empty reply twice")
 
                 bubbles = ai.split_burst_bubbles(text, names=cand_names, burstiness_pct=burstiness)
 
@@ -1948,6 +1976,57 @@ class Daemon:
         )
         log.info("Spontaneous peer chime-in scheduled in group %s (persona %s in %.1fs)", chat_id, pid, effective_delay)
 
+    async def human_reply_sweeper_loop(self):
+        """Every ~20s, reads the newest messages of each watched group and hands any human/@xbiolabs
+        message that the live listener missed to on_message (claim_incoming prevents double replies)."""
+        await asyncio.sleep(20)
+        last_prune = 0
+        while True:
+            try:
+                if not self.suspended and bool(self.store.get("system_enabled", True)):
+                    await self._sweep_groups_once()
+                if time.time() - last_prune > 3600:
+                    self.store.prune_processed_incoming()
+                    last_prune = time.time()
+            except Exception as e:
+                log.warning("human_reply_sweeper error: %s", e)
+            await asyncio.sleep(random.uniform(16, 24))
+
+    async def _sweep_groups_once(self):
+        scout_aid = self.get_scout_account_id()
+        ready = await self.ensure_clients()
+        accs = self.store.rows("SELECT id, user_id, username FROM accounts")
+        own_ids = {a["user_id"] for a in accs if a.get("user_id") and (a.get("username") or "").lower() != "xbiolabs"}
+        now = int(time.time())
+        for g in self.store.rows("SELECT chat_id FROM groups WHERE watched=1"):
+            cid = g["chat_id"]
+            members = [r["account_id"] for r in self.store.rows(
+                "SELECT ga.account_id FROM group_accounts ga JOIN accounts a ON a.id=ga.account_id "
+                "WHERE ga.chat_id=? AND a.active=1", (cid,))]
+            if not members:
+                continue
+            reader = scout_aid if scout_aid in members else members[0]
+            # Non-scout readers connect on demand; poll those groups less often to stay light.
+            if reader not in ready:
+                last = int(self.store.get(f"last_sweep_{cid}") or 0)
+                if now - last < 60:
+                    continue
+            self.store.set(f"last_sweep_{cid}", now)
+            try:
+                async with self.account_session(reader) as cl:
+                    async for m in cl.iter_messages(cid, limit=25):
+                        if not m.date or now - int(m.date.timestamp()) > 600:
+                            break
+                        if m.out or not m.raw_text or (m.sender_id and m.sender_id in own_ids):
+                            continue
+                        done = self.store.rows("SELECT 1 FROM processed_incoming WHERE chat_id=? AND msg_id=?", (cid, m.id))
+                        if done:
+                            continue
+                        log.info("Sweeper caught missed message %s in %s; handling now", m.id, cid)
+                        await self.on_message(m, reader)
+            except Exception as e:
+                log.warning("sweeper could not read group %s via account %s: %s", cid, reader, e)
+
     async def auto_sync_loop(self):
         """Continuous background dialog sync loop with gentle cadence for VPN stability."""
         await asyncio.sleep(15)
@@ -2033,12 +2112,12 @@ class Daemon:
                     s_uname = (getattr(s, "username", "") or "").lower().lstrip("@")
                     s_first = (getattr(s, "first_name", "") or "").lower()
                     matched = None
-                    if sender_id and sender_id in all_accs:
+                    if s_uname == "xbiolabs":
+                        matched = None
+                    elif sender_id and sender_id in all_accs and (all_accs[sender_id].get("username") or "").lower().lstrip("@") != "xbiolabs":
                         matched = all_accs[sender_id]
                     elif s_uname and s_uname in acc_unames:
                         matched = acc_unames[s_uname]
-                    elif s_first and s_first in acc_names:
-                        matched = acc_names[s_first]
 
                     is_b = 1 if matched else 0
                     m_aid = matched["id"] if matched else None
@@ -3719,6 +3798,7 @@ async def main():
     log.info("listening on 127.0.0.1:%d", a.port)
     # Camoufox auto-download disabled on startup for lean, low-overhead system operation
     asyncio.create_task(d.auto_sync_loop())
+    asyncio.create_task(d.human_reply_sweeper_loop())
     asyncio.create_task(d.daily_batch_loop())
     asyncio.create_task(d.memory_pruner_loop())
     asyncio.create_task(d.casual_presence_loop())

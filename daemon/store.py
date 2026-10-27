@@ -223,7 +223,8 @@ class Store:
             "ALTER TABLE human_memories ADD COLUMN is_active INTEGER DEFAULT 1",
             "ALTER TABLE human_memories ADD COLUMN status TEXT DEFAULT 'open'",
             "ALTER TABLE accounts ADD COLUMN is_admin INTEGER DEFAULT 0",
-            "CREATE INDEX IF NOT EXISTS idx_hm_chat_sender_slot ON human_memories(chat_id, sender, slot_key, is_active)"
+            "CREATE INDEX IF NOT EXISTS idx_hm_chat_sender_slot ON human_memories(chat_id, sender, slot_key, is_active)",
+            "CREATE TABLE IF NOT EXISTS processed_incoming (chat_id INTEGER NOT NULL, msg_id INTEGER NOT NULL, ts INTEGER NOT NULL, PRIMARY KEY(chat_id, msg_id))"
 ):
             try:
                 self.db.execute(ddl)
@@ -723,6 +724,16 @@ class Store:
                (key, json.dumps(value)))
 
     # messages
+    def claim_incoming(self, chat_id, msg_id):
+        """Atomically marks an incoming group message as handled. Returns True only for the first caller,
+        so the live listener and the backup poller can never both (or neither) handle a message."""
+        cur = self.q("INSERT OR IGNORE INTO processed_incoming(chat_id, msg_id, ts) VALUES(?,?,?)",
+                     (int(chat_id), int(msg_id), int(time.time())))
+        return bool(cur.rowcount)
+
+    def prune_processed_incoming(self, max_age_secs=3 * 86400):
+        self.q("DELETE FROM processed_incoming WHERE ts < ?", (int(time.time()) - max_age_secs,))
+
     def add_message(self, chat_id, msg_id, sender, text, ts, is_bot=0, sender_id=None, persona_id=None, account_id=None):
         self.q(
             "INSERT INTO messages(chat_id, msg_id, sender, text, ts, is_bot, sender_id, persona_id, account_id) "
@@ -866,7 +877,8 @@ class Store:
             for attempt in range(6):
                 try:
                     rows = self.db.execute(
-                        "SELECT * FROM queue WHERE status='pending' AND not_before<=? ORDER BY id LIMIT ?",
+                        "SELECT * FROM queue WHERE status='pending' AND not_before<=? "
+                        "ORDER BY CASE kind WHEN 'draft_reply' THEN 0 WHEN 'direct_reply' THEN 0 WHEN 'send' THEN 1 ELSE 2 END, id LIMIT ?",
                         (now, limit)).fetchall()
                     ids = [r["id"] for r in rows]
                     if ids:
