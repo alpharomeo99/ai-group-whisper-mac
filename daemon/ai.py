@@ -288,6 +288,60 @@ def format_short_telegram_text(text, names=None, max_chars=360):
 
 
 
+def compact_transcript(msgs, max_msgs=18, max_chars=2400, line_cap=220):
+    """Token-efficient history: newest-first budget, per-line cap, consecutive duplicates collapsed."""
+    out, total, last = [], 0, None
+    for m in reversed(list(msgs or [])):
+        txt = (m.get("text") or "").replace("\n", " ").strip()
+        if not txt or txt == last:
+            continue
+        last = txt
+        if len(txt) > line_cap:
+            txt = txt[:line_cap].rsplit(" ", 1)[0] + "…"
+        line = f"[{m.get('sender') or 'user'}] {txt}"
+        if total + len(line) > max_chars or len(out) >= max_msgs:
+            break
+        out.append(line)
+        total += len(line)
+    return "\n".join(reversed(out))
+
+
+def build_voice_card(details):
+    """Compact per-persona voice fingerprint injected into every reply (keeps personas distinct, ~60 tokens)."""
+    d = details or {}
+    if not isinstance(d, dict) or not d:
+        return ""
+    def _l(v, n):
+        if isinstance(v, str):
+            v = [x.strip() for x in v.split(",") if x.strip()]
+        return [str(x) for x in (v or [])][:n]
+    parts = []
+    vibe = d.get("tone_and_vibe") or d.get("role_in_group")
+    if vibe:
+        parts.append(f"vibe: {vibe}")
+    ts = d.get("typing_style") or d.get("casing_style")
+    if ts:
+        parts.append(f"typing: {ts}")
+    em = d.get("signature_emojis") or d.get("emojis")
+    if em:
+        parts.append(f"emojis ({d.get('emoji_habit', 'moderate')}): {em}")
+    ph = _l(d.get("phrases") or (d.get("voice") or {}).get("phrases"), 6)
+    if ph:
+        parts.append("phrases you use: " + ", ".join(random.sample(ph, min(3, len(ph)))))
+    ht = _l(d.get("hot_takes") or d.get("opinions"), 3)
+    if ht:
+        parts.append("your takes: " + "; ".join(ht))
+    ot = _l(d.get("off_topic") or d.get("interests"), 6)
+    if ot:
+        parts.append("life stuff you drift into: " + ", ".join(random.sample(ot, min(3, len(ot)))))
+    ns = _l(d.get("never_says") or (d.get("voice") or {}).get("never_says"), 4)
+    if ns:
+        parts.append("never say: " + ", ".join(ns))
+    if not parts:
+        return ""
+    return "- YOUR VOICE (stay in it, never drift into generic): " + " | ".join(parts)
+
+
 def resolve_persona_temperament(name=None, details=None, prompt=None, trigger_text=None):
     """
     Classifies a persona into one of three distinct behavioral tiers:
@@ -409,11 +463,14 @@ async def draft_reply_with_meta(settings, title, persona, msgs, trigger_sender=N
         tone_instruction,
         "- Output ONLY the raw telegram message text."
     ]
+    voice_card = build_voice_card(persona_details)
+    if voice_card:
+        rules.insert(1, voice_card)
     system = persona_prompt + sep + sep + sep.join(rules)
 
     user_parts = [f"Group: {title}"]
     if msgs:
-        user_parts.append(f"Recent Chat History:{sep}{transcript(msgs)}")
+        user_parts.append(f"Recent Chat History:{sep}{compact_transcript(msgs)}")
 
     if human_context:
         user_parts.append(human_context)
@@ -428,9 +485,8 @@ async def draft_reply_with_meta(settings, title, persona, msgs, trigger_sender=N
     if trigger_text:
         if is_admin_trigger:
             user_parts.append(
-                f'DIRECT ADMIN MESSAGE from @xbiolabs (Group Admin & Owner):{sep}"{trigger_text}"{sep}'
-                f'INSTRUCTION: @xbiolabs is the group owner/admin. Respond directly, respectfully, and naturally to @xbiolabs. '
-                f'If @xbiolabs asked a question, requested info, gave an update, or made an announcement, answer or acknowledge it like an active, engaged community member. Never ignore @xbiolabs.'
+                f'MESSAGE FROM THE GROUP ADMIN/OWNER:{sep}"{trigger_text}"{sep}'
+                f'INSTRUCTION: Reply directly and naturally to the admin. Answer questions, react to updates/announcements like an engaged regular. Never ignore the admin. No @tags or names.'
             )
         else:
             thread_ctx = ""

@@ -2510,6 +2510,12 @@ class Daemon:
                 await self.sync_all_dialogs(account_ids=[new_aid])
             except Exception as e:
                 log.warning("acc_verify initial dialog sync failed for account %s: %s", new_aid, e)
+            # Instantly create/link persona and bind to every group this account is in (no click needed)
+            try:
+                self.store.reconcile_personas_and_accounts()
+                self.ensure_group_personas_assigned_for_account(new_aid)
+            except Exception as e:
+                log.warning("acc_verify auto-reconcile failed for account %s: %s", new_aid, e)
             return J({"ok": True, "id": new_aid})
 
         @r.post("/accounts/login/cancel")
@@ -2529,7 +2535,16 @@ class Daemon:
                 if c:
                     await c.disconnect()
                 if is_active:
-                    asyncio.create_task(self.sync_all_dialogs(account_ids=[aid]))
+                    async def _sync_and_link(a=aid):
+                        try:
+                            await self.sync_all_dialogs(account_ids=[a])
+                            acc = self.store.rows("SELECT persona_id FROM accounts WHERE id=?", (a,))
+                            if not (acc and acc[0].get("persona_id")):
+                                self.store.reconcile_personas_and_accounts()
+                            self.ensure_group_personas_assigned_for_account(a)
+                        except Exception as e:
+                            log.warning("auto-link on activate failed for %s: %s", a, e)
+                    asyncio.create_task(_sync_and_link())
             if "proxy_id" in b:
                 self.store.q("UPDATE accounts SET proxy_id=? WHERE id=?", (b["proxy_id"] or None, aid))
                 c = self.clients.pop(aid, None)

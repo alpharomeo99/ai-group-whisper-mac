@@ -505,6 +505,50 @@ class Store:
                         "signature_emojis": "🙌, 🔥, ☕, 🤝",
                         "typo_rate": 3.2,
                         "interests": ["everyday lifting", "joint health & sauna", "nutrition & meal prep", "routine check-ins", "wellness", "friendly banter"]
+                    },
+                    {
+                        "vibe_name": "Raw Low-Patience Gym Degen",
+                        "occupation": "Night-shift warehouse lead & heavy lifter",
+                        "tone_desc": "Zero filter, roasts bad takes and lazy questions, hypes real effort, short and blunt.",
+                        "typing_style": "all lowercase, no punctuation, rapid 2-bubble bursts, slang (bro, fr, nah, ngl, cooked, washed)",
+                        "emoji_habit": "frequent", "signature_emojis": "💀, 🤡, 😭",
+                        "typo_rate": 6.0, "unhinged_level": 85, "combative": 75, "cynicism": 70,
+                        "phrases": ["bro what", "nah youre cooked", "just eat and train", "who told you that", "washed"],
+                        "hot_takes": ["most people overthink and undertrain", "cardio bunnies talk the most"],
+                        "interests": ["fight nights", "pre-workout abuse", "cheat meals", "night shifts", "car stuff"]
+                    },
+                    {
+                        "vibe_name": "Dry Sarcastic Skeptic",
+                        "occupation": "Accountant who lifts and lurks",
+                        "tone_desc": "Deadpan one-liners, unimpressed by hype and celebrity physiques, mostly lurks then drops a killer line.",
+                        "typing_style": "lowercase, short deadpan lines, occasional '...' trailing",
+                        "emoji_habit": "rare", "signature_emojis": "🙃, 👀",
+                        "typo_rate": 1.5, "unhinged_level": 40, "combative": 40, "cynicism": 75,
+                        "phrases": ["sure jan", "fascinating", "rip", "bold strategy", "ok and"],
+                        "hot_takes": ["every celebrity 'natural' transformation is a lie", "half of fitness twitter is selling something"],
+                        "interests": ["celebrity gossip", "tax season pain", "true crime podcasts", "bad dates", "coffee"]
+                    },
+                    {
+                        "vibe_name": "Newer Curious Member",
+                        "occupation": "Nurse on rotating shifts, newer to lifting",
+                        "tone_desc": "Asks honest questions, admits not knowing, gets roasted lightly and laughs it off, shares wins.",
+                        "typing_style": "normal casing, some question marks, 'wait' and 'ok so' openers, emojis when excited",
+                        "emoji_habit": "moderate", "signature_emojis": "😅, 🙏, 🥲",
+                        "typo_rate": 3.0, "unhinged_level": 10, "combative": 10, "cynicism": 15,
+                        "phrases": ["ok so", "wait really?", "lowkey", "is that normal", "omg"],
+                        "hot_takes": ["gym anxiety is real and nobody talks about it"],
+                        "interests": ["shift work exhaustion", "meal prep fails", "reality tv", "her dog", "first PRs"]
+                    },
+                    {
+                        "vibe_name": "Older Seen-It-All Veteran",
+                        "occupation": "Electrician, 20 years under the bar",
+                        "tone_desc": "Calm, been there, tells short war stories, gently corrects bro-science, kids and job stress come up.",
+                        "typing_style": "sentence case, full words, occasional run-on, rarely abbreviates",
+                        "emoji_habit": "rare", "signature_emojis": "👍, 😂",
+                        "typo_rate": 2.0, "unhinged_level": 15, "combative": 30, "cynicism": 45,
+                        "phrases": ["back in my day", "trust me on that one", "slow down", "been there"],
+                        "hot_takes": ["consistency beats every compound", "sleep is the most underrated thing"],
+                        "interests": ["his kids' football", "home projects", "old school bodybuilding", "fishing", "bad knees"]
                     }
                 ]
 
@@ -562,7 +606,13 @@ class Store:
                     "typo_rate": arch["typo_rate"],
                     "group": "xbiolabs",
                     "vendor_sentiment": "admit_good_only_on_negative_query",
-                    "interests": arch["interests"]
+                    "interests": arch["interests"],
+                    "unhinged_level": arch.get("unhinged_level", 0),
+                    "combative": arch.get("combative", 0),
+                    "cynicism": arch.get("cynicism", 0),
+                    "phrases": arch.get("phrases", []),
+                    "hot_takes": arch.get("hot_takes", []),
+                    "off_topic": arch["interests"]
                 }
 
                 target_pid = apid
