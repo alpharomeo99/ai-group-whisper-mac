@@ -121,7 +121,20 @@ class UsageTracker:
         active_sockets = 1 if active_count > 0 else 0
         dormant_accounts = max(0, total_accs - active_sockets)
 
+        can_b, b_spent, b_cap = self.store.check_batch_budget_available()
+        can_r, r_spent, r_cap = self.store.check_reply_budget_available()
+
         return {
+            "budget": {
+                "batch_budget_cap_usd": b_cap,
+                "batch_spend_today_usd": b_spent,
+                "batch_budget_remaining_usd": max(0.0, round(b_cap - b_spent, 6)),
+                "batch_budget_capped": not can_b,
+                "reply_budget_cap_usd": r_cap,
+                "reply_spend_today_usd": r_spent,
+                "reply_budget_remaining_usd": max(0.0, round(r_cap - r_spent, 6)),
+                "reply_budget_capped": not can_r,
+            },
             "messages": {
                 "sent_today": sent_today,
                 "sent_7d": sent_7d,

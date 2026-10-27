@@ -2000,6 +2000,15 @@ async function loadDailyBatchView() {
     }
     if (clearFailedBtn) clearFailedBtn.style.display = ((st.failed || 0) > 0) ? 'inline-block' : 'none';
 
+    // Render Daily Budget Status
+    if (batch.budget) {
+      const bg = batch.budget;
+      const bBar = ;
+      if (bBar) {
+        bBar.innerHTML = ;
+      }
+    }
+
     // Render schedule table
     renderBatchScheduleTable(Array.isArray(batch.items) ? batch.items : []);
   } catch (err) {

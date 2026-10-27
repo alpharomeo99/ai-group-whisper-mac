@@ -238,6 +238,13 @@ class Store:
         self.ensure_xbiolabs_persona_protocols()
         self._sanitize_name_calling_on_startup()
         try:
+            if self.get("daily_batch_budget_cap_usd") is None:
+                self.set("daily_batch_budget_cap_usd", 0.05)
+            if self.get("daily_reply_budget_cap_usd") is None:
+                self.set("daily_reply_budget_cap_usd", 0.20)
+        except Exception:
+            pass
+        try:
             now_ts = int(time.time())
             self.db.execute("DELETE FROM queue WHERE status IN ('done', 'cancelled') AND updated < ?", (now_ts - 86400,))
             self.db.execute("DELETE FROM queue WHERE status='failed' AND updated < ?", (now_ts - 86400 * 2,))
@@ -933,6 +940,63 @@ class Store:
     def set(self, key, value):
         self.q("INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
                (key, json.dumps(value)))
+
+    @staticmethod
+    def get_today_start_ts():
+        """Returns unix timestamp of 00:00:00 today in local system time."""
+        t = time.localtime()
+        day_start_struct = time.struct_time((t.tm_year, t.tm_mon, t.tm_mday, 0, 0, 0, t.tm_wday, t.tm_yday, t.tm_isdst))
+        return int(time.mktime(day_start_struct))
+
+    def get_daily_batch_spend(self, since_ts=None):
+        """Returns USD spent today on automated batch generation."""
+        if since_ts is None:
+            since_ts = self.get_today_start_ts()
+        rows = self.rows(
+            "SELECT SUM(cost_est) as total_cost FROM usage_logs WHERE event_type='ai_batch' AND timestamp >= ?",
+            (since_ts,)
+        )
+        if rows and rows[0].get("total_cost") is not None:
+            return round(float(rows[0]["total_cost"] or 0.0), 6)
+        return 0.0
+
+    def get_daily_reply_spend(self, since_ts=None):
+        """Returns USD spent today on interactive human/admin replies."""
+        if since_ts is None:
+            since_ts = self.get_today_start_ts()
+        rows = self.rows(
+            "SELECT SUM(cost_est) as total_cost FROM usage_logs WHERE event_type IN ('ai_chat', 'ai_direct') AND timestamp >= ?",
+            (since_ts,)
+        )
+        if rows and rows[0].get("total_cost") is not None:
+            return round(float(rows[0]["total_cost"] or 0.0), 6)
+        return 0.0
+
+    def get_daily_total_spend(self, since_ts=None):
+        """Returns total USD spent today across all AI operations."""
+        if since_ts is None:
+            since_ts = self.get_today_start_ts()
+        rows = self.rows(
+            "SELECT SUM(cost_est) as total_cost FROM usage_logs WHERE timestamp >= ?",
+            (since_ts,)
+        )
+        if rows and rows[0].get("total_cost") is not None:
+            return round(float(rows[0]["total_cost"] or 0.0), 6)
+        return 0.0
+
+    def check_batch_budget_available(self):
+        """Checks if today's batch spend is under the hard cap (default bash.05/day).
+        Returns (has_budget: bool, spent: float, cap: float)."""
+        cap = float(self.get("daily_batch_budget_cap_usd", 0.05))
+        spent = self.get_daily_batch_spend()
+        return (spent < cap), spent, cap
+
+    def check_reply_budget_available(self):
+        """Checks if today's interactive human/admin reply spend is under the hard cap (default bash.20/day).
+        Returns (has_budget: bool, spent: float, cap: float)."""
+        cap = float(self.get("daily_reply_budget_cap_usd", 0.20))
+        spent = self.get_daily_reply_spend()
+        return (spent < cap), spent, cap
 
     # messages
     def claim_incoming(self, chat_id, msg_id):

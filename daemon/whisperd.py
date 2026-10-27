@@ -875,6 +875,28 @@ class Daemon:
                 if matching_accs:
                     target_account_id = matching_accs[0]["id"]
 
+            # Proactively postpone any pending scheduled batch messages so live human conversation has exclusive priority
+            try:
+                now_ts_ev = int(time.time())
+                cooldown_secs = max(1200, int(self.store.get("batch_human_pause_seconds", 1500)))
+                self.store.q(
+                    "UPDATE daily_batch_items SET status='postponed', scheduled_ts=scheduled_ts+? "
+                    "WHERE chat_id=? AND status IN ('pending', 'postponed') AND scheduled_ts < ?",
+                    (cooldown_secs, chat_id, now_ts_ev + cooldown_secs)
+                )
+            except Exception as e:
+                log.debug("Proactive batch postponement: %s", e)
+
+            # Hard budget cap guard (bash.20/day for human & admin interactive replies)
+            can_reply, r_spent, r_cap = self.store.check_reply_budget_available()
+            if not can_reply:
+                log.warning(
+                    "[BUDGET CAP] Daily human/admin reply budget cap ($%.2f) reached ($%.4f spent today). "
+                    "Skipping reply to %s in group %s until midnight reset.",
+                    r_cap, r_spent, sender_label, chat_id
+                )
+                return
+
             candidates = self.daily_batch.get_group_candidates(chat_id)
             if not candidates:
                 self.ensure_group_personas_assigned(chat_id)
@@ -1259,6 +1281,10 @@ class Daemon:
     async def auto_generate_daily_if_needed(self):
         """Helper to ensure batches are generated automatically in the background if none exist."""
         try:
+            can_batch, b_spent, b_cap = self.store.check_batch_budget_available()
+            if not can_batch:
+                log.debug("auto_generate_daily_if_needed: Daily batch budget cap reached ($%.4f >= $%.2f)", b_spent, b_cap)
+                return
             today = self.daily_batch.today_str()
             all_cids = [r["chat_id"] for r in self.store.rows(
                 "SELECT chat_id FROM groups WHERE watched=1 "
@@ -1291,6 +1317,14 @@ class Daemon:
                 self.store.q("INSERT INTO summaries(chat_id,body,created) VALUES(?,?,?)",
                              (job["chat_id"], body, int(time.time())))
             elif job["kind"] == "draft_reply":
+                can_reply, r_spent, r_cap = self.store.check_reply_budget_available()
+                if not can_reply:
+                    log.warning(
+                        "[BUDGET CAP] Daily reply budget cap ($%.2f) reached ($%.4f spent). Cancelling reply job %s.",
+                        r_cap, r_spent, job["id"]
+                    )
+                    self.store.finish(job["id"], True, f"Daily reply budget cap () reached ($ {r_spent:.4f} spent)")
+                    return
                 trigger_sender = p.get("trigger_sender") or ""
                 trigger_text = p.get("trigger_text") or ""
                 reply_parent_text = p.get("reply_parent_text") or ""
@@ -2099,18 +2133,12 @@ class Daemon:
                             upcoming_items = [it for it in pending_items if (it.get("scheduled_ts") or 0) > now_ts]
 
                             should_generate = False
-                            if not existing_batches:
+                            can_batch, b_spent, b_cap = self.store.check_batch_budget_available()
+                            if not can_batch:
+                                log.debug("daily_batch_loop: Daily batch spending cap ($%.2f) reached ($%.4f spent).", b_cap, b_spent)
+                            elif not existing_batches:
+                                # Strictly ONE meticulous batch per group per day
                                 should_generate = True
-                            elif len(upcoming_items) <= 4:
-                                # Prior batch cluster is finished or running low. Trigger next rolling wave immediately
-                                last_sent = self.store.rows(
-                                    "SELECT MAX(sent_ts) as last_ts FROM daily_batch_items WHERE chat_id=? AND status='sent'",
-                                    (cid,)
-                                )
-                                last_ts = (last_sent[0]["last_ts"] or 0) if last_sent else 0
-                                interval_secs = min(int(self.store.get("batch_session_interval_seconds", 90)), 120)
-                                if (now_ts - last_ts) >= interval_secs:
-                                    should_generate = True
 
                             if should_generate:
                                 cands = self.daily_batch.get_group_candidates(cid)
@@ -3116,7 +3144,19 @@ class Daemon:
         @r.get("/daily-batch/status")
         async def daily_batch_status(_):
             st = self.daily_batch.get_status()
-            if bool(self.store.get("daily_batch_auto_pilot", True)) and bool(self.store.get("system_enabled", True)):
+            can_b, b_spent, b_cap = self.store.check_batch_budget_available()
+            can_r, r_spent, r_cap = self.store.check_reply_budget_available()
+            st["budget"] = {
+                "batch_budget_cap_usd": b_cap,
+                "batch_spend_today_usd": b_spent,
+                "batch_budget_remaining_usd": max(0.0, round(b_cap - b_spent, 6)),
+                "batch_budget_capped": not can_b,
+                "reply_budget_cap_usd": r_cap,
+                "reply_spend_today_usd": r_spent,
+                "reply_budget_remaining_usd": max(0.0, round(r_cap - r_spent, 6)),
+                "reply_budget_capped": not can_r,
+            }
+            if bool(self.store.get("daily_batch_auto_pilot", True)) and bool(self.store.get("system_enabled", True)) and can_b:
                 if not st.get("items"):
                     asyncio.create_task(self.auto_generate_daily_if_needed())
             return J(st)
@@ -3241,6 +3281,10 @@ class Daemon:
                 self.store.set("batch_messages_count", int(b["batch_messages_count"]))
             if "session_interval_seconds" in b:
                 self.store.set("batch_session_interval_seconds", int(b["session_interval_seconds"]))
+            if "batch_budget_cap_usd" in b:
+                self.store.set("daily_batch_budget_cap_usd", float(b["batch_budget_cap_usd"]))
+            if "reply_budget_cap_usd" in b:
+                self.store.set("daily_reply_budget_cap_usd", float(b["reply_budget_cap_usd"]))
             return J({"ok": True})
 
         # ----- System Master Control -----

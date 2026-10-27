@@ -531,6 +531,26 @@ class DailyBatchEngine:
     async def generate_batch_for_group(self, chat_id, count=48, topic_override=None):
         """Generates today's batch schedule for a watched group."""
         chat_id = int(chat_id)
+        today = self.today_str()
+
+        # Enforce ONE meticulous batch per group per day unless explicitly overridden
+        if not topic_override:
+            existing = self.store.rows("SELECT id, topic FROM daily_batches WHERE chat_id=? AND date_str=?", (chat_id, today))
+            if existing:
+                log.info("generate_batch_for_group: Batch for group %s on %s already exists (id=%s). One batch per day enforced.",
+                         chat_id, today, existing[0]["id"])
+                return {"count": 0, "status": "already_exists", "batch_id": existing[0]["id"]}
+
+        # Hard budget cap guard (bash.05/day for automated batch dialogue)
+        can_batch, spent, cap = self.store.check_batch_budget_available()
+        if not can_batch:
+            log.warning(
+                "[BUDGET CAP] Daily batch spending cap ($%.2f) reached ($%.4f spent today). "
+                "Halting batch generation for group %s until midnight reset.",
+                cap, spent, chat_id
+            )
+            return {"status": "budget_capped", "spent": spent, "cap": cap, "count": 0}
+
         g_rows = self.store.rows("SELECT * FROM groups WHERE chat_id=?", (chat_id,))
         if not g_rows:
             raise ValueError(f"Group {chat_id} not found")
@@ -669,6 +689,13 @@ class DailyBatchEngine:
 
         sessions_items = []
         for th_idx, (th_theme, th_query, th_count) in enumerate(thread_configs):
+            can_batch, spent, cap = self.store.check_batch_budget_available()
+            if not can_batch:
+                log.warning(
+                    "[BUDGET CAP] Daily batch spending cap reached mid-generation ($%.4f >= $%.2f). Halting further sessions.",
+                    spent, cap
+                )
+                break
             domain_labels = [
                 "Session 1 Domain [Peptides, Compounds, TRT, Bloodwork & Recovery Protocols]",
                 "Session 2 Domain [Everyday Life, Hilarious Gym Characters, Dating, Meal Prep & Banter]",
