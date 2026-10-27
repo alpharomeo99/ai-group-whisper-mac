@@ -224,7 +224,8 @@ class Store:
             "ALTER TABLE human_memories ADD COLUMN status TEXT DEFAULT 'open'",
             "ALTER TABLE accounts ADD COLUMN is_admin INTEGER DEFAULT 0",
             "CREATE INDEX IF NOT EXISTS idx_hm_chat_sender_slot ON human_memories(chat_id, sender, slot_key, is_active)",
-            "CREATE TABLE IF NOT EXISTS processed_incoming (chat_id INTEGER NOT NULL, msg_id INTEGER NOT NULL, ts INTEGER NOT NULL, PRIMARY KEY(chat_id, msg_id))"
+            "CREATE TABLE IF NOT EXISTS processed_incoming (chat_id INTEGER NOT NULL, msg_id INTEGER NOT NULL, ts INTEGER NOT NULL, PRIMARY KEY(chat_id, msg_id))",
+            "CREATE TABLE IF NOT EXISTS persona_protocols (id INTEGER PRIMARY KEY AUTOINCREMENT, persona_id INTEGER NOT NULL UNIQUE, chat_id INTEGER, compound_name TEXT NOT NULL, category TEXT NOT NULL, goal TEXT NOT NULL, dosing TEXT NOT NULL, reconstitution_notes TEXT DEFAULT '', start_ts INTEGER NOT NULL, duration_weeks INTEGER NOT NULL, status TEXT DEFAULT 'active', notes TEXT DEFAULT '', details TEXT DEFAULT '{}')"
 ):
             try:
                 self.db.execute(ddl)
@@ -232,6 +233,7 @@ class Store:
                 pass  # already migrated
         self.db.commit()
         self.seed_xbiolabs_and_personas()
+        self.ensure_xbiolabs_persona_protocols()
         self._sanitize_name_calling_on_startup()
         try:
             now_ts = int(time.time())
@@ -241,6 +243,212 @@ class Store:
         except Exception:
             pass
 
+
+
+    def ensure_xbiolabs_persona_protocols(self):
+        """Ensures all current and upcoming personas associated with xbiolabs have a dedicated,
+        physiologically consistent protocol in persona_protocols that shifts across time.
+        Non-xbiolabs personas are never modified.
+        """
+        try:
+            cur = self.db.cursor()
+            cur.execute("""
+                SELECT DISTINCT p.id, p.name, p.details, COALESCE(gp.chat_id, -1001988234120)
+                FROM personas p
+                LEFT JOIN group_personas gp ON gp.persona_id = p.id
+                LEFT JOIN groups g ON g.chat_id = gp.chat_id
+                WHERE (g.title IS NOT NULL AND (LOWER(g.title) LIKE '%xbiolabs%' OR LOWER(g.title) LIKE '%xbio%'))
+                   OR p.details LIKE '%"group": "xbiolabs"%'
+            """)
+            x_personas = cur.fetchall()
+            now_ts = int(time.time())
+
+            for pid, pname, pdetails_str, cid in x_personas:
+                cur.execute("SELECT id FROM persona_protocols WHERE persona_id=?", (pid,))
+                if cur.fetchone():
+                    continue
+
+                details = {}
+                try:
+                    details = json.loads(pdetails_str or "{}")
+                except Exception:
+                    pass
+
+                gender = (details.get("gender") or "male").lower()
+                age = int(details.get("age") or 28)
+                arch_vibe = (details.get("tone_and_vibe") or "").lower()
+
+                if gender == "female":
+                    options = [
+                        {
+                            "compound": "Tirzepatide (5mg weekly, subQ)",
+                            "category": "fat_loss_metabolic",
+                            "goal": "appetite suppression & lean body recomposition",
+                            "dosing": "5mg once weekly (titrated up from 2.5mg)",
+                            "reconstitution": "2ml BAC in 5mg vial (10 ticks = 2.5mg, 20 ticks = 5mg on 100u pin)",
+                            "duration_weeks": 10,
+                            "notes": "Down 8 lbs, zero nausea now, drinking electrolytes and hitting protein"
+                        },
+                        {
+                            "compound": "BPC-157 (250mcg daily) + GHK-Cu (1.5mg daily)",
+                            "category": "injury_skin_recovery",
+                            "goal": "runner knee tendonitis healing & recovery",
+                            "dosing": "250mcg BPC daily subQ + 1.5mg GHK-Cu subQ",
+                            "reconstitution": "2ml BAC water per vial, gentle swirl without shaking, refrigerated",
+                            "duration_weeks": 8,
+                            "notes": "Knee feels 70% better on stairs, skin recovery is noticeably improved"
+                        }
+                    ]
+                elif age >= 45:
+                    options = [
+                        {
+                            "compound": "Testosterone Cypionate (140mg/wk TRT) + BPC-157 (250mcg daily)",
+                            "category": "trt_joint_longevity",
+                            "goal": "hormone optimization & meniscus/knee wear repair",
+                            "dosing": "70mg pinned twice weekly (Mon/Thu) + 250mcg BPC daily subQ",
+                            "reconstitution": "BPC 5mg vial with 2ml BAC water; 27g 1/2-inch pin for Test Cyp",
+                            "duration_weeks": 52,
+                            "notes": "Energy steady all day, hematocrit in range, knees feel 10 years younger under the bar"
+                        },
+                        {
+                            "compound": "CJC-1295 no DAC (100mcg) + Ipamorelin (100mcg) pre-bed",
+                            "category": "gh_secretagogue",
+                            "goal": "deep sleep stage elongation & tendon recovery without endocrine shutdown",
+                            "dosing": "100mcg/100mcg subQ 5 nights on / 2 off before bed on empty stomach",
+                            "reconstitution": "Combined blend vial reconstituted with 2ml BAC water, refrigerated",
+                            "duration_weeks": 12,
+                            "notes": "Oura deep sleep score up 35 minutes, waking up fresh, shoulders less stiff"
+                        }
+                    ]
+                elif "optimizer" in arch_vibe or "researcher" in arch_vibe:
+                    options = [
+                        {
+                            "compound": "CJC-1295 no DAC (100mcg) + Ipamorelin (100mcg) + NA-Semax (400mcg)",
+                            "category": "gh_nootropic_optimization",
+                            "goal": "growth hormone pulse optimization & clean cognitive stamina",
+                            "dosing": "100mcg/100mcg pre-bed subQ; 400mcg Semax morning nasal spray",
+                            "reconstitution": "Exact 2ml BAC water per 5mg peptide vial, sterile fridge storage",
+                            "duration_weeks": 12,
+                            "notes": "Zero brain fog, clean training focus, recovery between gym sessions dialed in"
+                        }
+                    ]
+                elif "degen" in arch_vibe or "lifter" in arch_vibe or "coach" in arch_vibe:
+                    options = [
+                        {
+                            "compound": "Testosterone Cypionate (350mg/wk) + Anavar (40mg daily)",
+                            "category": "hypertrophy_blast",
+                            "goal": "lean mass recomposition & strength progression",
+                            "dosing": "175mg Test 2x/wk + 20mg Anavar AM / 20mg pre-workout",
+                            "reconstitution": "Pharma grade, taking TUDCA & NAC daily for liver support",
+                            "duration_weeks": 12,
+                            "notes": "Hit bench PR last week, pumps are insane, vascularity popping"
+                        },
+                        {
+                            "compound": "BPC-157 (250mcg BID) + TB-500 (2.5mg 2x/wk)",
+                            "category": "injury_rehab",
+                            "goal": "rotator cuff tendonitis & shoulder impingement healing",
+                            "dosing": "250mcg BPC morning & night + TB-500 Monday/Thursday",
+                            "reconstitution": "2ml BAC in 5mg BPC (10 ticks = 250mcg); 2ml in 5mg TB-500",
+                            "duration_weeks": 6,
+                            "notes": "Shoulder impingement is night and day, benching pain-free now"
+                        }
+                    ]
+                else:
+                    options = [
+                        {
+                            "compound": "Tirzepatide (5mg weekly, subQ)",
+                            "category": "fat_loss_metabolic",
+                            "goal": "cutting down for summer & food noise elimination",
+                            "dosing": "5mg weekly subQ into abdomen",
+                            "reconstitution": "2ml BAC water per 5mg vial, zero sting, easy pin",
+                            "duration_weeks": 10,
+                            "notes": "Down 10 lbs, easy deficit, gym strength holding up fine"
+                        },
+                        {
+                            "compound": "BPC-157 (500mcg daily)",
+                            "category": "injury_rehab",
+                            "goal": "golfers elbow & medial epicondylitis recovery",
+                            "dosing": "500mcg pinned subQ near forearm/delt",
+                            "reconstitution": "2ml BAC in 5mg vial (20 ticks on 100u pin)",
+                            "duration_weeks": 6,
+                            "notes": "Forearm tendon pain down 80%, gripping heavy dumbbells again"
+                        }
+                    ]
+
+                chosen = options[pid % len(options)]
+                max_stagger = max(1, min(chosen["duration_weeks"] - 1, 5))
+                stagger_w = (pid % max_stagger) + 1
+                start_ts = now_ts - (stagger_w * 7 * 86400) + ((pid * 3600) % 86400)
+
+                cur.execute("""
+                    INSERT OR REPLACE INTO persona_protocols (
+                        persona_id, chat_id, compound_name, category, goal, dosing,
+                        reconstitution_notes, start_ts, duration_weeks, status, notes, details
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)
+                """, (
+                    pid, cid, chosen["compound"], chosen["category"], chosen["goal"],
+                    chosen["dosing"], chosen["reconstitution"], start_ts,
+                    chosen["duration_weeks"], chosen["notes"], json.dumps(chosen)
+                ))
+
+            self.db.commit()
+        except Exception as e:
+            log.warning("Failed to ensure xbiolabs persona protocols: %s", e)
+
+    def get_persona_protocol(self, persona_id):
+        """Returns raw protocol dict for a persona if one exists."""
+        if not persona_id:
+            return None
+        rows = self.rows("SELECT * FROM persona_protocols WHERE persona_id=?", (persona_id,))
+        return rows[0] if rows else None
+
+    def get_persona_protocol_card(self, persona_id, now_ts=None):
+        """Calculates current dynamic week and stage for xbiolabs personas.
+        Returns a concise, unshakeable prompt injection block or empty string.
+        """
+        proto = self.get_persona_protocol(persona_id)
+        if not proto:
+            return ""
+        now_ts = now_ts or int(time.time())
+        start_ts = proto.get("start_ts", now_ts)
+        dur = max(1, int(proto.get("duration_weeks", 8)))
+        elapsed_days = max(0, (now_ts - start_ts) / 86400.0)
+        cur_week = max(1, int(elapsed_days // 7) + 1)
+        cat = proto.get("category", "")
+
+        if cur_week > dur:
+            if cat in ("hypertrophy_blast", "gear"):
+                phase_desc = "Off-Blast / TRT Cruise"
+                timeline_str = f"Finished {dur}-week blast ({cur_week - dur} weeks into 140mg/wk cruise)"
+            elif "injury" in cat:
+                phase_desc = "Healed / Post-Protocol Maintenance"
+                timeline_str = f"Completed {dur}-week acute rehab ({cur_week - dur} weeks off, tendon healed)"
+            else:
+                phase_desc = "Maintenance Phase"
+                timeline_str = f"Completed primary {dur}-week run (maintenance dosing)"
+        elif cur_week <= 2:
+            phase_desc = "Initial / Onboarding Phase"
+            timeline_str = f"Week {cur_week} of {dur} (pinning baseline, dialed in injection site)"
+        elif cur_week <= 6:
+            phase_desc = "Steady-State Saturation"
+            timeline_str = f"Week {cur_week} of {dur} (compound fully working, steady progress)"
+        elif cur_week <= dur - 2:
+            phase_desc = "Peak & Titration"
+            timeline_str = f"Week {cur_week} of {dur} (peak momentum, restocked from xbiolabs)"
+        else:
+            phase_desc = "Cycle Conclusion"
+            timeline_str = f"Week {cur_week} of {dur} (wrapping up cycle, planning bloodwork)"
+
+        card_lines = [
+            "CURRENT RUNNING PROTOCOL (xbiolabs member):",
+            f"- Compound(s): {proto['compound_name']}",
+            f"- Timeline: {timeline_str} [{phase_desc}]",
+            f"- Dose & Schedule: {proto['dosing']}",
+            f"- Reconstitution & Admin: {proto.get('reconstitution_notes') or 'Standard sterile subQ'}",
+            f"- Real Status: {proto.get('notes') or 'Running smooth, zero issues'}",
+            "STRICT PERSISTENCE MANDATE: You are currently living this exact timeline. NEVER contradict this stack, dose, or current week."
+        ]
+        return chr(10).join(card_lines)
 
     def _sanitize_name_calling_on_startup(self):
         """Scrubs robotic name-addressing patterns from existing persona prompts, pending daily batch items, and queued messages."""
@@ -669,6 +877,7 @@ class Store:
                         )
                     linked_count += 1
 
+            self.ensure_xbiolabs_persona_protocols()
             self.db.commit()
             cur.execute("SELECT count(*) FROM personas")
             total_personas = cur.fetchone()[0]

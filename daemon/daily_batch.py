@@ -465,6 +465,9 @@ class DailyBatchEngine:
                 f"  Typing: {typing}\n"
                 f"  Brief: {c.get('prompt', '')[:160]}...{mem_str}"
             )
+            proto_card = self.store.get_persona_protocol_card(c.get('persona_id'))
+            if proto_card:
+                persona_summaries[-1] += chr(10) + '  ' + str(proto_card)
         persona_str = "\n\n".join(persona_summaries)
         rel_graph = format_relationship_graph(candidates)
         persona_str += f"\n\nINTER-PERSONA RELATIONSHIP DYNAMICS:\n{rel_graph}\n(Personas banter, reference shared history, and chat like close gym/online peers without using @tags!)" 

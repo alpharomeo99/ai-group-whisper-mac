@@ -1319,6 +1319,11 @@ class Daemon:
                     account_id=p.get("account_id"),
                     topic_context=trigger_text
                 )
+                eff_pid = p.get("persona_id")
+                if eff_pid:
+                    proto_card = self.store.get_persona_protocol_card(eff_pid)
+                    if proto_card and proto_card not in chosen_persona:
+                        chosen_persona = chosen_persona + chr(10) + chr(10) + proto_card
 
                 cand_names = [r["name"] for r in self.store.rows("SELECT name FROM personas UNION SELECT name FROM accounts") if r.get("name")]
                 if trigger_sender and trigger_sender not in cand_names:
