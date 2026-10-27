@@ -67,11 +67,11 @@ class Daemon:
         except Exception as e:
             log.debug("startup failed item purge: %s", e)
 
-        # Proactively tune stored pacing to hyper-active defaults so existing installs instantly activate
+        # Proactively tune stored pacing defaults: 25-minute (1500s) cooling window during human conversations
         try:
-            curr_pause = int(self.store.get("batch_human_pause_seconds", 30))
-            if curr_pause > 45:
-                self.store.set("batch_human_pause_seconds", 30)
+            curr_pause = int(self.store.get("batch_human_pause_seconds", 1500))
+            if curr_pause <= 45:
+                self.store.set("batch_human_pause_seconds", 1500)
             curr_int = int(self.store.get("batch_session_interval_seconds", 90))
             if curr_int > 180:
                 self.store.set("batch_session_interval_seconds", 90)
@@ -1349,6 +1349,30 @@ class Daemon:
                             except Exception:
                                 dt = None
 
+                primary_reply_text = p.get("primary_reply_text")
+                if not primary_reply_text and p.get("is_teammate_chime") and p.get("trigger"):
+                    trig_id = p.get("trigger")
+                    rep_rows = self.store.rows(
+                        "SELECT text FROM messages WHERE chat_id=? AND reply_to_msg_id=? AND is_bot=1 ORDER BY id DESC LIMIT 1",
+                        (job["chat_id"], trig_id)
+                    )
+                    if rep_rows and rep_rows[0].get("text"):
+                        primary_reply_text = rep_rows[0]["text"]
+                    else:
+                        q_sends = self.store.rows(
+                            "SELECT payload FROM queue WHERE chat_id=? AND kind='send' AND status IN ('pending', 'completed') "
+                            "ORDER BY id DESC LIMIT 5",
+                            (job["chat_id"],)
+                        )
+                        for qs in q_sends:
+                            try:
+                                q_p = json.loads(qs["payload"]) if isinstance(qs["payload"], str) else qs["payload"]
+                                if q_p.get("reply_to") == trig_id and q_p.get("text"):
+                                    primary_reply_text = q_p.get("text")
+                                    break
+                            except Exception:
+                                pass
+
                 text, meta = await ai.draft_reply_with_meta(
                     settings,
                     g.get("title", ""),
@@ -1365,7 +1389,8 @@ class Daemon:
                     is_teammate_chime=bool(p.get("is_teammate_chime")),
                     temperature=0.78,
                     persona_name=p_disp_name,
-                    persona_details=dt
+                    persona_details=dt,
+                    primary_reply_text=primary_reply_text
                 )
                 # Log AI token & latency usage
                 self.usage.log_ai("ai_chat", persona_id=p.get("persona_id"), account_id=p.get("account_id"),
@@ -1382,7 +1407,8 @@ class Daemon:
                         known_names=cand_names, internal_persona_tags=list(internal_persona_tags),
                         is_admin=bool(p.get("is_admin")), human_context=human_ctx,
                         is_teammate_chime=bool(p.get("is_teammate_chime")), temperature=0.92,
-                        persona_name=p_disp_name, persona_details=dt
+                        persona_name=p_disp_name, persona_details=dt,
+                        primary_reply_text=primary_reply_text
                     )
                 if not (text or "").strip():
                     raise RuntimeError("AI returned an empty reply twice")
@@ -1499,42 +1525,42 @@ class Daemon:
 
             elif job["kind"] == "batch_scheduled_send":
                 now_ts = int(time.time())
-                configured_pause = min(int(self.store.get("batch_human_pause_seconds", 30)), 45)
+                # Human conversation cooling window: default 25 minutes (1500s), minimum 20 minutes (1200s)
+                configured_pause = max(1200, int(self.store.get("batch_human_pause_seconds", 1500)))
 
-                # Fetch recent human activity (last 15m) to evaluate chat velocity
-                human_count, last_human_ts, avg_gap = self.store.get_recent_human_message_stats(job["chat_id"], window_secs=900)
+                # Check recent human activity across the last 45 minutes
+                human_count, last_human_ts, avg_gap = self.store.get_recent_human_message_stats(job["chat_id"], window_secs=2700)
                 if not last_human_ts:
                     last_human_ts = self.store.get_last_human_message_ts(job["chat_id"])
 
-                # Anti-starvation tracking across retries
+                # Also check recent stored human event
+                last_event = self.store.get("last_human_event")
+                if isinstance(last_event, dict) and last_event.get("chat_id") == job["chat_id"]:
+                    ev_ts = int(last_event.get("ts") or 0)
+                    if ev_ts > (last_human_ts or 0):
+                        last_human_ts = ev_ts
+
                 postpone_count = int(p.get("_postpone_count") or 0)
                 first_attempt_ts = int(p.get("_first_attempt_ts") or now_ts)
                 starvation_age = max(0, now_ts - first_attempt_ts)
 
-                # Active group detection: humans chat every few minutes, so personas slip in smoothly
-                is_active_chat = (human_count >= 3)
-                is_starving = (postpone_count >= 2 or starvation_age >= 60)
-
-                if is_starving:
-                    effective_pause = 0
-                elif is_active_chat:
-                    effective_pause = 12
-                else:
-                    effective_pause = configured_pause
-
-                min_safety_gap = 6
-                required_wait = max(min_safety_gap, effective_pause)
+                # Check if batch item is excessively stale (older than 18 hours of human conversation)
+                if starvation_age > 64800:
+                    if p.get("batch_item_id"):
+                        self.store.q("UPDATE daily_batch_items SET status='expired' WHERE id=?", (p["batch_item_id"],))
+                    self.store.finish(job["id"], True, "Batch item expired after active day of human conversations")
+                    return
 
                 # Clock skew guard: if Telegram server ts is ahead of Mac system clock
                 if last_human_ts and last_human_ts > now_ts:
-                    last_human_ts = now_ts - min_safety_gap - 1
+                    last_human_ts = now_ts - 10
 
                 elapsed_since_human = max(0, now_ts - last_human_ts) if last_human_ts else 999999
 
-                # If starving, NEVER postpone: personas slip right into the chatter
-                if not is_starving and last_human_ts and elapsed_since_human < required_wait:
-                    remaining = max(1, required_wait - elapsed_since_human)
-                    defer_secs = max(4, min(remaining + random.randint(2, 6), 12))
+                # If a human has spoken within the cooling window, smoothly YIELD
+                if last_human_ts and elapsed_since_human < configured_pause:
+                    remaining = max(20, configured_pause - elapsed_since_human)
+                    defer_secs = remaining + random.randint(15, 60)
 
                     p["_postpone_count"] = postpone_count + 1
                     p["_first_attempt_ts"] = first_attempt_ts
@@ -1543,9 +1569,10 @@ class Daemon:
                     if p.get("batch_item_id"):
                         self.store.q("UPDATE daily_batch_items SET status='postponed', scheduled_ts=? WHERE id=?",
                                      (now_ts + defer_secs, p["batch_item_id"]))
+                    mins_left = round((remaining + 30) / 60.0, 1)
                     reason = (
-                        f"Postponed: human spoke {elapsed_since_human}s ago "
-                        f"(adaptive pause {required_wait}s, deferral #{postpone_count + 1})"
+                        f"Paused for live human conversation: last human spoke {elapsed_since_human}s ago. "
+                        f"Holding pre-scheduled chatter until {configured_pause // 60}m quiet window (resuming in ~{mins_left}m)."
                     )
                     self.store.finish(job["id"], False, reason, retry_in=defer_secs, count_attempt=False)
                     return

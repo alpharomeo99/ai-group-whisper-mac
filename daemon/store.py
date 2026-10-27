@@ -957,10 +957,10 @@ class Store:
         r = self.q("""
             SELECT ts FROM messages
             WHERE chat_id=? AND is_bot=0
-              AND (sender_id IS NULL OR sender_id NOT IN (SELECT user_id FROM accounts WHERE user_id IS NOT NULL))
+              AND (sender_id IS NULL OR sender_id NOT IN (SELECT user_id FROM accounts WHERE user_id IS NOT NULL AND is_admin=0))
               AND LOWER(sender) NOT IN (SELECT LOWER(name) FROM personas WHERE name IS NOT NULL)
-              AND LOWER(sender) NOT IN (SELECT LOWER(name) FROM accounts WHERE name IS NOT NULL)
-              AND LOWER(sender) NOT IN (SELECT LOWER(username) FROM accounts WHERE username IS NOT NULL)
+              AND LOWER(sender) NOT IN (SELECT LOWER(name) FROM accounts WHERE name IS NOT NULL AND is_admin=0)
+              AND LOWER(sender) NOT IN (SELECT LOWER(username) FROM accounts WHERE username IS NOT NULL AND is_admin=0)
             ORDER BY ts DESC LIMIT 1
         """, (chat_id,)).fetchone()
         return r[0] if r else None
@@ -972,10 +972,10 @@ class Store:
         rows = self.q("""
             SELECT ts FROM messages
             WHERE chat_id=? AND is_bot=0 AND ts >= ?
-              AND (sender_id IS NULL OR sender_id NOT IN (SELECT user_id FROM accounts WHERE user_id IS NOT NULL))
+              AND (sender_id IS NULL OR sender_id NOT IN (SELECT user_id FROM accounts WHERE user_id IS NOT NULL AND is_admin=0))
               AND LOWER(sender) NOT IN (SELECT LOWER(name) FROM personas WHERE name IS NOT NULL)
-              AND LOWER(sender) NOT IN (SELECT LOWER(name) FROM accounts WHERE name IS NOT NULL)
-              AND LOWER(sender) NOT IN (SELECT LOWER(username) FROM accounts WHERE username IS NOT NULL)
+              AND LOWER(sender) NOT IN (SELECT LOWER(name) FROM accounts WHERE name IS NOT NULL AND is_admin=0)
+              AND LOWER(sender) NOT IN (SELECT LOWER(username) FROM accounts WHERE username IS NOT NULL AND is_admin=0)
             ORDER BY ts ASC
         """, (chat_id, cutoff)).fetchall()
         if not rows:

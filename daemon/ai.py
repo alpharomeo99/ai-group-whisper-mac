@@ -402,7 +402,7 @@ def resolve_persona_temperament(name=None, details=None, prompt=None, trigger_te
     }
 
 
-async def draft_reply_with_meta(settings, title, persona, msgs, trigger_sender=None, trigger_text=None, reply_parent_text=None, reply_parent_sender=None, known_names=None, internal_persona_tags=None, is_admin=False, human_context=None, is_teammate_chime=False, temperature=0.76, persona_name=None, persona_details=None):
+async def draft_reply_with_meta(settings, title, persona, msgs, trigger_sender=None, trigger_text=None, reply_parent_text=None, reply_parent_sender=None, known_names=None, internal_persona_tags=None, is_admin=False, human_context=None, is_teammate_chime=False, temperature=0.76, persona_name=None, persona_details=None, primary_reply_text=None):
     sep = chr(10)
     persona_prompt = persona or "You are a regular member of this Telegram group."
     temp_info = resolve_persona_temperament(
@@ -451,7 +451,7 @@ async def draft_reply_with_meta(settings, title, persona, msgs, trigger_sender=N
         "- ZERO CORPORATE OR BOT CLICHES: Never use openers like 'Great question!', 'I understand', 'To answer your question', 'It depends on various factors', 'Both options are valid'. Jump straight into your raw human reaction or advice.",
         "- TONE SYNCHRONIZATION & CAMARADERIE: Match the emotional frequency of the human: If they are sharing a PR/win, hype them up with authentic respect ('solid numbers bro', 'big PR', 'clean work'). If they are struggling with an injury or side-effect, be reassuring and level-headed ('shoulder tendonitis is brutal', 'don't panic, give it 3 days'). If they are joking, banter back with wit and sarcasm.",
         "- STRICT ZERO @TAGS / USERNAMES MANDATE: NEVER include @tags, usernames, or @handles in your message (NO '@handle', NO '@xbiolabs', NO '@username'). Real Telegram users use the native reply feature instead of typing usernames into message text. When replying or answering someone, just speak directly to them without tagging their name or handle.",
-        "- TEAMMATE CHIME-IN DYNAMICS (when participating as a follow-up): If chiming in after a teammate spoke, offer a distinct personal angle, agree with authentic flavor, or ask a friendly follow-up. NEVER echo or duplicate what the first speaker said.",
+        "- TEAMMATE CHIME-IN DYNAMICS (CRITICAL): When chiming in as a follow-up after a peer spoke, NEVER echo their factual advice, numbers, compound dosages, or instructions! Only offer brief peer backing ('what he said', 'same here'), a quick personal angle/joke, or a short anecdotal nuance. Keep it punchy and brief (3 to 15 words).",
         "- MULTI-MESSAGE BURSTS (NATURAL MOBILE TEXTING): Real humans texting from mobile phones frequently send 2 (or occasionally 3) rapid consecutive messages instead of one wall of text. For instance: bubble 1 is a quick reaction or initial remark, bubble 2 is the elaboration, question, or follow-up note.",
         "  If your persona is bursty or the situation calls for it, separate consecutive bubbles using ' ||| '.",
         "  Examples:",
@@ -498,7 +498,19 @@ async def draft_reply_with_meta(settings, title, persona, msgs, trigger_sender=N
                 )
             chime_note = ""
             if is_teammate_chime:
-                chime_note = f'TEAMMATE CHIME-IN: A teammate already replied to {sender_label}. Chime in naturally with a distinct angle, personal tip, or agreement. Do not repeat what others said.{sep}'
+                prev_ans = f'PREVIOUS ANSWER FROM YOUR PEER:{sep}"{primary_reply_text.strip()}"{sep}' if primary_reply_text else ''
+                chime_note = (
+                    f'TEAMMATE FOLLOW-UP CHIME-IN (ABSOLUTE ZERO FACT/NUMBER REPETITION):{sep}'
+                    f'{prev_ans}'
+                    f'- A fellow group member ALREADY gave the direct factual answer / numbers to {sender_label}!{sep}'
+                    f'- UNDER NO CIRCUMSTANCES should you repeat the dosage numbers, compounds, reconstitution math, or textbook steps.{sep}'
+                    f'- DO NOT give a second factual explanation.{sep}'
+                    f'- Instead, react purely as a real group chat peer chiming in:{sep}'
+                    f'  * Option A (Peer Validation): Briefly back them up with casual gym slang ("yeah what he said", "250mcg was the sweet spot for me too", "agreed, give it 3 weeks").{sep}'
+                    f"  * Option B (Practical Personal Tip): Share a quick anecdotal quirk or real-world nuance (\"ice it after if it's elbow tendonitis\", \"draw slow so no air bubbles\").{sep}"
+                    f'  * Option C (Teasing / Banter): Poke fun, tease, or drop a witty sarcastic remark if fitting your persona.{sep}'
+                    f'- Keep it punchy and short (1 to 2 short sentences or quick 4-12 word reaction). No long essays.{sep}'
+                )
 
             user_parts.append(
                 f'{thread_ctx}'
@@ -521,14 +533,15 @@ async def draft_reply_with_meta(settings, title, persona, msgs, trigger_sender=N
     return format_telegram_message(raw_text, names=names_to_clean, max_chars=360, strip_tags=internal_persona_tags), meta
 
 
-async def draft_reply(settings, title, persona, msgs, trigger_sender=None, trigger_text=None, reply_parent_text=None, reply_parent_sender=None, known_names=None, internal_persona_tags=None, is_admin=False, human_context=None, is_teammate_chime=False, temperature=0.76, persona_name=None, persona_details=None):
+async def draft_reply(settings, title, persona, msgs, trigger_sender=None, trigger_text=None, reply_parent_text=None, reply_parent_sender=None, known_names=None, internal_persona_tags=None, is_admin=False, human_context=None, is_teammate_chime=False, temperature=0.76, persona_name=None, persona_details=None, primary_reply_text=None):
     content, _ = await draft_reply_with_meta(
         settings, title, persona, msgs,
         trigger_sender=trigger_sender, trigger_text=trigger_text,
         reply_parent_text=reply_parent_text, reply_parent_sender=reply_parent_sender,
         known_names=known_names, internal_persona_tags=internal_persona_tags,
         is_admin=is_admin, human_context=human_context,
-        is_teammate_chime=is_teammate_chime, temperature=temperature, persona_name=persona_name, persona_details=persona_details
+        is_teammate_chime=is_teammate_chime, temperature=temperature, persona_name=persona_name, persona_details=persona_details,
+        primary_reply_text=primary_reply_text
     )
     return content
 

@@ -388,380 +388,364 @@ class DailyBatchEngine:
         if not fresh_themes:
             fresh_themes = default_themes
 
-        chosen_theme, chosen_query = random.choice(fresh_themes)
-
-        if topic_override:
-            topic_prompt = topic_override
-            topic_query = topic_override
-        elif transcript_lines and random.random() < 0.25:
-            # 25% of the time: natural transition with immediate topic pivot
-            recent_snippet = " ".join(m.get("text", "") for m in recent_msgs[-3:] if m.get("text"))[:140]
-            topic_prompt = (
-                f"Natural conversational transition: starting from a quick casual nod to recent chatter ('{recent_snippet}'), "
-                f"then immediately pivoting to a fresh angle on: {chosen_theme}. NEVER repeat previous points."
-            )
-            topic_query = chosen_query
+        # 2C. Determine micro-threads plan: split batches into 2-3 focused micro-threads with different topics
+        if topic_override or count < 16:
+            micro_plans = [(topic_override, count)]
+        elif count >= 36:
+            base = count // 3
+            rem = count - (base * 3)
+            micro_plans = [(None, base + (1 if i < rem else 0)) for i in range(3)]
         else:
-            # 75% of the time: fresh topic initiation from unused pool
-            topic_prompt = f"Fresh topic initiation: {chosen_theme}. One persona starts with a casual observation, question, or hot take."
-            topic_query = chosen_query
+            base = count // 2
+            rem = count - (base * 2)
+            micro_plans = [(None, base + (1 if i < rem else 0)) for i in range(2)]
 
-        # 3. Format persona summaries with Telegram tags and distinct styles
-        persona_summaries = []
-        for c in candidates:
-            dt = {}
-            try:
-                dt = json.loads(c.get("details") or "{}") if isinstance(c.get("details"), str) else (c.get("details") or {})
-            except Exception:
-                dt = {}
-            role = dt.get("role_in_group") or dt.get("tone_and_vibe") or "Experienced regular"
-            slang = dt.get("slang_and_vocabulary") or "Authentic telegram slang"
-            emojis = dt.get("signature_emojis") or "💀, 😂"
-            emoji_habit = dt.get("emoji_habit") or "moderate"
-            typing = dt.get("typing_style") or "casual phone texting"
-            uname = c.get("account_username")
-            # Telegram tags removed per zero-tag mandate
+        domain_compounds = [t for t in fresh_themes if default_themes.index(t) < 26] or fresh_themes
+        domain_culture = [t for t in fresh_themes if 26 <= default_themes.index(t) < 70] or fresh_themes
+        domain_banter = [t for t in fresh_themes if default_themes.index(t) >= 70] or fresh_themes
 
-            mem_lines = []
-            if self.memory:
-                mem_ctx = self.memory.get_prompt_memory_context(c["persona_id"], chat_id=chat_id, limit=8, query_text=topic_query)
-                if mem_ctx:
-                    mem_lines.append(mem_ctx)
-            elif hasattr(self.store, "rows"):
-                m_rows = self.store.rows(
-                    "SELECT content FROM persona_memories WHERE persona_id=? AND (expires_at IS NULL OR expires_at > ?) "
-                    "ORDER BY CASE retention_tier WHEN 'long' THEN 1 ELSE 2 END, salience DESC LIMIT 4",
-                    (c["persona_id"], int(time.time()))
-                )
-                if m_rows:
-                    mem_lines.append("Core Established Facts:\n" + "\n".join(f"  * {mr['content']}" for mr in m_rows))
-            mem_str = ("\n  " + "\n  ".join(mem_lines)) if mem_lines else ""
-
-            c_dt = {}
-            if c.get("details"):
-                try:
-                    c_dt = json.loads(c["details"]) if isinstance(c["details"], str) else c["details"]
-                except Exception:
-                    c_dt = {}
-
-            temp_res = ai.resolve_persona_temperament(
-                name=c.get("persona_name"),
-                details=c_dt,
-                prompt=c.get("prompt")
-            )
-            c_tier = temp_res["tier"]
-            if c_tier == "aggressive_low_patience":
-                c_temperament = "RAW & LOW-PATIENCE INTERNET VERNACULAR (Zero filter, roasts dumb takes/questions, cuts through nonsense with sharp dismissive internet slang, e.g. 'bro what are you even saying', 'lol nah', 'who told you that garbage💀')"
-            elif c_tier == "dry_sarcastic":
-                c_temperament = "DRY & SKEPTICAL OBSERVER (Deadpan, rolls eyes at hype, weary one-liners, sarcastic reality checks)"
+        thread_configs = []
+        chosen_tuples = []
+        for p_i, (t_override, p_count) in enumerate(micro_plans):
+            if t_override:
+                thread_configs.append((t_override, t_override, p_count))
+            elif len(micro_plans) == 3:
+                if p_i == 0:
+                    avail = [t for t in domain_compounds if t not in chosen_tuples] or fresh_themes
+                elif p_i == 1:
+                    avail = [t for t in domain_banter if t not in chosen_tuples] or fresh_themes
+                else:
+                    avail = [t for t in domain_culture if t not in chosen_tuples] or fresh_themes
+                chosen_t = random.choice(avail)
+                chosen_tuples.append(chosen_t)
+                thread_configs.append((chosen_t[0], chosen_t[1], p_count))
+            elif len(micro_plans) == 2:
+                if p_i == 0:
+                    avail = [t for t in domain_compounds if t not in chosen_tuples] or fresh_themes
+                else:
+                    avail = [t for t in (domain_banter + domain_culture) if t not in chosen_tuples] or fresh_themes
+                chosen_t = random.choice(avail)
+                chosen_tuples.append(chosen_t)
+                thread_configs.append((chosen_t[0], chosen_t[1], p_count))
             else:
-                c_temperament = "CHILL & GROUNDED PRACTICAL PEER (Calm, knowledgeable, explains reconstitution or protocol details without corporate tone)"
+                chosen_t = random.choice(fresh_themes)
+                chosen_tuples.append(chosen_t)
+                thread_configs.append((chosen_t[0], chosen_t[1], p_count))
 
-            persona_summaries.append(
-                f"- ID: {c['persona_id']}, AccountID: {c['account_id']}, Name: {c['persona_name']}\n"
-                f"  Vibe/Role: {role}\n"
-                f"  Temperament & Speech Profile: [{c_tier.upper()}] - {c_temperament}\n"
-                f"  Signature Emojis: {emojis} (habit: {emoji_habit})\n"
-                f"  Typing: {typing}\n"
-                f"  Brief: {c.get('prompt', '')[:160]}...{mem_str}"
-            )
-            proto_card = self.store.get_persona_protocol_card(c.get('persona_id'))
-            if proto_card:
-                persona_summaries[-1] += chr(10) + '  ' + str(proto_card)
-        persona_str = "\n\n".join(persona_summaries)
-        rel_graph = format_relationship_graph(candidates)
-        persona_str += f"\n\nINTER-PERSONA RELATIONSHIP DYNAMICS:\n{rel_graph}\n(Personas banter, reference shared history, and chat like close gym/online peers without using @tags!)" 
-
-        group_title = group.get("title") or f"Group {chat_id}"
-        group_about = group.get("about") or "Telegram community discussion"
-        group_domain = group.get("domain_knowledge") or "Lifting, gear, TRT, SARMs, peptides, nootropics, health, celebrity transformations & pop culture, sports & fight nights, breaking news, crypto/tech, work/dating, plus truly random everyday banter."
-
-        system_prompt = (
-            "You orchestrate realistic, organic human conversations in specialist Telegram communities.\n"
-            "You write authentic, casual group chat exchanges between real people texting from their phones.\n\n"
-            "CRITICAL GUIDELINES FOR AUTHENTIC HUMAN MESSAGING:\n"
-            "AUTHENTIC CONVERSATIONAL FRICTION & ASYMMETRIC TEMPERAMENTS (MANDATORY):\n"
-            "- Group chats are NEVER unanimous or polite corporate meetings! Members have completely different social temperaments:\n"
-            "  * LOW-PATIENCE / RAW VERNACULAR PERSONAS: When they speak, they have zero corporate filter and low patience. When someone asks a silly question, overcomplicates basic protocols, or drops bad takes, they fire back with raw, aggressive, low-patience internet vernacular:\n"
-            "    'bro what are you even saying rn', 'who told you that garbage💀', 'lol nah', 'are you serious with this question', 'stop overcomplicating basic shit and just train', 'why would you even touch that'.\n"
-            "    They do NOT sugarcoat or write polite explanations.\n"
-            "  * DRY / SARCASTIC PERSONAS: Drop deadpan, cynical one-liners, rolling their eyes at gym drama or over-hyped compounds ('sure bro whatever you say', 'rip your sleep schedule', 'fascinating theory💀').\n"
-            "  * CHILL / GROUNDED PERSONAS: Balance the room out. They are calm, experienced, and give straightforward practical answers and reconstitution math without getting heated.\n"
-            "- The low-patience members roast and push back, the skeptics tease, and the chill members balance it out. This asymmetrical friction is what makes the group feel authentic and alive!\n\n"
-            "CRITICAL: ABSOLUTE ZERO REPETITION MANDATE (STRICTLY ENFORCED):\n" 
-            "Under NO circumstances should any persona repeat, rehash, copy, or paraphrase any of these recently discussed points, questions, jokes, or statements:\n"
-            f"{forbidden_block}\n"
-            "- Do NOT re-ask questions that were already discussed.\n"
-            "- Do NOT re-tell stories, cycles, or routines that were already mentioned.\n"
-            "- Introduce 100% fresh angles, new exercises, novel questions, or everyday banter.\n\n"
-            "TELEGRAM NATIVE EMOJI REACTIONS (MANDATORY 15-25% OF TURNS):\n"
-            "- Real people frequently react with emojis (🔥, 😂, 💀, 👍, 👀, 💯, 💪, ❤️) instead of typing full text!\n"
-            "- For 2 to 5 turns in this dialogue, return a native reaction by setting:\n"
-            "  \"reaction\": \"🔥\", \"reply_to_step\": <target step number>, \"text\": \"\"\n"
-            "- This makes the group feel authentic and buzzing without cluttering the chat with repetitive text.\n\n"
-
-            "1. WILDLY ASYMMETRICAL LENGTH DIVERSITY (MANDATORY):\n"
-            "   - Real humans NEVER type uniform-length messages! Distribute message lengths naturally:\n"
-            "     * ULTRA-SHORT REACTIONS (25-30% of turns): 1 to 4 words. Examples: 'lol nah', 'fr tho💀', 'wait what?', 'bro😭', 'nah 2ml is plenty', 'same honestly', 'legend', 'yea 100%'.\n"
-            "     * QUICK TAKES & QUESTIONS (40-45% of turns): 5 to 14 words. Examples: 'how was the fatigue on heavy squat day?', 'dropped caffeine after 1pm and sleep is way better', 'did you run subq or im for that?'.\n"
-            "     * DETAILED REPLIES & EXPLANATIONS (25-30% of turns): 18 to 45 words. Examples: 'if it\'s a 5mg vial and you put in 2ml bac water, every 10 units on an insulin pin is 250mcg. super straightforward once you do it once, just draw slow so no air bubbles'.\n"
-            "     * MULTI-MESSAGE BURSTS: Mobile texters often send 2 quick consecutive bubbles instead of one chunk. If fitting for the persona, separate consecutive bubbles with ' ||| ' (e.g. 'wait did you check the vial? ||| 5mg vs 10mg is totally different math').\n"
-            "   - NEVER make every message the same length!\n\n"
-            "2. GENUINE TELEGRAM REPLIES & THREADING:\n"
-            "   - Group dialogue happens in conversational clusters of 2-3 messages.\n"
-            "   - When a persona is responding to, answering, or bantering with a previous message in the conversation, specify 'reply_to_step': <0-indexed step of target message>.\n"
-            "   - If starting a new conversational topic or check-in, set 'reply_to_step': null.\n\n"
-            "3. ZERO @TAGS OR NAMES (STRICT):\n"
-            "   - Never type @handles, usernames or call people by name. Address someone ONLY by setting reply_to_step to their message.\n"
-            "   - Admin/owner handles orders: say 'dm admin' / 'ask the owner', never a handle.\n\n"
-            "4. NATURAL EMOJIS & EXPRESSION:\n"
-            "   - Use emojis naturally (💀, 😂, 😭, 🔥, 👀, 💪, 🤷‍♂️, 🤝, 🫠) according to each persona's signature emojis. Don't spam, but use them for reactions, jokes, and emphasis.\n\n"
-            "5. REAL MOBILE TEXTING IMPERFECTIONS & CASUAL TYPING:\n"
-            "   - Real people type fast on phone glass screens with their thumbs. They make mistakes!\n"
-            "   - Skip apostrophes on common contractions ('dont', 'cant', 'wont', 'im', 'youre', 'thats', 'its').\n"
-            "   - Use lowercase starts, missing periods at the end of short messages, and casual abbreviations ('rn', 'tbh', 'idk', 'ngl', 'prob', 'def', 'bcuz', 'kinda').\n"
-            "   - Occasional natural phone typos when typing fast ('teh', 'yea', 'definately'). No one texts like an academic textbook!\n\n"
-            "5B. REAL HUMAN BEHAVIOR (MANDATORY):\n"
-            "   - Each persona has a mood today (tired, hyped, annoyed, bored, in a hurry, chill) that colors how they text. Keep it consistent in this batch.\n"
-            "   - People have lives: they mention being at work, on the toilet, driving, at their kid's thing, just woke up, about to train. They sometimes leave mid-convo ('brb boss walking by').\n"
-            "   - Not every message gets an answer. Some questions are ignored, some get answered late, people misread and get corrected, people say 'wait what' or 'nvm'.\n"
-            "   - People disagree, tease, get mildly salty, change their mind, admit they were wrong, and go off-topic. Avoid everyone being agreeable and helpful.\n"
-            "   - Callbacks and inside jokes: reference things said earlier or in memories ('like your 6am cardio era lol').\n"
-            "   - Vary energy: some members barely talk and drop one-liners, some ramble. Uneven, messy, real. Never sound like customer support or an AI.\n"
-            "   - Sometimes a message is just an emoji, 'lmaooo', a voice-of-text reaction, or a correction like '*their'.\n"
-            "   - Opinions come from personal experience ('when i tried it...') not textbook facts. Uncertainty is normal ('idk tbh', 'could be wrong').\n\n"
-            "6. DISTINCT PERSONALITIES & MANDATORY EQUAL ROTATION (NO MONOPOLIES):\n"
-            "   - EVERY SINGLE persona listed under AVAILABLE PERSONAS MUST speak in this dialogue thread!\n"
-            "   - Distribute speaking turns evenly across ALL candidates. Do NOT let one persona dominate the chat.\n"
-            "   - Quieter or supporting personas must ask questions, banter, drop short reactions (1-4 words), or follow up.\n"
-            "   - Ban single-persona monopolization: no single persona may take more than 35% of the total dialogue steps.\n"
-            "   - Give each participant their own unique tone, opinions, and attitude. Do not make everyone agree or sound like clones.\n"
-            "   - Stop constantly agreeing or validating. Ban 'Makes sense', 'For sure', 'Definitely', 'Agreed', 'Spot on', 'Good point', '100% facts'. Real people banter, tease, share hot takes, ask questions, or react directly.\n\n"
-            "7. TOPIC SPECTRUM (FITNESS, NOOTROPICS, WELLNESS, HELPING OUT & BANTER):\n"
-            "   - General fitness: PPL, lifting splits, PRs, squat/bench/deadlift form, volume management, deloads, cutting/bulking, nutrition.\n"
-            "   - Nootropics & focus: Semax, Selank, Bromantane, L-Tyrosine, Alpha-GPC, clean drive, avoiding caffeine crashes.\n"
-            "   - Wellness & longevity: Sleep quality, magnesium, sauna, cold plunges, joint recovery, hydration.\n"
-            "   - Helping out: Welcoming peers who ask questions, giving clear, casual reconstitution math or tips.\n"
-            "   - Unserious banter & jokes: Cracking jokes, playful teasing, gym humor, meme moments, and laughing off tough days.\n\n"
-            "8. VENDOR POLICY:\n"
-            "   - Do NOT initiate unprompted conversations about vendors, suppliers, or purchasing. All personas have had smooth, positive peer experiences.\n\n"
-            "9. OUTPUT FORMAT: Return ONLY a valid JSON array of message objects matching this exact format:\n"
-            "[\n"
-            "  {\n"
-            "    \"persona_id\": <int>,\n"
-            "    \"account_id\": <int>,\n"
-            "    \"sender_name\": \"<string>\",\n"
-            "    \"reply_to_step\": <int or null>,\n"
-            "    \"offset_minutes\": <int>,\n"
-            "    \"text\": \"<exact telegram message text>\",\n"
-            "    \"reaction\": \"<optional single emoji like 🔥, 😂, 💀, 👍, 👀, 💯, 💪, ❤️ or null>\"\n"
-            "  }\n"
-            "]"
-        )
-
-        user_prompt = (
-            f"COMMUNITY GROUP: {group_title}\n"
-            f"ABOUT: {group_about}\n"
-            f"DOMAIN TOPICS: {group_domain}\n\n"
-            f"RECENT MESSAGES IN THIS GROUP:\n{recent_transcript}\n\n"
-            f"AVAILABLE PERSONAS:\n{persona_str}\n\n"
-            f"CONVERSATIONAL FOCUS: {topic_prompt}\n\n"
-            f"TASK:\n"
-            f"Create a natural {count}-message conversational thread for today between these personas.\n"
-            f"Spread 'offset_minutes' across realistic intervals (e.g. 15, 45, 110, 240).\n"
-            f"Embrace varied message lengths (ultra-short reactions, medium takes, detailed explanations), emojis, and realistic casual texting flaws. Return strictly the JSON array."
-        )
-
-        settings = {k: self.store.get(k) for k in ("fal_key", "ai_model")}
-        items = []
-
-        try:
-            raw_ai, meta = await self.ai.chat_with_meta(settings, system_prompt, user_prompt, temperature=0.78)
-            raw = raw_ai.strip()
-            raw = re.sub(r"^```(?:json)?", "", raw).strip()
-            raw = re.sub(r"```$", "", raw).strip()
-            match = re.search(r"\[\s*\{.*\}\s*\]", raw, re.DOTALL)
-            if match:
-                clean_text = re.sub(r",\s*([\]\}])", r"\1", match.group(0))
-                try:
-                    items = json.loads(clean_text)
-                except Exception:
-                    pass
-            if not items:
-                for m_obj in re.finditer(r"\{[^{}]*\}", raw):
-                    try:
-                        clean_obj = re.sub(r",\s*([\]\}])", r"\1", m_obj.group(0))
-                        items.append(json.loads(clean_obj))
-                    except Exception:
-                        pass
-            now_ts = int(time.time())
-            p_tok = meta.get("prompt_tokens", 0)
-            c_tok = meta.get("completion_tokens", 0)
-            tot_tok = p_tok + c_tok
-            cost_est = (tot_tok / 1000.0) * 0.0003
-            self.store.q("""
-                INSERT INTO usage_logs(timestamp, event_type, chat_id, tokens_prompt, tokens_completion,
-                                       tokens_total, latency_ms, model, cost_est)
-                VALUES(?,?,?,?,?,?,?,?,?)
-            """, (now_ts, "ai_batch", chat_id, p_tok, c_tok, tot_tok, meta.get("latency_ms", 0),
-                  meta.get("model", ""), cost_est))
-        except Exception as e:
-            log.error("AI batch generation failed for group %s: %s", chat_id, e)
-            raise RuntimeError(f"AI generation failed: {e}") from e
-
-        # Enforce natural Telegram dynamics and strip any robotic name-calling across all items
-        try:
-            cand_names = [c.get("persona_name") or c.get("account_name") for c in candidates if c.get("persona_name") or c.get("account_name")]
-            for it in items:
-                if it.get("text") and not it.get("reaction"):
-                    cleaned = self.ai.format_telegram_message(it["text"], names=cand_names, max_chars=360)
-                    it["text"] = maybe_inject_typo_correction(cleaned, chance=0.07)
-        except Exception as e:
-            log.warning("Error formatting batch items: %s", e)
-
-        # 4. Auto-clear past failed and cancelled items for this chat to keep queue fresh
+        # 3. Auto-clear past failed and cancelled items for this chat to keep queue fresh
         try:
             self.store.q("DELETE FROM daily_batch_items WHERE chat_id=? AND status IN ('failed', 'cancelled')", (chat_id,))
             self.store.q("DELETE FROM queue WHERE chat_id=? AND kind='batch_scheduled_send' AND status IN ('failed', 'cancelled')", (chat_id,))
         except Exception as e:
             log.debug("Auto-cleanup failed items: %s", e)
 
-        # 4. Schedule the items throughout today
+        # 4. Prepare daily_batches row with combined topics summary
         today = self.today_str()
+        topic_summary = " | ".join(f"[Session {i+1}] {tc[0][:50]}" for i, tc in enumerate(thread_configs))
         cur_batch = self.store.rows("SELECT id FROM daily_batches WHERE chat_id=? AND date_str=?", (chat_id, today))
         if cur_batch:
             batch_id = cur_batch[0]["id"]
+            self.store.q("UPDATE daily_batches SET topic=? WHERE id=?", (topic_summary, batch_id))
         else:
             cur = self.store.q(
                 "INSERT INTO daily_batches(date_str, chat_id, topic, created_at) VALUES(?,?,?,?)",
-                (today, chat_id, topic_prompt, int(time.time()))
+                (today, chat_id, topic_summary, int(time.time()))
             )
             batch_id = cur.lastrowid
 
-        # Calculate organic clustered conversational arcs with high activity and varied rhythm
+        cand_names = [c.get("persona_name") or c.get("account_name") for c in candidates if c.get("persona_name") or c.get("account_name")]
+        group_title = group.get("title") or f"Group {chat_id}"
+        group_about = group.get("about") or "Telegram community discussion"
+        group_domain = group.get("domain_knowledge") or "Lifting, gear, TRT, SARMs, peptides, nootropics, health, celebrity transformations & pop culture, sports & fight nights, breaking news, crypto/tech, work/dating, plus truly random everyday banter."
+        settings = {k: self.store.get(k) for k in ("fal_key", "ai_model")}
+
+        sessions_items = []
+        for th_idx, (th_theme, th_query, th_count) in enumerate(thread_configs):
+            if th_idx == 0 and transcript_lines and random.random() < 0.25:
+                recent_snippet = " ".join(m.get("text", "") for m in recent_msgs[-3:] if m.get("text"))[:140]
+                topic_prompt = (
+                    f"Natural conversational transition: starting from a quick casual nod to recent chatter ('{recent_snippet}'), "
+                    f"then immediately pivoting to a fresh angle on: {th_theme}. NEVER repeat previous points."
+                )
+            else:
+                topic_prompt = f"Session {th_idx + 1} Focus: {th_theme}. One persona starts with a casual observation, funny take, real experience, or practical question."
+
+            persona_summaries = []
+            for c in candidates:
+                dt = {}
+                try:
+                    dt = json.loads(c.get("details") or "{}") if isinstance(c.get("details"), str) else (c.get("details") or {})
+                except Exception:
+                    dt = {}
+                role = dt.get("role_in_group") or dt.get("tone_and_vibe") or "Experienced regular"
+                emojis = dt.get("signature_emojis") or "💀, 😂"
+                emoji_habit = dt.get("emoji_habit") or "moderate"
+                typing = dt.get("typing_style") or "casual phone texting"
+
+                mem_lines = []
+                if self.memory:
+                    mem_ctx = self.memory.get_prompt_memory_context(c["persona_id"], chat_id=chat_id, limit=6, query_text=th_query)
+                    if mem_ctx:
+                        mem_lines.append(mem_ctx)
+                elif hasattr(self.store, "rows"):
+                    m_rows = self.store.rows(
+                        "SELECT content FROM persona_memories WHERE persona_id=? AND (expires_at IS NULL OR expires_at > ?) "
+                        "ORDER BY CASE retention_tier WHEN 'long' THEN 1 ELSE 2 END, salience DESC LIMIT 3",
+                        (c["persona_id"], int(time.time()))
+                    )
+                    if m_rows:
+                        mem_lines.append("Core Established Facts:\n" + "\n".join(f"  * {mr['content']}" for mr in m_rows))
+                mem_str = ("\n  " + "\n  ".join(mem_lines)) if mem_lines else ""
+
+                c_dt = {}
+                if c.get("details"):
+                    try:
+                        c_dt = json.loads(c["details"]) if isinstance(c["details"], str) else c["details"]
+                    except Exception:
+                        c_dt = {}
+
+                temp_res = ai.resolve_persona_temperament(
+                    name=c.get("persona_name"),
+                    details=c_dt,
+                    prompt=c.get("prompt")
+                )
+                c_tier = temp_res["tier"]
+                if c_tier == "aggressive_low_patience":
+                    c_temperament = "RAW & LOW-PATIENCE INTERNET VERNACULAR (Zero filter, roasts dumb takes/questions, cuts through nonsense with sharp dismissive internet slang)"
+                elif c_tier == "dry_sarcastic":
+                    c_temperament = "DRY & SKEPTICAL OBSERVER (Deadpan, rolls eyes at hype, weary one-liners, sarcastic reality checks)"
+                else:
+                    c_temperament = "CHILL & GROUNDED PRACTICAL PEER (Calm, knowledgeable, explains practical details without corporate tone)"
+
+                persona_summaries.append(
+                    f"- ID: {c['persona_id']}, AccountID: {c['account_id']}, Name: {c['persona_name']}\n"
+                    f"  Vibe/Role: {role}\n"
+                    f"  Temperament & Speech Profile: [{c_tier.upper()}] - {c_temperament}\n"
+                    f"  Signature Emojis: {emojis} (habit: {emoji_habit})\n"
+                    f"  Typing: {typing}\n"
+                    f"  Brief: {c.get('prompt', '')[:140]}...{mem_str}"
+                )
+                proto_card = self.store.get_persona_protocol_card(c.get('persona_id'))
+                if proto_card:
+                    persona_summaries[-1] += chr(10) + '  ' + str(proto_card)
+
+            persona_str = "\n\n".join(persona_summaries)
+            rel_graph = format_relationship_graph(candidates)
+            persona_str += f"\n\nINTER-PERSONA RELATIONSHIP DYNAMICS:\n{rel_graph}\n(Personas banter, reference shared history, and chat like close peers without using @tags!)"
+
+            system_prompt = (
+                "You orchestrate realistic, organic human conversations in specialist Telegram communities.\n"
+                "You write authentic, casual group chat exchanges between real people texting from their phones.\n\n"
+                "CRITICAL GUIDELINES FOR AUTHENTIC HUMAN MESSAGING:\n"
+                "AUTHENTIC CONVERSATIONAL FRICTION & ASYMMETRIC TEMPERAMENTS (MANDATORY):\n"
+                "- Group chats are NEVER unanimous or polite corporate meetings! Members have completely different social temperaments:\n"
+                "  * LOW-PATIENCE / RAW VERNACULAR PERSONAS: When they speak, they have zero corporate filter and low patience. Use dismissive sharp internet vernacular ('bro what are you even saying rn', 'who told you that garbage💀', 'lol nah', 'stop overcomplicating basic shit and just train').\n"
+                "  * DRY / SARCASTIC PERSONAS: Deadpan, cynical one-liners, rolling eyes at hype ('sure bro whatever you say', 'rip your sleep schedule', 'fascinating theory💀').\n"
+                "  * CHILL / GROUNDED PERSONAS: Calm, experienced, give straightforward practical answers without getting heated.\n"
+                "- This asymmetrical friction is what makes the group feel authentic and alive!\n\n"
+                "CRITICAL: ABSOLUTE ZERO REPETITION MANDATE (STRICTLY ENFORCED):\n"
+                f"{forbidden_block}\n"
+                "- Do NOT re-ask questions that were already discussed.\n"
+                "- Introduce 100% fresh angles, new exercises, novel questions, or everyday banter.\n\n"
+                "TELEGRAM NATIVE EMOJI REACTIONS (15-25% OF TURNS):\n"
+                "- Real people frequently react with emojis (🔥, 😂, 💀, 👍, 👀, 💯, 💪, ❤️) instead of typing text!\n"
+                "- Set: \"reaction\": \"🔥\", \"reply_to_step\": <target step number>, \"text\": \"\"\n\n"
+                "1. WILDLY ASYMMETRICAL LENGTH DIVERSITY:\n"
+                "   - ULTRA-SHORT REACTIONS (25-30% of turns): 1 to 4 words ('lol nah', 'fr tho💀', 'wait what?', 'bro😭', 'same honestly').\n"
+                "   - QUICK TAKES & QUESTIONS (40-45% of turns): 5 to 14 words.\n"
+                "   - DETAILED REPLIES (25-30% of turns): 18 to 45 words.\n"
+                "   - MULTI-MESSAGE BURSTS: Mobile texters often send 2 consecutive bubbles separated with ' ||| '.\n\n"
+                "2. GENUINE TELEGRAM REPLIES & THREADING:\n"
+                "   - When responding or bantering, specify 'reply_to_step': <0-indexed step of target message in this session>.\n"
+                "   - If starting a new point or opening remark, set 'reply_to_step': null.\n\n"
+                "3. ZERO @TAGS OR NAMES (STRICT): Never type @handles or call people by name. Address someone ONLY by setting reply_to_step.\n\n"
+                "4. OUTPUT FORMAT: Return ONLY a valid JSON array of message objects matching this exact format:\n"
+                "[\n"
+                "  {\n"
+                "    \"persona_id\": <int>,\n"
+                "    \"account_id\": <int>,\n"
+                "    \"sender_name\": \"<string>\",\n"
+                "    \"reply_to_step\": <int or null>,\n"
+                "    \"text\": \"<exact telegram message text>\",\n"
+                "    \"reaction\": \"<optional emoji like 🔥, 😂, 💀, 👍, 👀, 💯, 💪, ❤️ or null>\"\n"
+                "  }\n"
+                "]"
+            )
+
+            user_prompt = (
+                f"COMMUNITY GROUP: {group_title}\n"
+                f"ABOUT: {group_about}\n"
+                f"DOMAIN TOPICS: {group_domain}\n\n"
+                f"AVAILABLE PERSONAS:\n{persona_str}\n\n"
+                f"CONVERSATIONAL FOCUS: {topic_prompt}\n\n"
+                f"TASK:\n"
+                f"Create a natural {th_count}-message conversational thread for this session between these personas.\n"
+                f"Ensure every persona speaks, vary message lengths wildly, and embrace casual mobile texting flaws. Return strictly the JSON array."
+            )
+
+            th_items = []
+            try:
+                raw_ai, meta = await self.ai.chat_with_meta(settings, system_prompt, user_prompt, temperature=0.78)
+                raw = raw_ai.strip()
+                raw = re.sub(r"^```(?:json)?", "", raw).strip()
+                raw = re.sub(r"```$", "", raw).strip()
+                match = re.search(r"\[\s*\{.*\}\s*\]", raw, re.DOTALL)
+                if match:
+                    clean_text = re.sub(r",\s*([\]\}])", r"\1", match.group(0))
+                    try:
+                        th_items = json.loads(clean_text)
+                    except Exception:
+                        pass
+                if not th_items:
+                    for m_obj in re.finditer(r"\{[^{}]*\}", raw):
+                        try:
+                            clean_obj = re.sub(r",\s*([\]\}])", r"\1", m_obj.group(0))
+                            th_items.append(json.loads(clean_obj))
+                        except Exception:
+                            pass
+                now_ts = int(time.time())
+                p_tok = meta.get("prompt_tokens", 0)
+                c_tok = meta.get("completion_tokens", 0)
+                tot_tok = p_tok + c_tok
+                cost_est = (tot_tok / 1000.0) * 0.0003
+                self.store.q("""
+                    INSERT INTO usage_logs(timestamp, event_type, chat_id, tokens_prompt, tokens_completion,
+                                           tokens_total, latency_ms, model, cost_est)
+                    VALUES(?,?,?,?,?,?,?,?,?)
+                """, (now_ts, "ai_batch", chat_id, p_tok, c_tok, tot_tok, meta.get("latency_ms", 0),
+                      meta.get("model", ""), cost_est))
+            except Exception as e:
+                log.error("AI batch generation error for session %d in group %s: %s", th_idx + 1, chat_id, e)
+
+            if th_items:
+                try:
+                    for it in th_items:
+                        if it.get("text") and not it.get("reaction"):
+                            cleaned = self.ai.format_telegram_message(it["text"], names=cand_names, max_chars=360)
+                            it["text"] = maybe_inject_typo_correction(cleaned, chance=0.07)
+                except Exception as e:
+                    log.warning("Formatting error in session %d: %s", th_idx + 1, e)
+                sessions_items.append(th_items)
+
         now_ts = int(time.time())
         created_items = []
-
-        # Round-the-clock individual sleep timing:
-        # Instead of a global quiet blackout, each persona has their own sleep window and timezone.
-        # Batches start immediately with tight, high-velocity conversation intervals.
-        # Rapid immediate start: batch begins within 10 to 30 seconds
-        start_delay_min = random.uniform(0.15, 0.45)
-
-        # Partition items into organic clusters of 1 to 4 messages (conversational arcs)
-        clusters = []
-        rem_items = len(items)
-        while rem_items > 0:
-            c_size = min(rem_items, random.choices([1, 2, 3, 4], weights=[0.15, 0.40, 0.35, 0.10])[0])
-            clusters.append(c_size)
-            rem_items -= c_size
-
-        num_clusters = len(clusters)
-        # Hyper-active pacing: tight 1.0 to 2.5 minute gaps between conversation arcs
-        target_cluster_gap_min = max(1.0, min(2.5, 75.0 / max(num_clusters, 1)))
-
-        offsets_min = []
-        cluster_cur_min = start_delay_min
-
-        for c_idx, c_size in enumerate(clusters):
-            if c_idx > 0:
-                # Dynamic organic pacing between conversation clusters: 1.0 to 2.5 minutes
-                gap = target_cluster_gap_min * random.uniform(0.80, 1.15)
-                cluster_cur_min += gap
-
-            msg_time = cluster_cur_min
-            for msg_i in range(c_size):
-                if msg_i > 0:
-                    # Snappy rapid mobile texting interval: 8 to 22 seconds between personas
-                    msg_time += random.uniform(0.13, 0.36)
-                offsets_min.append(msg_time)
-
         cand_usage = { (c["persona_id"], c["account_id"]): 0 for c in candidates }
 
-        for idx, item in enumerate(items):
-            pid = item.get("persona_id")
-            aid = item.get("account_id")
-            sname = (item.get("sender_name") or "").lower()
+        session_start_min = random.uniform(0.15, 0.45)
+        for s_idx, s_items in enumerate(sessions_items):
+            clusters = []
+            rem = len(s_items)
+            while rem > 0:
+                c_size = min(rem, random.choices([1, 2, 3, 4], weights=[0.15, 0.40, 0.35, 0.10])[0])
+                clusters.append(c_size)
+                rem -= c_size
 
-            cand_match = [c for c in candidates if c["persona_id"] == pid and c["account_id"] == aid]
-            if not cand_match and pid:
-                cand_match = [c for c in candidates if c["persona_id"] == pid]
-            if not cand_match and aid:
-                cand_match = [c for c in candidates if c["account_id"] == aid]
-            if not cand_match and sname:
-                cand_match = [c for c in candidates if sname in (c.get("persona_name") or "").lower() or sname in (c.get("account_name") or "").lower()]
-            if not cand_match:
-                sched_m = offsets_min[idx] if idx < len(offsets_min) else (idx * 3.0)
-                target_ts = now_ts + int(sched_m * 60)
-                # Prioritize awake candidates who haven't spoken excessively
-                awake_cands = [c for c in candidates if self.is_candidate_awake(c, ts=target_ts)]
-                pool = awake_cands if awake_cands else candidates
-                least_used = sorted(pool, key=lambda c: cand_usage.get((c["persona_id"], c["account_id"]), 0))[0]
-                cand_match = [least_used]
+            target_cluster_gap_min = max(1.0, min(2.5, 45.0 / max(len(clusters), 1)))
+            session_offsets = []
+            cur_time = session_start_min
 
-            chosen_cand = cand_match[0]
-            pid = chosen_cand["persona_id"]
-            aid = chosen_cand["account_id"]
-            sender_name = chosen_cand["persona_name"]
-            cand_usage[(pid, aid)] = cand_usage.get((pid, aid), 0) + 1
+            for c_idx, c_size in enumerate(clusters):
+                if c_idx > 0:
+                    gap = target_cluster_gap_min * random.uniform(0.80, 1.15)
+                    cur_time += gap
+                m_time = cur_time
+                for msg_i in range(c_size):
+                    if msg_i > 0:
+                        m_time += random.uniform(0.13, 0.36)
+                    session_offsets.append(m_time)
 
-            text = (item.get("text") or "").strip()
-            reaction = (item.get("reaction") or "").strip()
-            if not text and not reaction:
-                continue
-            if not text and reaction:
-                text = f"[reaction: {reaction}]"
-            elif text:
-                text = self.ai.format_telegram_message(text, names=cand_names, max_chars=360)
-                if not text:
-                    continue 
+            session_created = []
+            for item_idx, item in enumerate(s_items):
+                pid = item.get("persona_id")
+                aid = item.get("account_id")
+                sname = (item.get("sender_name") or "").lower()
 
-            scheduled_min = offsets_min[idx] if idx < len(offsets_min) else (curr_min + (idx * 2))
-            jitter_sec = random.randint(-5, 8)
-            scheduled_ts = max(now_ts + 5, now_ts + int(scheduled_min * 60) + jitter_sec)
+                cand_match = [c for c in candidates if c["persona_id"] == pid and c["account_id"] == aid]
+                if not cand_match and pid:
+                    cand_match = [c for c in candidates if c["persona_id"] == pid]
+                if not cand_match and aid:
+                    cand_match = [c for c in candidates if c["account_id"] == aid]
+                if not cand_match and sname:
+                    cand_match = [c for c in candidates if sname in (c.get("persona_name") or "").lower() or sname in (c.get("account_name") or "").lower()]
+                if not cand_match:
+                    sched_m = session_offsets[item_idx] if item_idx < len(session_offsets) else (item_idx * 3.0)
+                    target_ts = now_ts + int(sched_m * 60)
+                    awake_cands = [c for c in candidates if self.is_candidate_awake(c, ts=target_ts)]
+                    pool = awake_cands if awake_cands else candidates
+                    least_used = sorted(pool, key=lambda c: cand_usage.get((c["persona_id"], c["account_id"]), 0))[0]
+                    cand_match = [least_used]
 
-            # Determine parent_item_id for native Telegram reply quotes:
-            rep_step = item.get("reply_to_step")
-            parent_item_id = None
-            if rep_step is not None and isinstance(rep_step, int) and 0 <= rep_step < len(created_items):
-                parent_item_id = created_items[rep_step]["id"]
-            elif idx > 0 and (offsets_min[idx] - offsets_min[idx-1]) < 8.0 and created_items:
-                # Same conversation burst: automatically reply to previous message in cluster
-                parent_item_id = created_items[-1]["id"]
+                chosen_cand = cand_match[0]
+                pid = chosen_cand["persona_id"]
+                aid = chosen_cand["account_id"]
+                sender_name = chosen_cand["persona_name"]
+                cand_usage[(pid, aid)] = cand_usage.get((pid, aid), 0) + 1
 
-            cur_item = self.store.q(
-                "INSERT INTO daily_batch_items(batch_id, chat_id, account_id, persona_id, sender_name, text, scheduled_ts, status, created_at, reply_to_item_id) "
-                "VALUES(?,?,?,?,?,?,?,'pending',?,?)",
-                (batch_id, chat_id, aid, pid, sender_name, text, scheduled_ts, now_ts, parent_item_id)
-            )
-            item_id = cur_item.lastrowid
+                text = (item.get("text") or "").strip()
+                reaction = (item.get("reaction") or "").strip()
+                if not text and not reaction:
+                    continue
+                if not text and reaction:
+                    text = f"[reaction: {reaction}]"
+                elif text:
+                    text = self.ai.format_telegram_message(text, names=cand_names, max_chars=360)
+                    if not text:
+                        continue
 
-            # Enqueue into work queue for automated wake-and-send
-            self.store.enqueue(
-                "batch_scheduled_send",
-                chat_id,
-                {
-                    "batch_item_id": item_id,
-                    "account_id": aid,
+                scheduled_min = session_offsets[item_idx] if item_idx < len(session_offsets) else (session_start_min + (item_idx * 2))
+                jitter_sec = random.randint(-5, 8)
+                scheduled_ts = max(now_ts + 5, now_ts + int(scheduled_min * 60) + jitter_sec)
+
+                rep_step = item.get("reply_to_step")
+                parent_item_id = None
+                if rep_step is not None and isinstance(rep_step, int) and 0 <= rep_step < len(session_created):
+                    parent_item_id = session_created[rep_step]["id"]
+                elif item_idx > 0 and (session_offsets[item_idx] - session_offsets[item_idx-1]) < 8.0 and session_created:
+                    parent_item_id = session_created[-1]["id"]
+
+                cur_item = self.store.q(
+                    "INSERT INTO daily_batch_items(batch_id, chat_id, account_id, persona_id, sender_name, text, scheduled_ts, status, created_at, reply_to_item_id) "
+                    "VALUES(?,?,?,?,?,?,?,'pending',?,?)",
+                    (batch_id, chat_id, aid, pid, sender_name, text, scheduled_ts, now_ts, parent_item_id)
+                )
+                item_id = cur_item.lastrowid
+
+                self.store.enqueue(
+                    "batch_scheduled_send",
+                    chat_id,
+                    {
+                        "batch_item_id": item_id,
+                        "account_id": aid,
+                        "persona_id": pid,
+                        "text": text,
+                        "reaction": reaction if reaction else None,
+                        "reply_to_item_id": parent_item_id
+                    },
+                    dedupe_key=f"batch_send:{item_id}",
+                    delay=max(0, scheduled_ts - now_ts)
+                )
+
+                created_item_dict = {
+                    "id": item_id,
                     "persona_id": pid,
+                    "account_id": aid,
+                    "sender_name": sender_name,
+                    "scheduled_ts": scheduled_ts,
                     "text": text,
-                    "reaction": reaction if reaction else None,
+                    "status": "pending",
                     "reply_to_item_id": parent_item_id
-                },
-                dedupe_key=f"batch_send:{item_id}",
-                delay=max(0, scheduled_ts - now_ts)
-            )
+                }
+                session_created.append(created_item_dict)
+                created_items.append(created_item_dict)
 
-            created_items.append({
-                "id": item_id,
-                "persona_id": pid,
-                "account_id": aid,
-                "sender_name": sender_name,
-                "scheduled_ts": scheduled_ts,
-                "text": text,
-                "status": "pending",
-                "reply_to_item_id": parent_item_id
-            })
+            last_session_end = session_offsets[-1] if session_offsets else session_start_min
+            if len(sessions_items) >= 3:
+                session_start_min = last_session_end + random.uniform(45.0, 75.0)
+            else:
+                session_start_min = last_session_end + random.uniform(60.0, 100.0)
+
+        if not created_items:
+            raise RuntimeError("Failed to generate any valid messages across batch sessions")
 
         return {
             "batch_id": batch_id,
