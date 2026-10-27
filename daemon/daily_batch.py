@@ -279,9 +279,9 @@ SESSION_3_THEMES = [
     ("Derek from More Plates More Dates (MPMD): classic breakdowns, 'supraphysiological doses', gorilla mind, diagnosing Hollywood lies.", "derek mpmd more plates supraphysiological gorilla breakdown"),
     ("Andrew Huberman morning routine memes: 15 minutes of direct sunlight, cold shower, waiting 90 minutes for coffee, optimizing everything.", "huberman sunlight coffee morning routine dopamine cold shower"),
     ("Sam Sulek phenomenon: gallon of chocolate milk, Krispy Kreme pre-workout, heavy lifting style, relaxed cardio bike chats.", "sam sulek chocolate milk krispy kreme bulk cardio youtube"),
-    ("Liver King downfall & aftermath: 'raw liver ancestral tenets' exposed for 1k/month growth hormone, internet roast fest.", "liver king raw liver ancestral growth hormone exposed"),
+    ("Alex Pereira stone-cold UFC aura: two-division Glory & UFC kickboxing legend, devastating left hook, stepping in on short notice to save fight cards.", "alex pereira ufc poatan glory kickboxing left hook champion"),
     ("Bradley Martyn 'Could you beat me in a street fight?': asking UFC champs and boxers, Zoo Culture gym antics, internet comedy.", "bradley martyn street fight zoo culture ufc meme"),
-    ("Mike O'Hearn 'duck eggs & hard work' lifetime natty memes: baby don't hurt me soundtrack, defying aging, hilarious community lore.", "mike ohearn duck eggs natty baby dont hurt me meme aging"),
+    ("Max Holloway UFC BMF legacy: pointing to the canvas in round 5 against Gaethje, iron chin, high-volume Hawaiian boxing.", "max holloway ufc bmf gaethje canvas knockout boxing volume hawaii"),
     ("Mark Wahlberg insane 3:30 AM daily routine: cryo chamber, prayer, 4am workout, family time, whether anyone actually lives like that.", "mark wahlberg routine 4am cryo schedule early"),
     ("Celebrity Ozempic / Tirzepatide epidemic: everyone in Hollywood suddenly dropping 30 lbs, sunken faces, public denial vs reality.", "ozempic hollywood celebrity weight loss tirzepatide face red carpet"),
     ("Bodybuilding Olympia predictions & drama: Hadi Choopan, Derek Lunsford, Samson Dauda, Chris Bumstead (CBum) Classic Physique dominance.", "olympia cbum classic physique lunsford samson bodybuilder"),
@@ -311,24 +311,24 @@ SESSION_3_THEMES = [
     ("BMF belt spectacles & last-second knockouts: Max Holloway pointing to the center of the cage against Gaethje at UFC 300.", "bmf belt holloway gaethje ufc 300 last second knockout center cage"),
     ("Boxing judging robberies: three blind judges scoring a clean boxing clinic as a split draw, corruption in combat sports.", "boxing judges robbery split decision scorecard corruption combat"),
     ("BKFC (Bare Knuckle Fighting Championship) chaos: brutal cuts, tooth loss, raw grit vs refined sweet science.", "bkfc bare knuckle cuts teeth blood grit combat fight sport"),
-    ("Hugh Jackman Wolverine physique over 25 years: 1999 soft look vs 2024 veiny road map, dehydration and lighting secrets.", "hugh jackman wolverine 25 years veins dehydration lighting movie secret"),
-    ("Kumail Nanjiani Eternals transformation memes: vascular jawline, Hollywood trainers claiming 'just chicken and broccoli'.", "kumail nanjiani jawline chicken broccoli marvel hollywood trainer meme"),
-    ("Zac Efron Baywatch toll & rebound: open discussions about water pills, zero carb insomnia, and never wanting to look like that again.", "zac efron baywatch water pills insomnia rebound body dysmorphia"),
-    ("The Rock 'just cod and 4 AM workouts' meme: Joe Rogan and internet calling for transparency, public skepticism.", "the rock dwayne johnson cod 4am lie transparency rogan gym meme"),
-    ("Joe Rogan podcast obsessions: cold plunges, elk meat, stem cell trips to Colombia, bow hunting, reverse hyper machines.", "rogan elk meat cold plunge stem cells colombia bow hunting reverse hyper"),
-    ("Derek MPMD nostalgia & breakdown classics: 'supraphysiological amounts', gorilla mind empire, breaking down fake natties.", "derek mpmd supraphysiological gorilla mind fake natty youtube breakdown"),
-    ("Sam Sulek phenomenon: gallon of chocolate milk, Krispy Kreme pre-workout, heavy lifting style, relaxed cardio bike chats.", "sam sulek chocolate milk krispy kreme cardio bike youtube chats lifting"),
-    ("Mike O'Hearn duck eggs & hard work memes: Baby Don't Hurt Me soundtrack, 4 decades of peak condition, hilarious internet lore.", "mike ohearn baby dont hurt me duck eggs natty meme 4 decades longevity"),
-    ("Alan Ritchson (Reacher) refreshing TRT honesty: talking openly about fatigue, shoulder surgeries, and how TRT saved his career.", "alan ritchson reacher trt fatigue shoulder surgery career honesty amazon"),
-    ("Mark Wahlberg 3:30 AM routine madness: cryo chamber, 4 AM golf, 2 workouts, whether anyone actually lives like that or it's PR.", "mark wahlberg 330 am routine cryo golf workouts celebrity pr schedule"),
-    ("Hollywood Ozempic face red carpet epidemic: sudden 30lb weight drops, buccal fat removal, celebrities denying GLP-1s.", "ozempic face buccal fat red carpet celebrity weight loss glp1 denial"),
-    ("Chris Bumstead (CBum) Classic Physique dominance: the vacuum pose, retiring at the top, passing the torch to the new era.", "cbum chris bumstead classic physique vacuum pose retirement olympia"),
-    ("Eddie Hall vs Thor Bjornsson 500kg deadlift history: blood shooting from nose, years of beef, boxing match conclusion.", "eddie hall thor bjornsson 500kg deadlift nose bleed strongman beef"),
-    ("Premier League & Champions League football madness: 98th-minute bicycle kick winners, VAR controversies, title race tension.", "premier league champions league bicycle kick var extra time title drama"),
-    ("NFL bone-crushing tackles & fantasy league heartbreaks: star running back tearing an ACL in the 1st quarter of championship week.", "nfl fantasy football acl injury championship week heartbreak tackles"),
-    ("Formula 1 race weekend chaos: tire pit-stop disasters, qualifying speed, Max Verstappen sim racing till 4 AM before a GP.", "formula 1 f1 pitstop disaster verstappen sim racing grand prix radio"),
-    ("Bitcoin overnight volatility: waking up +15% feeling like Warren Buffett vs waking up -20% eating ramen, memecoin madness.", "bitcoin btc crypto ramen warren buffett volatility memecoin wallet"),
-    ("AI humanoid robots doing gymnastics: Boston Dynamics Atlas doing flips, robots taking physical jobs, AI anxiety vs hype.", "boston dynamics atlas flips humanoid robots automation ai jobs future"),
+    ("F1 cockpit endurance & 50°C heat: drivers losing 8 lbs of water per race, pulling 5G braking forces, extreme neck harness training.", "f1 driver cockpit heat gforce neck training endurance race"),
+    ("Sean O'Malley precision striking & movement: switch-hitting stance changes, feints, distance traps, bantamweight title fights.", "sean omalley ufc precision striking switch stance movement bantamweight"),
+    ("Tom Aspinall heavyweight explosiveness: moving like a middleweight with heavyweight power, lightning quick sub-2 minute finishes.", "tom aspinall heavyweight ufc speed power interim title finish"),
+    ("Champions League penalty shootout drama: goalkeeper mind games, stutter steps, sudden death tension under stadium lights.", "champions league penalty shootout goalkeeper soccer football tension"),
+    ("MotoGP 220mph cornering physics: dragging knees and elbows on asphalt at 60-degree lean angles, zero margin for error.", "motogp motorcycle racing 220mph cornering asphalt lean angle physics"),
+    ("Tour de France brutal mountain stages: burning 8,000 calories climbing the Pyrenees, suffering in the lactate threshold zone.", "tour de france cycling mountains alps climbing endurance calories suffering"),
+    ("High altitude mountaineering VO2 max: summiting 8,000-meter peaks without supplemental oxygen, physiological limits of hypoxia.", "mountaineering everest k2 oxygen hypoxia vo2 max altitude extreme"),
+    ("Olympic 100m sprint biomechanics: ground reaction force, explosive block starts, tendon stiffness and sub-10 second speed.", "olympic sprint 100m ground reaction force blocks tendon speed biomechanics"),
+    ("World Rally Championship (WRC) insane gravel slides: blind crest jumps at 110 mph on dirt roads through dense Scandinavian forests.", "wrc rally racing gravel blind crest jumps dirt slide scandinavia"),
+    ("Rugby collisions vs American football: continuous 80-minute aerobic warfare with zero pads, brutal rucks, cauliflower ears.", "rugby american football collisions pads rucks physical aerobic warfare"),
+    ("Chess grandmaster heart rates during blitz: burning 6,000 calories during world championship matches from extreme cognitive stress.", "chess grandmaster cognitive stress heart rate calories blitz focus"),
+    ("Freediving ocean depths on a single breath: diving 100 meters unassisted, mammalian dive reflex, spleen contraction.", "freediving breath hold depth ocean mammalian dive reflex spleen lungs"),
+    ("Extreme Finnish sauna championships & heat shock: 100°C steam endurance, freezing ice lake immersion, mental grit.", "sauna finnish heat shock ice lake cold plunge steam mental grit"),
+    ("CrossFit Games brutal endurance tests: Murph workout with 20lb weighted vest in 95-degree heat, grip fatigue and pacing.", "crossfit murph weighted vest endurance heat grip fatigue pacing"),
+    ("The psychology of flow state in high-risk sports: complete time dilation during downhill mountain biking or wingsuit flights.", "flow state adrenaline downhill mountain bike wingsuit speed time dilation"),
+    ("Hydration bladder tech vs classic gym gallon jugs: carrying a battered plastic milk jug vs insulated stainless steel bottles.", "gallon jug gym hydration water bottle insulated stainless steel carry"),
+    ("Classic action movie stunts without CGI: Tom Cruise hanging off an airplane wing, Jackie Chan broken bones and ladder fights.", "action movie stunts cgi tom cruise jackie chan stuntman practical effects"),
+    ("Deep sea oceanic exploration: Mariana Trench pitch black abyss, hydrothermal vents, bizarre undiscovered deep-sea life.", "deep sea mariana trench ocean abyss hydrothermal vents creatures submarine"),
     ("Apple Vision Pro headset zombies: people wearing spatial computing goggles in coffee shops looking like sci-fi characters.", "apple vision pro spatial headset coffee shop sci fi zombie gadgets"),
     ("Late-night Discord gaming sessions: playing tactical shooters until 3 AM with the boys, laughing so hard you get a headache.", "discord gaming tactical shooter 3am boys laughter headache night"),
     ("Could an average gym bro survive 30 seconds with a chimpanzee? The definitive biology debate on ape muscle density.", "chimpanzee ape muscle density gym bro 30 seconds survival fight debate"),
@@ -363,6 +363,26 @@ SESSION_3_THEMES = [
 ]
 
 DEFAULT_DAILY_THEMES = SESSION_1_THEMES + SESSION_2_THEMES + SESSION_3_THEMES
+
+
+BANNED_DIALOGUE_PATTERNS = [
+    re.compile(r"\bliver\s*king\b", re.I),
+    re.compile(r"\braw\s*liver\b", re.I),
+    re.compile(r"\bancestral\s*tenets?\b", re.I),
+    re.compile(r"\bancestral\s*lifestyle\b", re.I),
+    re.compile(r"\bduck\s*eggs?\b", re.I),
+    re.compile(r"\bbaby\s*don't\s*hurt\s*me\b", re.I),
+]
+
+
+def sanitize_banned_tropes(text):
+    """Actively neutralizes stale meme tropes and banned dialogue patterns."""
+    if not text:
+        return text
+    for pat in BANNED_DIALOGUE_PATTERNS:
+        if pat.search(text):
+            text = pat.sub("some fitness influencer", text)
+    return text
 
 class DailyBatchEngine:
     def is_candidate_awake(self, cand, ts=None):
@@ -557,10 +577,16 @@ class DailyBatchEngine:
         )
         used_past_topics = [b.get("topic") or "" for b in recent_batches]
 
+        # Load persistent theme history from SQLite to prevent repeating themes from the past 14 days
+        used_theme_keys = set()
+        if hasattr(self.store, "get_recent_used_theme_keys"):
+            used_theme_keys = self.store.get_recent_used_theme_keys(chat_id, lookback_days=14)
+
         default_themes = DEFAULT_DAILY_THEMES
         fresh_themes = [
             (t, q) for (t, q) in default_themes
             if not any(q in ut.lower() or t[:25].lower() in ut.lower() for ut in used_past_topics)
+            and q.strip().lower() not in used_theme_keys and t[:30].strip().lower() not in used_theme_keys
         ]
         if not fresh_themes:
             fresh_themes = default_themes
@@ -596,6 +622,8 @@ class DailyBatchEngine:
                 chosen_t = random.choice(avail)
                 chosen_tuples.append(chosen_t)
                 thread_configs.append((chosen_t[0], chosen_t[1], p_count))
+                if hasattr(self.store, "record_used_theme"):
+                    self.store.record_used_theme(chat_id, chosen_t[1], chosen_t[0], session_idx=p_i+1)
             elif len(micro_plans) == 2:
                 if p_i == 0:
                     avail = [t for t in domain_compounds if t not in chosen_tuples] or SESSION_1_THEMES
@@ -604,10 +632,14 @@ class DailyBatchEngine:
                 chosen_t = random.choice(avail)
                 chosen_tuples.append(chosen_t)
                 thread_configs.append((chosen_t[0], chosen_t[1], p_count))
+                if hasattr(self.store, "record_used_theme"):
+                    self.store.record_used_theme(chat_id, chosen_t[1], chosen_t[0], session_idx=p_i+1)
             else:
                 chosen_t = random.choice(fresh_themes)
                 chosen_tuples.append(chosen_t)
                 thread_configs.append((chosen_t[0], chosen_t[1], p_count))
+                if hasattr(self.store, "record_used_theme"):
+                    self.store.record_used_theme(chat_id, chosen_t[1], chosen_t[0], session_idx=p_i+1)
         # 3. Auto-clear past failed and cancelled items for this chat to keep queue fresh
         try:
             self.store.q("DELETE FROM daily_batch_items WHERE chat_id=? AND status IN ('failed', 'cancelled')", (chat_id,))
@@ -725,6 +757,8 @@ class DailyBatchEngine:
                 "  * DRY / SARCASTIC PERSONAS: Deadpan, cynical one-liners, rolling eyes at hype ('sure bro whatever you say', 'rip your sleep schedule', 'fascinating theory💀').\n"
                 "  * CHILL / GROUNDED PERSONAS: Calm, experienced, give straightforward practical answers without getting heated.\n"
                 "- This asymmetrical friction is what makes the group feel authentic and alive!\n\n"
+                "BANNED MEME TROPES (PERMANENT ZERO-TOLERANCE):\n" \
+                "- NEVER under any circumstance mention Liver King, raw liver ancestral tenets, duck eggs memes, or tired 2021 meme personalities. These are permanently banned from the community.\n\n" \
                 "CRITICAL: ABSOLUTE ZERO REPETITION MANDATE (STRICTLY ENFORCED):\n"
                 f"{forbidden_block}\n"
                 "- Do NOT re-ask questions that were already discussed.\n"
@@ -762,7 +796,7 @@ class DailyBatchEngine:
                 f"CONVERSATIONAL FOCUS: {topic_prompt}\n\n"
                 f"TASK:\n"
                 f"Create a natural {th_count}-message conversational thread for this session between these personas.\n"
-                f"Ensure every persona speaks, vary message lengths wildly, and embrace casual mobile texting flaws. Return strictly the JSON array."
+                f"Vary message lengths wildly, embrace casual mobile texting shorthand, and never mention Liver King or tired internet memes. Return strictly the JSON array."
             )
 
             th_items = []
@@ -822,7 +856,7 @@ class DailyBatchEngine:
                 clusters.append(c_size)
                 rem -= c_size
 
-            target_cluster_gap_min = max(1.0, min(2.5, 45.0 / max(len(clusters), 1)))
+            target_cluster_gap_min = max(22.0, min(42.0, 180.0 / max(len(clusters), 1)))
             session_offsets = []
             cur_time = session_start_min
 
@@ -833,7 +867,7 @@ class DailyBatchEngine:
                 m_time = cur_time
                 for msg_i in range(c_size):
                     if msg_i > 0:
-                        m_time += random.uniform(0.13, 0.36)
+                        m_time += random.uniform(0.30, 1.20)
                     session_offsets.append(m_time)
 
             session_created = []
@@ -871,6 +905,7 @@ class DailyBatchEngine:
                     text = f"[reaction: {reaction}]"
                 elif text:
                     text = self.ai.format_telegram_message(text, names=cand_names, max_chars=360)
+                    text = sanitize_banned_tropes(text)
                     if not text:
                         continue
 

@@ -225,7 +225,9 @@ class Store:
             "ALTER TABLE accounts ADD COLUMN is_admin INTEGER DEFAULT 0",
             "CREATE INDEX IF NOT EXISTS idx_hm_chat_sender_slot ON human_memories(chat_id, sender, slot_key, is_active)",
             "CREATE TABLE IF NOT EXISTS processed_incoming (chat_id INTEGER NOT NULL, msg_id INTEGER NOT NULL, ts INTEGER NOT NULL, PRIMARY KEY(chat_id, msg_id))",
-            "CREATE TABLE IF NOT EXISTS persona_protocols (id INTEGER PRIMARY KEY AUTOINCREMENT, persona_id INTEGER NOT NULL UNIQUE, chat_id INTEGER, compound_name TEXT NOT NULL, category TEXT NOT NULL, goal TEXT NOT NULL, dosing TEXT NOT NULL, reconstitution_notes TEXT DEFAULT '', start_ts INTEGER NOT NULL, duration_weeks INTEGER NOT NULL, status TEXT DEFAULT 'active', notes TEXT DEFAULT '', details TEXT DEFAULT '{}')"
+            "CREATE TABLE IF NOT EXISTS persona_protocols (id INTEGER PRIMARY KEY AUTOINCREMENT, persona_id INTEGER NOT NULL UNIQUE, chat_id INTEGER, compound_name TEXT NOT NULL, category TEXT NOT NULL, goal TEXT NOT NULL, dosing TEXT NOT NULL, reconstitution_notes TEXT DEFAULT '', start_ts INTEGER NOT NULL, duration_weeks INTEGER NOT NULL, status TEXT DEFAULT 'active', notes TEXT DEFAULT '', details TEXT DEFAULT '{}')",
+            "CREATE TABLE IF NOT EXISTS daily_theme_history (id INTEGER PRIMARY KEY AUTOINCREMENT, chat_id INTEGER NOT NULL, theme_key TEXT NOT NULL, theme_title TEXT, session_idx INTEGER, used_at INTEGER NOT NULL)",
+            "CREATE INDEX IF NOT EXISTS idx_theme_history_chat ON daily_theme_history(chat_id, used_at)"
 ):
             try:
                 self.db.execute(ddl)
@@ -1119,3 +1121,31 @@ class Store:
         now = int(time.time())
         return self.q("UPDATE queue SET status='pending', not_before=?, updated=? WHERE status='in_flight'",
                       (now + delay, now)).rowcount
+
+    def record_used_theme(self, chat_id, theme_key, theme_title="", session_idx=1):
+        """Records a used theme in persistent SQLite history to prevent topic repetition."""
+        try:
+            self.q(
+                "INSERT INTO daily_theme_history(chat_id, theme_key, theme_title, session_idx, used_at) VALUES(?,?,?,?,?)",
+                (int(chat_id), str(theme_key), str(theme_title), int(session_idx), int(time.time()))
+            )
+        except Exception as e:
+            log.debug("record_used_theme notice: %s", e)
+
+    def get_recent_used_theme_keys(self, chat_id, lookback_days=14, limit=250):
+        """Returns set of theme keys/queries recently used in this group."""
+        try:
+            cutoff = int(time.time()) - (lookback_days * 86400)
+            rows = self.rows(
+                "SELECT theme_key, theme_title FROM daily_theme_history WHERE chat_id=? AND used_at > ? ORDER BY id DESC LIMIT ?",
+                (int(chat_id), cutoff, limit)
+            )
+            keys = set()
+            for r in rows:
+                if r.get("theme_key"):
+                    keys.add(r["theme_key"].strip().lower())
+                if r.get("theme_title"):
+                    keys.add(r["theme_title"].strip().lower()[:30])
+            return keys
+        except Exception:
+            return set()

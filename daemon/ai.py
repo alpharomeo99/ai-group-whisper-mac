@@ -163,7 +163,28 @@ def strip_internal_tags(text, tags_to_strip):
     return text
 
 
+
+BANNED_DIALOGUE_PATTERNS = [
+    re.compile(r"\bliver\s*king\b", re.I),
+    re.compile(r"\braw\s*liver\b", re.I),
+    re.compile(r"\bancestral\s*tenets?\b", re.I),
+    re.compile(r"\bancestral\s*lifestyle\b", re.I),
+    re.compile(r"\bduck\s*eggs?\b", re.I),
+    re.compile(r"\bbaby\s*don't\s*hurt\s*me\b", re.I),
+]
+
+
+def sanitize_banned_tropes(text):
+    """Actively neutralizes stale meme tropes and banned dialogue patterns."""
+    if not text:
+        return text
+    for pat in BANNED_DIALOGUE_PATTERNS:
+        if pat.search(text):
+            text = pat.sub("some fitness influencer", text)
+    return text
+
 def _clean_single_telegram_bubble(text, names=None, max_chars=360, strip_tags=None):
+    text = sanitize_banned_tropes(text)
     """Sanitizes a single message bubble: strips labels, salutations, markdown lists, and caps length."""
     if not text:
         return ""
@@ -450,6 +471,7 @@ async def draft_reply_with_meta(settings, title, persona, msgs, trigger_sender=N
         "- NATURAL LENGTH VARIATION: Keep your response proportionate to the situation. Quick reactions should be brief (3-12 words); answers or advice can be 1-3 sentences. Never write essays or formal bulleted lists.",
         "- ZERO CORPORATE OR BOT CLICHES: Never use openers like 'Great question!', 'I understand', 'To answer your question', 'It depends on various factors', 'Both options are valid'. Jump straight into your raw human reaction or advice.",
         "- TONE SYNCHRONIZATION & CAMARADERIE: Match the emotional frequency of the human: If they are sharing a PR/win, hype them up with authentic respect ('solid numbers bro', 'big PR', 'clean work'). If they are struggling with an injury or side-effect, be reassuring and level-headed ('shoulder tendonitis is brutal', 'don't panic, give it 3 days'). If they are joking, banter back with wit and sarcasm.",
+        "- STRICT BANNED TOPICS: NEVER mention Liver King, raw liver, ancestral tenets, duck eggs memes, or tired 2021 internet tropes. These are permanently banned from the group.",
         "- STRICT ZERO @TAGS / USERNAMES MANDATE: NEVER include @tags, usernames, or @handles in your message (NO '@handle', NO '@xbiolabs', NO '@username'). Real Telegram users use the native reply feature instead of typing usernames into message text. When replying or answering someone, just speak directly to them without tagging their name or handle.",
         "- TEAMMATE CHIME-IN DYNAMICS (CRITICAL): When chiming in as a follow-up after a peer spoke, NEVER echo their factual advice, numbers, compound dosages, or instructions! Only offer brief peer backing ('what he said', 'same here'), a quick personal angle/joke, or a short anecdotal nuance. Keep it punchy and brief (3 to 15 words).",
         "- MULTI-MESSAGE BURSTS (NATURAL MOBILE TEXTING): Real humans texting from mobile phones frequently send 2 (or occasionally 3) rapid consecutive messages instead of one wall of text. For instance: bubble 1 is a quick reaction or initial remark, bubble 2 is the elaboration, question, or follow-up note.",
