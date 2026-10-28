@@ -251,50 +251,47 @@ class Daemon:
         return first_active[0]["id"] if first_active else None
 
     async def ensure_clients(self):
-        """Maintains exactly ONE persistent scout listener to catch incoming events in watched groups.
-        All other accounts remain completely dormant (0 sockets, 0 idle RAM) and connect ephemerally on demand.
-        Returns {scout_account_id: scout_client}.
+        """Maintains persistent event listeners across all active accounts to guarantee 100% real-time
+        event coverage across all watched groups, regardless of which account is a member.
+        Returns {account_id: client} for all authorized connected accounts.
         """
-        scout_aid = self.get_scout_account_id()
-        if not scout_aid:
-            await self.drop_clients()
-            return {}
+        active_accs = self.store.rows("SELECT * FROM accounts WHERE active=1 ORDER BY id")
+        active_ids = {a["id"] for a in active_accs}
 
-        # Disconnect any non-scout accounts still open
+        # Disconnect any accounts that are no longer active
         for aid in list(self.clients.keys()):
-            if aid != scout_aid:
+            if aid not in active_ids:
                 c = self.clients.pop(aid)
                 try:
                     await c.disconnect()
                 except Exception:
                     pass
 
-        c = self.clients.get(scout_aid)
-        if c is None:
-            acc = self.store.rows("SELECT * FROM accounts WHERE id=?", (scout_aid,))
-            if not acc:
-                return {}
-            a = acc[0]
-            api = self._api(a)
-            if not api:
-                return {}
-            c = self._new_client(a["session"], api, a.get("proxy_id"))
-            c.add_event_handler(self._handler_for(scout_aid), events.NewMessage())
-            c.add_event_handler(self._chat_action_handler_for(scout_aid), events.ChatAction())
-            self.clients[scout_aid] = c
+        ready = {}
+        for a in active_accs:
+            aid = a["id"]
+            c = self.clients.get(aid)
+            if c is None:
+                api = self._api(a)
+                if not api:
+                    continue
+                c = self._new_client(a["session"], api, a.get("proxy_id"))
+                c.add_event_handler(self._handler_for(aid), events.NewMessage())
+                c.add_event_handler(self._chat_action_handler_for(aid), events.ChatAction())
+                self.clients[aid] = c
 
-        try:
-            if not c.is_connected():
-                await asyncio.wait_for(c.connect(), timeout=12)
-            if await c.is_user_authorized():
-                acc = self.store.rows("SELECT * FROM accounts WHERE id=?", (scout_aid,))
-                if acc and not acc[0]["user_id"]:
-                    me = await c.get_me()
-                    self._save_profile(scout_aid, me, me.phone and "+" + me.phone.lstrip("+"))
-                return {scout_aid: c}
-        except Exception as e:
-            log.warning("scout account %s connect failed: %s", scout_aid, e)
-        return {}
+            try:
+                if not c.is_connected():
+                    await asyncio.wait_for(c.connect(), timeout=12)
+                if await c.is_user_authorized():
+                    if not a.get("user_id"):
+                        me = await c.get_me()
+                        self._save_profile(aid, me, me.phone and "+" + me.phone.lstrip("+"))
+                    ready[aid] = c
+            except Exception as e:
+                log.warning("Account %s connect notice: %s", aid, e)
+
+        return ready
 
     async def _safe_ensure_scout(self):
         if getattr(self, "_ensuring_scout", False):
@@ -694,7 +691,11 @@ class Daemon:
             return
 
         # 2. Handle Group Messages
-        is_group_chat = bool(getattr(event, 'is_group', False) or (getattr(event, 'chat_id', None) and event.chat_id < 0))
+        is_group_chat = bool(
+            getattr(event, 'is_group', False)
+            or getattr(event, 'is_channel', False)
+            or (getattr(event, 'chat_id', None) and event.chat_id < 0)
+        )
         if not is_group_chat or not event.raw_text:
             return
         chat_id = event.chat_id
@@ -714,7 +715,7 @@ class Daemon:
         except Exception:
             pass
 
-        # Deduplication: a message is skipped only if it was already HANDLED (not merely stored by sync/catch-up).
+        # Deduplication: claim message; if already handled, skip
         if not self.store.claim_incoming(chat_id, event.id):
             return
         msg_age = int(time.time()) - int(event.date.timestamp()) if getattr(event, "date", None) else 0
@@ -727,8 +728,20 @@ class Daemon:
             self.store.q("UPDATE groups SET watched=1, auto_reply=1 WHERE chat_id=?", (chat_id,))
             g = self.store.rows("SELECT * FROM groups WHERE chat_id=?", (chat_id,))
 
-        sender = await event.get_sender()
-        name = " ".join(x for x in (getattr(sender, 'first_name', None), getattr(sender, 'last_name', None)) if x) or getattr(sender, 'title', None) or getattr(sender, 'username', None) or "unknown"
+        sender = None
+        try:
+            sender = await event.get_sender()
+        except Exception:
+            pass
+        if not sender and getattr(event, "client", None) and getattr(event, "sender_id", None):
+            try:
+                sender = await event.client.get_entity(event.sender_id)
+            except Exception:
+                pass
+
+        first_n = getattr(sender, 'first_name', None) or ""
+        last_n = getattr(sender, 'last_name', None) or ""
+        name = " ".join(x for x in (first_n, last_n) if x) or getattr(sender, 'title', None) or getattr(sender, 'username', None) or "Member"
         sender_username = (getattr(sender, "username", None) or "").lower().lstrip("@")
         sender_id = getattr(sender, "id", None) or getattr(event, "sender_id", None)
         raw_text = event.raw_text or ""
@@ -744,7 +757,7 @@ class Daemon:
 
         # Comprehensive Admin identification (Telegram group permissions, anonymous admin bot/channel, configured handle, xbiolabs)
         is_chat_admin = False
-        if sender_id and sender_id > 0:
+        if sender_id and sender_id > 0 and getattr(event, "client", None):
             try:
                 perms = await event.client.get_permissions(chat_id, sender_id)
                 if perms and (getattr(perms, 'is_admin', False) or getattr(perms, 'is_creator', False)):
@@ -764,12 +777,12 @@ class Daemon:
             )
         }
         is_admin_sender = bool(
-            (configured_admin and (sender_username == configured_admin or configured_admin in sender_username))
-            or "xbiolabs" in sender_username
+            "xbiolabs" in sender_username
             or "xbiolabs" in name.lower()
+            or (configured_admin and (sender_username == configured_admin or configured_admin in sender_username))
             or is_chat_admin
             or (sender_id and sender_id in admin_u_ids)
-            or any(a.get("user_id") == sender_id and (a.get("is_admin") or (a.get("username") or "").lower().lstrip("@") in (configured_admin, "xbiolabs")) for a in all_accounts)
+            or any(a.get("user_id") == sender_id and (a.get("is_admin") or "xbiolabs" in (a.get("username") or "").lower() or (configured_admin and (a.get("username") or "").lower().lstrip("@") == configured_admin)) for a in all_accounts)
         )
 
         # Check if sender is an internal bot persona (strictly excluding admin, xbiolabs, and chat admins)
@@ -802,234 +815,270 @@ class Daemon:
         if msg_age > 900:
             log.info("Skipping reply to stale message %s in %s (%ds old)", event.id, chat_id, msg_age)
             system_enabled = False
-        if system_enabled:
-            g_title = g[0].get("title") if g else f"Group {chat_id}"
-            sender_label = "ADMIN (@xbiolabs)" if is_admin_sender else f"HUMAN ({name})"
-            self.store.set("last_human_event", {
-                "chat_id": chat_id,
-                "group_title": g_title,
-                "sender": name,
-                "text": raw_text,
-                "is_admin": is_admin_sender,
-                "ts": int(time.time())
-            })
-            log.info("%s DETECTED in %s: %s", sender_label, g_title, raw_text[:80])
 
-            # Record meaningful human disclosures for conversational continuity
-            if not is_admin_sender and raw_text and not raw_text.startswith("["):
-                try:
-                    self.memory.record_human_interaction(chat_id, name, sender_id, sender_username, raw_text)
-                except Exception as mem_err:
-                    log.warning("Memory recording notice: %s", mem_err)
+        msg_handled = False
+        try:
+            if system_enabled:
+                g_title = g[0].get("title") if g else f"Group {chat_id}"
+                sender_label = "ADMIN (@xbiolabs)" if is_admin_sender else f"HUMAN ({name})"
+                self.store.set("last_human_event", {
+                    "chat_id": chat_id,
+                    "group_title": g_title,
+                    "sender": name,
+                    "sender_username": sender_username,
+                    "text": raw_text,
+                    "is_admin": is_admin_sender,
+                    "ts": int(time.time())
+                })
+                log.info("%s DETECTED in %s: %s", sender_label, g_title, raw_text[:80])
 
-            # Detect direct replies and mentions across ALL persona accounts & @xbiolabs
-            is_direct = bool(getattr(event, 'mentioned', False)) or is_admin_sender
-            target_persona_id = None
-            target_account_id = None
-            reply_parent_text = None
-            reply_parent_sender = None
-            reply_parent_id = None
+                # Record meaningful human disclosures for conversational continuity
+                if not is_admin_sender and raw_text and not raw_text.startswith("["):
+                    try:
+                        self.memory.record_human_interaction(chat_id, name, sender_id, sender_username, raw_text)
+                    except Exception as mem_err:
+                        log.warning("Memory recording notice: %s", mem_err)
 
-            # A. Check reply target: was a persona message replied to?
-            # 1. First, check infallible local SQLite message table (0ms, 100% reliable)
-            if getattr(event, 'is_reply', False) or getattr(event, 'reply_to_msg_id', None):
-                r_id = getattr(event, 'reply_to_msg_id', None)
-                if r_id:
-                    reply_parent_id = r_id
-                    p_rows = self.store.rows("SELECT sender, text, persona_id, account_id, is_bot FROM messages WHERE chat_id=? AND msg_id=?", (chat_id, r_id))
-                    if p_rows:
-                        reply_parent_sender = p_rows[0].get("sender") or ""
-                        reply_parent_text = p_rows[0].get("text") or ""
-                        if p_rows[0].get("persona_id") and p_rows[0].get("account_id"):
+                # Detect direct replies and mentions across ALL persona accounts & @xbiolabs
+                is_direct = bool(getattr(event, 'mentioned', False)) or is_admin_sender
+                target_persona_id = None
+                target_account_id = None
+                reply_parent_text = None
+                reply_parent_sender = None
+                reply_parent_id = None
+
+                # A. Check reply target: was a persona message replied to?
+                # 1. First, check infallible local SQLite message table (0ms, 100% reliable)
+                if getattr(event, 'is_reply', False) or getattr(event, 'reply_to_msg_id', None):
+                    r_id = getattr(event, 'reply_to_msg_id', None)
+                    if r_id:
+                        reply_parent_id = r_id
+                        p_rows = self.store.rows("SELECT sender, text, persona_id, account_id, is_bot FROM messages WHERE chat_id=? AND msg_id=?", (chat_id, r_id))
+                        if p_rows:
+                            reply_parent_sender = p_rows[0].get("sender") or ""
+                            reply_parent_text = p_rows[0].get("text") or ""
+                            if p_rows[0].get("persona_id") and p_rows[0].get("account_id"):
+                                is_direct = True
+                                target_persona_id = p_rows[0]["persona_id"]
+                                target_account_id = p_rows[0]["account_id"]
+
+                # 2. Second, verify with Telethon get_reply_message if target not fully resolved
+                if not target_persona_id and getattr(event, 'is_reply', False):
+                    try:
+                        rep = await event.get_reply_message()
+                        if rep:
+                            reply_parent_id = rep.id
+                            reply_parent_text = reply_parent_text or rep.text or rep.raw_text or ""
+                            if rep.sender:
+                                reply_parent_sender = reply_parent_sender or " ".join(x for x in (getattr(rep.sender, 'first_name', None), getattr(rep.sender, 'last_name', None)) if x) or getattr(rep.sender, 'username', None) or ""
+                            if rep.sender_id:
+                                for a in all_accounts:
+                                    if a.get("user_id") == rep.sender_id:
+                                        is_direct = True
+                                        target_account_id = a["id"]
+                                        target_persona_id = a.get("persona_id")
+                                        for p in all_personas:
+                                            if p.get("id") == target_persona_id:
+                                                reply_parent_sender = p.get("name") or reply_parent_sender
+                                        break
+                    except Exception:
+                        pass
+
+                # B. Check handle / username mention in text
+                if not target_persona_id and raw_text:
+                    text_lower = raw_text.lower()
+                    for a in all_accounts:
+                        uname = (a.get("username") or "").lower().lstrip("@")
+                        if uname and uname != "xbiolabs" and (f"@{uname}" in text_lower or re.search(r"(?:|_)" + re.escape(uname) + r"(?:|_)", text_lower)):
                             is_direct = True
-                            target_persona_id = p_rows[0]["persona_id"]
-                            target_account_id = p_rows[0]["account_id"]
-
-            # 2. Second, verify with Telethon get_reply_message if target not fully resolved
-            if not target_persona_id and getattr(event, 'is_reply', False):
-                try:
-                    rep = await event.get_reply_message()
-                    if rep:
-                        reply_parent_id = rep.id
-                        reply_parent_text = reply_parent_text or rep.text or rep.raw_text or ""
-                        if rep.sender:
-                            reply_parent_sender = reply_parent_sender or " ".join(x for x in (getattr(rep.sender, 'first_name', None), getattr(rep.sender, 'last_name', None)) if x) or getattr(rep.sender, 'username', None) or ""
-                        if rep.sender_id:
-                            for a in all_accounts:
-                                if a.get("user_id") == rep.sender_id:
-                                    is_direct = True
-                                    target_account_id = a["id"]
-                                    target_persona_id = a.get("persona_id")
-                                    for p in all_personas:
-                                        if p.get("id") == target_persona_id:
-                                            reply_parent_sender = p.get("name") or reply_parent_sender
-                                    break
-                except Exception:
-                    pass
-
-            # B. Check handle / username mention in text
-            if not target_persona_id and raw_text:
-                text_lower = raw_text.lower()
-                for a in all_accounts:
-                    uname = (a.get("username") or "").lower().lstrip("@")
-                    if uname and uname != "xbiolabs" and (f"@{uname}" in text_lower or re.search(r"(?:\b|_)" + re.escape(uname) + r"(?:\b|_)", text_lower)):
-                        is_direct = True
-                        target_account_id = a["id"]
-                        target_persona_id = a.get("persona_id")
-                        break
-
-            # C. Check persona name mention in text (e.g. "Leila", "Sam", "Dave")
-            if not target_persona_id and raw_text:
-                text_lower = raw_text.lower()
-                for p in all_personas:
-                    pname = (p.get("name") or "").lower()
-                    if pname and len(pname) >= 2 and re.search(r"(?:\b|_)" + re.escape(pname) + r"(?:\b|_)", text_lower):
-                        is_direct = True
-                        target_persona_id = p["id"]
-                        matching_accs = [a for a in all_accounts if a.get("persona_id") == p["id"] and a.get("active", 1)]
-                        if matching_accs:
-                            target_account_id = matching_accs[0]["id"]
-                        break
-
-            # D. If @xbiolabs mentioned or speaking, always mark direct
-            if is_admin_sender or ("@xbiolabs" in raw_text.lower()):
-                is_direct = True
-
-            if target_persona_id and not target_account_id:
-                matching_accs = [a for a in all_accounts if a.get("persona_id") == target_persona_id and a.get("active", 1)]
-                if not matching_accs:
-                    matching_accs = [a for a in all_accounts if a.get("persona_id") == target_persona_id]
-                if matching_accs:
-                    target_account_id = matching_accs[0]["id"]
-
-            # Proactively postpone any pending scheduled batch messages so live human conversation has exclusive priority
-            try:
-                now_ts_ev = int(time.time())
-                cooldown_secs = max(1200, int(self.store.get("batch_human_pause_seconds", 1500)))
-                self.store.q(
-                    "UPDATE daily_batch_items SET status='postponed', scheduled_ts=scheduled_ts+? "
-                    "WHERE chat_id=? AND status IN ('pending', 'postponed') AND scheduled_ts < ?",
-                    (cooldown_secs, chat_id, now_ts_ev + cooldown_secs)
-                )
-            except Exception as e:
-                log.debug("Proactive batch postponement: %s", e)
-
-            # Hard budget cap guard ($0.20/day for human replies) - Admin messages always bypass cap!
-            can_reply, r_spent, r_cap = self.store.check_reply_budget_available()
-            if not is_admin_sender and not can_reply:
-                log.warning(
-                    "[BUDGET CAP] Daily human reply budget cap ($%.2f) reached ($%.4f spent today). "
-                    "Skipping reply to %s in group %s until midnight reset.",
-                    r_cap, r_spent, sender_label, chat_id
-                )
-                return
-
-            candidates = self.daily_batch.get_group_candidates(chat_id)
-            if not candidates:
-                self.ensure_group_personas_assigned(chat_id)
-                candidates = self.daily_batch.get_group_candidates(chat_id)
-
-            if candidates:
-                if target_persona_id and not target_account_id:
-                    target_account_id = candidates[0].get("account_id")
-                if target_persona_id and target_account_id:
-                    if not any(c.get("persona_id") == target_persona_id for c in candidates):
-                        p_name = reply_parent_sender or "Target Persona"
-                        for p in all_personas:
-                            if p.get("id") == target_persona_id:
-                                p_name = p.get("name") or p_name
-                                break
-                        candidates.append({
-                            "persona_id": target_persona_id,
-                            "account_id": target_account_id,
-                            "persona_name": p_name
-                        })
-
-                pid, aid_chosen, delay, reason = self.orchestrator.arbiter_decision(
-                    chat_id, candidates,
-                    {"text": raw_text, "sender": name, "id": event.id},
-                    is_direct_mention=is_direct,
-                    target_persona_id=target_persona_id,
-                    target_account_id=target_account_id,
-                    is_admin=is_admin_sender
-                )
-                if not (pid and aid_chosen):
-                    for c in candidates:
-                        if c.get("persona_id") and c.get("account_id"):
-                            pid = c["persona_id"]
-                            aid_chosen = c["account_id"]
-                            delay = 3.5
-                            reason = "Candidate election fallback for guaranteed responsiveness"
+                            target_account_id = a["id"]
+                            target_persona_id = a.get("persona_id")
                             break
-                if pid and aid_chosen:
-                    self.orchestrator.record_activity(chat_id, pid)
-                    # Snappy primary reply delay (2 to 12s)
-                    eff_reply_delay = max(2, min(int(delay * 0.40), 12))
-                    self.store.enqueue(
-                        "draft_reply", chat_id,
-                        {
+
+                # C. Check persona name mention in text (e.g. "Leila", "Sam", "Dave")
+                if not target_persona_id and raw_text:
+                    text_lower = raw_text.lower()
+                    for p in all_personas:
+                        pname = (p.get("name") or "").lower()
+                        if pname and len(pname) >= 2 and re.search(r"(?:|_)" + re.escape(pname) + r"(?:|_)", text_lower):
+                            is_direct = True
+                            target_persona_id = p["id"]
+                            matching_accs = [a for a in all_accounts if a.get("persona_id") == p["id"] and a.get("active", 1)]
+                            if matching_accs:
+                                target_account_id = matching_accs[0]["id"]
+                            break
+
+                # D. If @xbiolabs mentioned or speaking, always mark direct
+                if is_admin_sender or ("@xbiolabs" in raw_text.lower()):
+                    is_direct = True
+
+                if target_persona_id and not target_account_id:
+                    matching_accs = [a for a in all_accounts if a.get("persona_id") == target_persona_id and a.get("active", 1)]
+                    if not matching_accs:
+                        matching_accs = [a for a in all_accounts if a.get("persona_id") == target_persona_id]
+                    if matching_accs:
+                        target_account_id = matching_accs[0]["id"]
+
+                # Proactively postpone any pending scheduled batch messages so live human conversation has exclusive priority
+                try:
+                    now_ts_ev = int(time.time())
+                    cooldown_secs = max(1200, int(self.store.get("batch_human_pause_seconds", 1500)))
+                    self.store.q(
+                        "UPDATE daily_batch_items SET status='postponed', scheduled_ts=scheduled_ts+? "
+                        "WHERE chat_id=? AND status IN ('pending', 'postponed') AND scheduled_ts < ?",
+                        (cooldown_secs, chat_id, now_ts_ev + cooldown_secs)
+                    )
+                except Exception as e:
+                    log.debug("Proactive batch postponement: %s", e)
+
+                # Hard budget cap guard (bash.20/day for human replies) - Admin messages always bypass cap!
+                can_reply, r_spent, r_cap = self.store.check_reply_budget_available()
+                if not is_admin_sender and not can_reply:
+                    log.warning(
+                        "[BUDGET CAP] Daily human reply budget cap ($%.2f) reached ($%.4f spent today). "
+                        "Skipping reply to %s in group %s until midnight reset.",
+                        r_cap, r_spent, sender_label, chat_id
+                    )
+                    msg_handled = True
+                    return
+
+                candidates = self.daily_batch.get_group_candidates(chat_id)
+                if not candidates:
+                    self.ensure_group_personas_assigned(chat_id)
+                    candidates = self.daily_batch.get_group_candidates(chat_id)
+
+                if not candidates:
+                    all_active = self.store.rows("SELECT id, name, username FROM accounts WHERE active=1 AND (is_admin=0 OR is_admin IS NULL) AND LOWER(COALESCE(username,'')) NOT LIKE '%xbiolabs%'")
+                    for i, acc in enumerate(all_active):
+                        if all_personas:
+                            p = all_personas[i % len(all_personas)]
+                            candidates.append({
+                                "persona_id": p["id"],
+                                "persona_name": p["name"],
+                                "account_id": acc["id"],
+                                "account_name": acc["name"],
+                                "details": p.get("details"),
+                                "prompt": p.get("prompt")
+                            })
+
+                if candidates:
+                    if target_persona_id and not target_account_id:
+                        target_account_id = candidates[0].get("account_id")
+                    if target_persona_id and target_account_id:
+                        if not any(c.get("persona_id") == target_persona_id for c in candidates):
+                            p_name = reply_parent_sender or "Target Persona"
+                            for p in all_personas:
+                                if p.get("id") == target_persona_id:
+                                    p_name = p.get("name") or p_name
+                                    break
+                            candidates.append({
+                                "persona_id": target_persona_id,
+                                "account_id": target_account_id,
+                                "persona_name": p_name
+                            })
+
+                    pid, aid_chosen, delay, reason = self.orchestrator.arbiter_decision(
+                        chat_id, candidates,
+                        {"text": raw_text, "sender": name, "id": event.id},
+                        is_direct_mention=is_direct,
+                        target_persona_id=target_persona_id,
+                        target_account_id=target_account_id,
+                        is_admin=is_admin_sender
+                    )
+                    if not (pid and aid_chosen):
+                        for c in candidates:
+                            if c.get("persona_id") and c.get("account_id"):
+                                pid = c["persona_id"]
+                                aid_chosen = c["account_id"]
+                                delay = 3.5
+                                reason = "Candidate election fallback for guaranteed responsiveness"
+                                break
+                    if pid and aid_chosen:
+                        self.orchestrator.record_activity(chat_id, pid)
+                        # Snappy primary reply delay (2 to 5s for admin, 2 to 10s for humans)
+                        eff_reply_delay = random.randint(2, 5) if is_admin_sender else max(2, min(int(delay * 0.40), 10))
+                        self.store.enqueue(
+                            "draft_reply", chat_id,
+                            {
+                                "trigger": event.id,
+                                "trigger_sender": name,
+                                "trigger_text": raw_text,
+                                "reply_parent_text": reply_parent_text,
+                                "reply_parent_sender": reply_parent_sender,
+                                "reply_parent_id": reply_parent_id,
+                                "auto_send": True,
+                                "account_id": aid_chosen,
+                                "persona_id": pid,
+                                "is_admin": is_admin_sender,
+                                "reason": reason
+                            },
+                            dedupe_key=f"reply:{chat_id}:{event.id}",
+                            delay=eff_reply_delay
+                        )
+                        log.info("Enqueued %s reply in %s (Acc %s / Persona %s, delay=%ds): %s",
+                                 "ADMIN (@xbiolabs)" if is_admin_sender else "HUMAN", chat_id, aid_chosen, pid, eff_reply_delay, reason)
+                        msg_handled = True
+
+                        # Dynamic Teammate Chime-In: high engagement second opinion (65% humans, 80% admin)
+                        chime_chance = 0.80 if is_admin_sender else 0.65
+                        if len(candidates) >= 2 and random.random() < chime_chance and not target_persona_id:
+                            teammates = [c for c in candidates if c["persona_id"] != pid and c["account_id"] != aid_chosen]
+                            if teammates:
+                                counts = self.orchestrator.persona_speaker_counts.get(chat_id, {})
+                                teammates.sort(key=lambda t: counts.get(t["persona_id"], 0))
+                                t_c = teammates[0]
+                                second_delay = eff_reply_delay + random.randint(10, 24)
+                                self.store.enqueue(
+                                    "draft_reply", chat_id,
+                                    {
+                                        "trigger": event.id,
+                                        "trigger_sender": name,
+                                        "trigger_text": raw_text,
+                                        "auto_send": True,
+                                        "account_id": t_c["account_id"],
+                                        "persona_id": t_c["persona_id"],
+                                        "is_admin": is_admin_sender,
+                                        "is_teammate_chime": True,
+                                        "primary_persona_id": pid,
+                                        "reason": "Teammate natural follow-up chime-in"
+                                    },
+                                    dedupe_key=f"teammate_reply:{chat_id}:{event.id}",
+                                    delay=second_delay
+                                )
+                                log.info("Enqueued teammate follow-up in %s (Acc %s / Persona %s, delay=%ds)", chat_id, t_c["account_id"], t_c["persona_id"], second_delay)
+                else:
+                    # No candidates resolved: still answer from any persona account in this group or database
+                    fallback = self.store.rows(
+                        "SELECT a.id, a.persona_id FROM accounts a JOIN group_accounts ga ON ga.account_id=a.id "
+                        "WHERE ga.chat_id=? AND a.active=1 AND a.persona_id IS NOT NULL "
+                        "AND LOWER(COALESCE(a.username,''))<>'xbiolabs' ORDER BY RANDOM() LIMIT 1", (chat_id,))
+                    if not fallback:
+                        fallback = self.store.rows(
+                            "SELECT a.id, a.persona_id FROM accounts a "
+                            "WHERE a.active=1 AND a.persona_id IS NOT NULL "
+                            "AND LOWER(COALESCE(a.username,''))<>'xbiolabs' ORDER BY RANDOM() LIMIT 1")
+                    log.warning("No reply candidates for %s in %s; fallback account=%s", sender_label, chat_id,
+                                fallback[0]["id"] if fallback else None)
+                    if fallback:
+                        eff_delay = random.randint(2, 5) if is_admin_sender else max(4, int(self.orchestrator.calculate_deliberation_delay(raw_text)))
+                        self.store.enqueue("draft_reply", chat_id, {
+                            "account_id": fallback[0]["id"],
+                            "persona_id": fallback[0]["persona_id"],
                             "trigger": event.id,
                             "trigger_sender": name,
                             "trigger_text": raw_text,
-                            "reply_parent_text": reply_parent_text,
-                            "reply_parent_sender": reply_parent_sender,
-                            "reply_parent_id": reply_parent_id,
-                            "auto_send": True,
-                            "account_id": aid_chosen,
-                            "persona_id": pid,
                             "is_admin": is_admin_sender,
-                            "reason": reason
-                        },
-                        dedupe_key=f"reply:{chat_id}:{event.id}",
-                        delay=eff_reply_delay
-                    )
-                    log.info("Enqueued %s reply in %s (Acc %s / Persona %s, delay=%ds): %s",
-                             "ADMIN" if is_admin_sender else "HUMAN", chat_id, aid_chosen, pid, eff_reply_delay, reason)
-
-                    # Dynamic Teammate Chime-In: high engagement second opinion (65% humans, 80% admin)
-                    chime_chance = 0.80 if is_admin_sender else 0.65
-                    if len(candidates) >= 2 and random.random() < chime_chance and not target_persona_id:
-                        teammates = [c for c in candidates if c["persona_id"] != pid and c["account_id"] != aid_chosen]
-                        if teammates:
-                            counts = self.orchestrator.persona_speaker_counts.get(chat_id, {})
-                            teammates.sort(key=lambda t: counts.get(t["persona_id"], 0))
-                            t_c = teammates[0]
-                            second_delay = eff_reply_delay + random.randint(10, 24)
-                            self.store.enqueue(
-                                "draft_reply", chat_id,
-                                {
-                                    "trigger": event.id,
-                                    "trigger_sender": name,
-                                    "trigger_text": raw_text,
-                                    "auto_send": True,
-                                    "account_id": t_c["account_id"],
-                                    "persona_id": t_c["persona_id"],
-                                    "is_admin": is_admin_sender,
-                                    "is_teammate_chime": True,
-                                    "primary_persona_id": pid,
-                                    "reason": "Teammate natural follow-up chime-in"
-                                },
-                                dedupe_key=f"teammate_reply:{chat_id}:{event.id}",
-                                delay=second_delay
-                            )
-                            log.info("Enqueued teammate follow-up in %s (Acc %s / Persona %s, delay=%ds)", chat_id, t_c["account_id"], t_c["persona_id"], second_delay)
+                            "auto_send": True
+                        }, dedupe_key=f"reply:{chat_id}:{event.id}", delay=eff_delay)
+                        msg_handled = True
             else:
-                # No candidates resolved: still answer from any persona account that is in this group
-                fallback = self.store.rows(
-                    "SELECT a.id, a.persona_id FROM accounts a JOIN group_accounts ga ON ga.account_id=a.id "
-                    "WHERE ga.chat_id=? AND a.active=1 AND a.persona_id IS NOT NULL "
-                    "AND LOWER(COALESCE(a.username,''))<>'xbiolabs' ORDER BY RANDOM() LIMIT 1", (chat_id,))
-                log.warning("No reply candidates for %s in %s; fallback account=%s", sender_label, chat_id,
-                            fallback[0]["id"] if fallback else None)
-                self.store.enqueue("draft_reply", chat_id, {
-                    "account_id": fallback[0]["id"] if fallback else None,
-                    "persona_id": fallback[0]["persona_id"] if fallback else None,
-                    "trigger": event.id,
-                    "trigger_sender": name,
-                    "trigger_text": raw_text,
-                    "is_admin": is_admin_sender,
-                    "auto_send": True
-                }, dedupe_key=f"reply:{chat_id}:{event.id}", delay=max(4, int(self.orchestrator.calculate_deliberation_delay(raw_text))))
+                msg_handled = True
+        except Exception as proc_err:
+            log.error("Incoming group processing exception for msg %s in %s: %s", event.id, chat_id, proc_err)
+        finally:
+            if not msg_handled and not is_internal_bot:
+                self.store.unclaim_incoming(chat_id, event.id)
+                log.info("Unclaimed failed message %s in %s so backup sweeper can retry", event.id, chat_id)
         self.wake_event.set()
 
     # ---------- Queue worker ----------
@@ -1342,7 +1391,7 @@ class Daemon:
     async def run_job(self, job):
         import json
         p = json.loads(job["payload"])
-        settings = {k: self.store.get(k) for k in ("fal_key", "ai_model")}
+        settings = {k: self.store.get(k) for k in ("fal_key", "ai_model", "admin_handle")}
         g = (self.store.rows("SELECT * FROM groups WHERE chat_id=?", (job["chat_id"],)) or [{}])[0]
         try:
             if self.suspended:
@@ -1956,8 +2005,8 @@ class Daemon:
                         acc_check = self.store.rows("SELECT persona_id FROM accounts WHERE id=?", (aid,))
                         has_persona = bool(acc_check and acc_check[0]["persona_id"])
                         self.store.q(
-                            "INSERT INTO groups(chat_id,title,account_id) VALUES(?,?,?) "
-                            "ON CONFLICT(chat_id) DO UPDATE SET title=excluded.title, "
+                            "INSERT INTO groups(chat_id,title,account_id,watched,auto_reply) VALUES(?,?,?,1,1) "
+                            "ON CONFLICT(chat_id) DO UPDATE SET title=excluded.title, watched=1, auto_reply=1, "
                             "account_id=COALESCE(groups.account_id, excluded.account_id)",
                             (d.id, title, aid if has_persona else None)
                         )
@@ -2096,34 +2145,40 @@ class Daemon:
             await asyncio.sleep(random.uniform(16, 24))
 
     async def _sweep_groups_once(self):
-        scout_aid = self.get_scout_account_id()
         ready = await self.ensure_clients()
+        if not ready:
+            return
         configured_admin = (self.store.get("admin_handle") or "").lower().lstrip("@")
         accs = self.store.rows("SELECT id, user_id, username, is_admin FROM accounts")
         own_ids = {
             a["user_id"] for a in accs
-            if a.get("user_id") and not a.get("is_admin") and (a.get("username") or "").lower() != "xbiolabs"
+            if a.get("user_id") and not a.get("is_admin") and "xbiolabs" not in (a.get("username") or "").lower()
             and ((a.get("username") or "").lower().lstrip("@") != configured_admin if configured_admin else True)
         }
         now = int(time.time())
-        for g in self.store.rows("SELECT chat_id FROM groups WHERE watched=1"):
-            cid = g["chat_id"]
+        target_cids = [r["chat_id"] for r in self.store.rows(
+            "SELECT chat_id FROM groups WHERE watched=1 OR auto_reply=1 "
+            "UNION SELECT chat_id FROM group_accounts "
+            "UNION SELECT chat_id FROM group_personas "
+            "UNION SELECT chat_id FROM groups"
+        )]
+        for cid in target_cids:
             members = [r["account_id"] for r in self.store.rows(
                 "SELECT ga.account_id FROM group_accounts ga JOIN accounts a ON a.id=ga.account_id "
                 "WHERE ga.chat_id=? AND a.active=1", (cid,))]
             if not members:
+                members = list(ready.keys())
+            if not members:
                 continue
-            reader = scout_aid if scout_aid in members else members[0]
-            # Non-scout readers connect on demand; poll those groups less often to stay light.
-            if reader not in ready:
-                last = int(self.store.get(f"last_sweep_{cid}") or 0)
-                if now - last < 60:
-                    continue
+            reader = next((m for m in members if m in ready), members[0])
+            last = int(self.store.get(f"last_sweep_{cid}") or 0)
+            if now - last < 25:
+                continue
             self.store.set(f"last_sweep_{cid}", now)
             try:
                 async with self.account_session(reader) as cl:
                     async for m in cl.iter_messages(cid, limit=25):
-                        if not m.date or now - int(m.date.timestamp()) > 600:
+                        if not m.date or now - int(m.date.timestamp()) > 900:
                             break
                         if m.out or not m.raw_text or (m.sender_id and m.sender_id in own_ids):
                             continue
@@ -2282,7 +2337,7 @@ class Daemon:
             return J({"mode": mode})
 
         SECRET_KEYS = ("fal_key", "vmos_sk", "tv_key")
-        PLAIN_KEYS = ("ai_model", "admin_handle", "vmos_ak", "vmos_pad", "tv_user", "tv_max_price", "cfx_headless", "cfx_app_title", "cfx_proxy_id")
+        PLAIN_KEYS = ("ai_model", "admin_handle", "daily_reply_budget_cap_usd", "daily_batch_budget_cap_usd", "vmos_ak", "vmos_pad", "tv_user", "tv_max_price", "cfx_headless", "cfx_app_title", "cfx_proxy_id")
 
         @r.get("/settings")
         async def get_settings(_):
