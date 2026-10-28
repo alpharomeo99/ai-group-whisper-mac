@@ -391,6 +391,7 @@ async function loadQueue() {
 async function loadSettings() {
   const s = await api('GET', '/settings');
   $('s-ai-model').value = s.ai_model || '';
+  if ($('s-admin-handle')) $('s-admin-handle').value = s.admin_handle || '';
   $('s-ai-key').placeholder = s.fal_key_set ? 'fal.ai key saved (leave blank to keep)' : 'fal.ai key';
   $('s-ai-key-badge').classList.toggle('hidden', !s.fal_key_set);
   $('s-vmos-ak').value = s.vmos_ak || ''; $('s-vmos-pad').value = s.vmos_pad || '';
@@ -403,6 +404,7 @@ async function loadSettings() {
 const msg = (t) => { $('s-msg').textContent = t; };
 async function saveSettings() {
   await api('POST', '/settings', { ai_model: $('s-ai-model').value, fal_key: $('s-ai-key').value,
+    admin_handle: ($('s-admin-handle') ? $('s-admin-handle').value.trim().replace(/^@/, '') : ''),
     vmos_ak: $('s-vmos-ak').value.trim(), vmos_sk: $('s-vmos-sk').value.trim(), vmos_pad: $('s-vmos-pad').value.trim(),
     tv_user: $('s-tv-user').value.trim(), tv_key: $('s-tv-key').value.trim(), tv_max_price: $('s-tv-max').value.trim() });
   ['s-ai-key', 's-vmos-sk', 's-tv-key'].forEach((id) => { $(id).value = ''; $(id).placeholder = 'Saved ✓ (leave blank to keep)'; });
@@ -571,6 +573,8 @@ async function loadAccounts() {
         <div class="acc-info"><b>${esc(a.name || 'Account ' + a.id)}</b>
           <div class="hint">${[a.phone, a.username && '@' + a.username, `${a.groups || 0} group${a.groups === 1 ? '' : 's'}`].filter(Boolean).map(esc).join(' · ')}</div></div>
         <span class="badge ${badgeClass}">${badgeLabel}</span>
+        ${a.is_admin ? '<span class="badge ok" style="background:#8b5cf6;color:#fff;">👑 Admin</span>' : ''}
+        <button class="ghost xs ${a.is_admin ? 'primary' : ''}" data-admin-toggle="${a.id}" title="Toggle whether this account is the group admin">${a.is_admin ? '★ Admin' : 'Set Admin'}</button>
         <button class="ghost xs" data-sync-acc="${a.id}" title="Sync dialogs and groups for this account">&#8635; Sync</button>
         <button class="ghost xs" data-avatar-upload="${a.id}" title="Upload a local avatar for this account">Avatar</button>
         <select data-px="${a.id}" title="Proxy">${proxyOptions(null, a.proxy_id)}</select>
@@ -578,6 +582,12 @@ async function loadAccounts() {
         <button class="danger xs" data-del="${a.id}" data-name="${esc(a.name || a.phone || 'Account ' + a.id)}">Delete</button>
       </div>`;
     }).join('');
+
+    document.querySelectorAll('[data-admin-toggle]').forEach((btn) => btn.onclick = async () => {
+      const aid = btn.dataset.adminToggle;
+      await api('POST', `/accounts/${encodeURIComponent(aid)}/toggle-admin`);
+      await loadAccounts();
+    });
 
     document.querySelectorAll('[data-avatar-upload]').forEach((btn) => btn.onclick = async () => {
       const aid = btn.dataset.avatarUpload;

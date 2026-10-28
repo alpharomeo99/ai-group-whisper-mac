@@ -1020,6 +1020,9 @@ class Store:
                      (int(chat_id), int(msg_id), int(time.time())))
         return bool(cur.rowcount)
 
+    def unclaim_incoming(self, chat_id, msg_id):
+        self.q("DELETE FROM processed_incoming WHERE chat_id=? AND msg_id=?", (int(chat_id), int(msg_id)))
+
     def prune_processed_incoming(self, max_age_secs=3 * 86400):
         self.q("DELETE FROM processed_incoming WHERE ts < ?", (int(time.time()) - max_age_secs,))
 

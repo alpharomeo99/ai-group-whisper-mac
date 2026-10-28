@@ -742,19 +742,41 @@ class Daemon:
                 a["is_admin"] = 0
         all_personas = self.store.rows("SELECT id, name, details FROM personas")
 
-        # Comprehensive Admin & @xbiolabs identification
-        admin_u_ids = {a["user_id"] for a in all_accounts if a.get("user_id") and (a.get("is_admin") or "xbiolabs" in (a.get("username") or "").lower())}
+        # Comprehensive Admin identification (Telegram group permissions, anonymous admin bot/channel, configured handle, xbiolabs)
+        is_chat_admin = False
+        if sender_id and sender_id > 0:
+            try:
+                perms = await event.client.get_permissions(chat_id, sender_id)
+                if perms and (getattr(perms, 'is_admin', False) or getattr(perms, 'is_creator', False)):
+                    is_chat_admin = True
+            except Exception:
+                pass
+        if sender_id == chat_id or sender_id == 1087968824 or getattr(event, "post", False) or sender_username == "groupanonymousbot":
+            is_chat_admin = True
+
+        configured_admin = (self.store.get("admin_handle") or "").lower().lstrip("@")
+        admin_u_ids = {
+            a["user_id"] for a in all_accounts
+            if a.get("user_id") and (
+                a.get("is_admin")
+                or "xbiolabs" in (a.get("username") or "").lower()
+                or (configured_admin and (a.get("username") or "").lower().lstrip("@") == configured_admin)
+            )
+        }
         is_admin_sender = bool(
-            "xbiolabs" in sender_username
+            (configured_admin and (sender_username == configured_admin or configured_admin in sender_username))
+            or "xbiolabs" in sender_username
             or "xbiolabs" in name.lower()
+            or is_chat_admin
             or (sender_id and sender_id in admin_u_ids)
-            or any(a.get("user_id") == sender_id and (a.get("is_admin") or "xbiolabs" in (a.get("username") or "").lower().lstrip("@")) for a in all_accounts)
+            or any(a.get("user_id") == sender_id and (a.get("is_admin") or (a.get("username") or "").lower().lstrip("@") in (configured_admin, "xbiolabs")) for a in all_accounts)
         )
 
-        # Check if sender is an internal bot persona (excluding admin/xbiolabs)
+        # Check if sender is an internal bot persona (strictly excluding admin, xbiolabs, and chat admins)
         bot_user_ids = {
             a["user_id"] for a in all_accounts
             if a.get("user_id") and not a.get("is_admin") and "xbiolabs" not in (a.get("username") or "").lower().lstrip("@")
+            and ((a.get("username") or "").lower().lstrip("@") != configured_admin if configured_admin else True)
         }
         is_internal_bot = bool(not is_admin_sender and (getattr(event, "out", False) or (sender_id and sender_id in bot_user_ids)))
 
@@ -2076,8 +2098,13 @@ class Daemon:
     async def _sweep_groups_once(self):
         scout_aid = self.get_scout_account_id()
         ready = await self.ensure_clients()
-        accs = self.store.rows("SELECT id, user_id, username FROM accounts")
-        own_ids = {a["user_id"] for a in accs if a.get("user_id") and (a.get("username") or "").lower() != "xbiolabs"}
+        configured_admin = (self.store.get("admin_handle") or "").lower().lstrip("@")
+        accs = self.store.rows("SELECT id, user_id, username, is_admin FROM accounts")
+        own_ids = {
+            a["user_id"] for a in accs
+            if a.get("user_id") and not a.get("is_admin") and (a.get("username") or "").lower() != "xbiolabs"
+            and ((a.get("username") or "").lower().lstrip("@") != configured_admin if configured_admin else True)
+        }
         now = int(time.time())
         for g in self.store.rows("SELECT chat_id FROM groups WHERE watched=1"):
             cid = g["chat_id"]
@@ -2255,7 +2282,7 @@ class Daemon:
             return J({"mode": mode})
 
         SECRET_KEYS = ("fal_key", "vmos_sk", "tv_key")
-        PLAIN_KEYS = ("ai_model", "vmos_ak", "vmos_pad", "tv_user", "tv_max_price", "cfx_headless", "cfx_app_title", "cfx_proxy_id")
+        PLAIN_KEYS = ("ai_model", "admin_handle", "vmos_ak", "vmos_pad", "tv_user", "tv_max_price", "cfx_headless", "cfx_app_title", "cfx_proxy_id")
 
         @r.get("/settings")
         async def get_settings(_):
@@ -2271,6 +2298,16 @@ class Daemon:
                 if k in body and body[k] not in (None, ""):
                     self.store.set(k, body[k])
             return J({"ok": True})
+
+        @r.post("/accounts/{aid}/toggle-admin")
+        async def toggle_admin(req):
+            aid = int(req.match_info["aid"])
+            row = self.store.rows("SELECT is_admin FROM accounts WHERE id=?", (aid,))
+            if not row:
+                return J({"error": "Account not found"}, status=404)
+            new_val = 0 if row[0].get("is_admin") else 1
+            self.store.q("UPDATE accounts SET is_admin=? WHERE id=?", (new_val, aid))
+            return J({"ok": True, "is_admin": new_val})
 
         # ----- integrations -----
         @r.post("/integrations/vmos/test")

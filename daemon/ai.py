@@ -498,10 +498,12 @@ async def draft_reply_with_meta(settings, title, persona, msgs, trigger_sender=N
         user_parts.append(human_context)
 
     sender_label = trigger_sender or "a member"
+    c_admin = (settings.get("admin_handle") or "").lower().lstrip("@") if isinstance(settings, dict) else ""
     is_admin_trigger = bool(
         is_admin
+        or (c_admin and trigger_sender and c_admin in trigger_sender.lower())
         or (trigger_sender and "xbiolabs" in trigger_sender.lower())
-        or (trigger_text and "@xbiolabs" in trigger_text.lower())
+        or (trigger_text and ("@xbiolabs" in trigger_text.lower() or (c_admin and f"@{c_admin}" in trigger_text.lower())))
     )
 
     if trigger_text:
