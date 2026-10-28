@@ -985,18 +985,32 @@ class Store:
         return 0.0
 
     def check_batch_budget_available(self):
-        """Checks if today's batch spend is under the hard cap (default bash.05/day).
+        """Checks if today's batch spend is under the hard cap (default $0.05/day).
         Returns (has_budget: bool, spent: float, cap: float)."""
-        cap = float(self.get("daily_batch_budget_cap_usd", 0.05))
+        raw_cap = self.get("daily_batch_budget_cap_usd")
+        try:
+            cap = float(raw_cap) if raw_cap is not None else 0.05
+        except (ValueError, TypeError):
+            cap = 0.05
         spent = self.get_daily_batch_spend()
         return (spent < cap), spent, cap
 
     def check_reply_budget_available(self):
-        """Checks if today's interactive human/admin reply spend is under the hard cap (default bash.20/day).
+        """Checks if today's interactive human/admin reply spend is under the hard cap (default $0.20/day).
         Returns (has_budget: bool, spent: float, cap: float)."""
-        cap = float(self.get("daily_reply_budget_cap_usd", 0.20))
+        raw_cap = self.get("daily_reply_budget_cap_usd")
+        try:
+            cap = float(raw_cap) if raw_cap is not None else 0.20
+        except (ValueError, TypeError):
+            cap = 0.20
         spent = self.get_daily_reply_spend()
         return (spent < cap), spent, cap
+
+    def reset_daily_spend(self):
+        """Resets today's tracked AI spend so testing or capped days can be continued immediately."""
+        today_start = self.get_today_start_ts()
+        self.q("DELETE FROM usage_logs WHERE timestamp >= ?", (today_start,))
+        return True
 
     # messages
     def claim_incoming(self, chat_id, msg_id):

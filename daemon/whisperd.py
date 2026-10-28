@@ -742,15 +742,20 @@ class Daemon:
                 a["is_admin"] = 0
         all_personas = self.store.rows("SELECT id, name, details FROM personas")
 
-        # Check if sender is @xbiolabs or admin
-        is_admin_sender = (
-            sender_username == "xbiolabs"
+        # Comprehensive Admin & @xbiolabs identification
+        admin_u_ids = {a["user_id"] for a in all_accounts if a.get("user_id") and (a.get("is_admin") or "xbiolabs" in (a.get("username") or "").lower())}
+        is_admin_sender = bool(
+            "xbiolabs" in sender_username
             or "xbiolabs" in name.lower()
-            or any(a.get("user_id") == sender_id and (a.get("is_admin") or (a.get("username") or "").lower() == "xbiolabs") for a in all_accounts)
+            or (sender_id and sender_id in admin_u_ids)
+            or any(a.get("user_id") == sender_id and (a.get("is_admin") or "xbiolabs" in (a.get("username") or "").lower().lstrip("@")) for a in all_accounts)
         )
 
         # Check if sender is an internal bot persona (excluding admin/xbiolabs)
-        bot_user_ids = {a["user_id"] for a in all_accounts if a.get("user_id") and not a.get("is_admin") and (a.get("username") or "").lower() != "xbiolabs"}
+        bot_user_ids = {
+            a["user_id"] for a in all_accounts
+            if a.get("user_id") and not a.get("is_admin") and "xbiolabs" not in (a.get("username") or "").lower().lstrip("@")
+        }
         is_internal_bot = bool(not is_admin_sender and (getattr(event, "out", False) or (sender_id and sender_id in bot_user_ids)))
 
         # Record message with is_bot flag
@@ -887,11 +892,11 @@ class Daemon:
             except Exception as e:
                 log.debug("Proactive batch postponement: %s", e)
 
-            # Hard budget cap guard (bash.20/day for human & admin interactive replies)
+            # Hard budget cap guard ($0.20/day for human replies) - Admin messages always bypass cap!
             can_reply, r_spent, r_cap = self.store.check_reply_budget_available()
-            if not can_reply:
+            if not is_admin_sender and not can_reply:
                 log.warning(
-                    "[BUDGET CAP] Daily human/admin reply budget cap ($%.2f) reached ($%.4f spent today). "
+                    "[BUDGET CAP] Daily human reply budget cap ($%.2f) reached ($%.4f spent today). "
                     "Skipping reply to %s in group %s until midnight reset.",
                     r_cap, r_spent, sender_label, chat_id
                 )
@@ -926,6 +931,14 @@ class Daemon:
                     target_account_id=target_account_id,
                     is_admin=is_admin_sender
                 )
+                if not (pid and aid_chosen):
+                    for c in candidates:
+                        if c.get("persona_id") and c.get("account_id"):
+                            pid = c["persona_id"]
+                            aid_chosen = c["account_id"]
+                            delay = 3.5
+                            reason = "Candidate election fallback for guaranteed responsiveness"
+                            break
                 if pid and aid_chosen:
                     self.orchestrator.record_activity(chat_id, pid)
                     # Snappy primary reply delay (2 to 12s)
@@ -1317,13 +1330,14 @@ class Daemon:
                 self.store.q("INSERT INTO summaries(chat_id,body,created) VALUES(?,?,?)",
                              (job["chat_id"], body, int(time.time())))
             elif job["kind"] == "draft_reply":
+                is_admin_job = bool(p.get("is_admin"))
                 can_reply, r_spent, r_cap = self.store.check_reply_budget_available()
-                if not can_reply:
+                if not is_admin_job and not can_reply:
                     log.warning(
                         "[BUDGET CAP] Daily reply budget cap ($%.2f) reached ($%.4f spent). Cancelling reply job %s.",
                         r_cap, r_spent, job["id"]
                     )
-                    self.store.finish(job["id"], True, f"Daily reply budget cap () reached ($ {r_spent:.4f} spent)")
+                    self.store.finish(job["id"], True, f"Daily reply budget cap ($0.20) reached ($ {r_spent:.4f} spent)")
                     return
                 trigger_sender = p.get("trigger_sender") or ""
                 trigger_text = p.get("trigger_text") or ""
@@ -1459,6 +1473,7 @@ class Daemon:
                                            "persona_id": p.get("persona_id")
                                        },
                                        dedupe_key=f"send:{job['id']}")
+                    self.wake_event.set()
                 else:
                     preview = "\n\n".join(bubbles) if len(bubbles) > 1 else text
                     self.store.q("INSERT INTO summaries(chat_id,body,created) VALUES(?,?,?)",
@@ -3269,6 +3284,12 @@ class Daemon:
             res = await self.daily_batch.generate_all_groups(count=count)
             self.wake_event.set()
             return J({"ok": True, "generated": res})
+
+        @r.post("/budget/reset")
+        async def budget_reset(_):
+            self.store.reset_daily_spend()
+            self.wake_event.set()
+            return J({"ok": True})
 
         @r.post("/daily-batch/settings")
         async def daily_batch_save_settings(req):

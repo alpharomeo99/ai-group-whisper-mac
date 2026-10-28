@@ -484,7 +484,7 @@ class DailyBatchEngine:
                 "SELECT p.id as persona_id, p.name as persona_name, p.details, p.prompt, a.id as account_id, a.name as account_name, a.phone as account_phone, a.username as account_username "
                 "FROM accounts a "
                 "JOIN personas p ON p.id=a.persona_id "
-                "WHERE a.active=1"
+                "WHERE a.active=1 AND (a.is_admin=0 OR a.is_admin IS NULL) AND LOWER(COALESCE(a.username,'')) NOT LIKE '%xbiolabs%'"
             )
             for r in all_active:
                 key = (r["persona_id"], r["account_id"])
@@ -495,7 +495,7 @@ class DailyBatchEngine:
         # 5. Guaranteed Participation Fallback: Pair active accounts with available personas
         if len(candidates) < 2:
             all_personas = self.store.rows("SELECT id as persona_id, name as persona_name, details, prompt FROM personas")
-            all_active_accs = self.store.rows("SELECT id as account_id, name as account_name, phone as account_phone, username as account_username FROM accounts WHERE active=1")
+            all_active_accs = self.store.rows("SELECT id as account_id, name as account_name, phone as account_phone, username as account_username FROM accounts WHERE active=1 AND (is_admin=0 OR is_admin IS NULL) AND LOWER(COALESCE(username,'')) NOT LIKE '%xbiolabs%'")
             for i, acc in enumerate(all_active_accs):
                 if all_personas:
                     p = all_personas[i % len(all_personas)]
@@ -541,7 +541,7 @@ class DailyBatchEngine:
                          chat_id, today, existing[0]["id"])
                 return {"count": 0, "status": "already_exists", "batch_id": existing[0]["id"]}
 
-        # Hard budget cap guard (bash.05/day for automated batch dialogue)
+        # Hard budget cap guard ($0.05/day for automated batch dialogue)
         can_batch, spent, cap = self.store.check_batch_budget_available()
         if not can_batch:
             log.warning(

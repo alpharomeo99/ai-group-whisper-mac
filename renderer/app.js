@@ -2003,9 +2003,40 @@ async function loadDailyBatchView() {
     // Render Daily Budget Status
     if (batch.budget) {
       const bg = batch.budget;
-      const bBar = ;
+      const bBar = $('batch-budget-status-bar');
       if (bBar) {
-        bBar.innerHTML = ;
+        const batchSpent = Number(bg.batch_spend_today_usd || 0).toFixed(4);
+        const batchCap = Number(bg.batch_budget_cap_usd || 0.05).toFixed(2);
+        const replySpent = Number(bg.reply_spend_today_usd || 0).toFixed(4);
+        const replyCap = Number(bg.reply_budget_cap_usd || 0.20).toFixed(2);
+        const batchBadge = bg.batch_budget_capped ? '<span class="ps-chip" style="margin-left:6px; font-size:10px; background:var(--bad,#ef4444); color:#fff;">CAPPED</span>' : '<span class="ps-chip active" style="margin-left:6px; font-size:10px;">ACTIVE</span>';
+        const replyBadge = bg.reply_budget_capped ? '<span class="ps-chip" style="margin-left:6px; font-size:10px; background:var(--bad,#ef4444); color:#fff;">CAPPED</span>' : '<span class="ps-chip active" style="margin-left:6px; font-size:10px;">ACTIVE</span>';
+        bBar.innerHTML = `
+          <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; font-size:11.5px;">
+            <div>
+              <span class="hint">Daily Scheduled Chatter Spend:</span>
+              <b style="color:var(--accent);">$${batchSpent}</b> / $${batchCap} ${batchBadge}
+            </div>
+            <div>
+              <span class="hint">Daily Human &amp; Admin Reply Spend:</span>
+              <b style="color:var(--accent);">$${replySpent}</b> / $${replyCap} ${replyBadge}
+            </div>
+            <button class="btn btn-secondary btn-sm" id="btn-reset-daily-spend" style="padding:2px 8px; font-size:10.5px;">↺ Reset Spend</button>
+          </div>
+        `;
+        const rBtn = $('btn-reset-daily-spend');
+        if (rBtn) {
+          rBtn.onclick = async () => {
+            if (confirm("Reset today's AI spend tracking back to $0.00?")) {
+              try {
+                await api('POST', '/budget/reset', {});
+                await loadDailyBatchView();
+              } catch (e) {
+                alert('Reset spend failed: ' + e.message);
+              }
+            }
+          };
+        }
       }
     }
 
