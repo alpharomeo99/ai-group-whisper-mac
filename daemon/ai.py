@@ -246,9 +246,9 @@ def format_telegram_message(text, names=None, max_chars=360, strip_tags=None):
     return _clean_single_telegram_bubble(text, names=names, max_chars=max_chars, strip_tags=strip_tags)
 
 
-def split_burst_bubbles(text, names=None, burstiness_pct=35, max_chars=360):
+def split_burst_bubbles(text, names=None, burstiness_pct=75, max_chars=360):
     """Splits a message into 1 to 3 distinct Telegram message bubbles for authentic multi-message texting.
-    Handles explicit markers (' ||| '), conversational interjections, and natural stochastic sentence splitting
+    Handles explicit markers (' ||| '), conversational interjections, and natural sentence/clause splitting
     calibrated by persona burstiness.
     """
     if not text:
@@ -260,45 +260,51 @@ def split_burst_bubbles(text, names=None, burstiness_pct=35, max_chars=360):
             parts = [_clean_single_telegram_bubble(p, names=names, max_chars=max_chars) for p in text.split(sep)]
             bubbles = [p for p in parts if p]
             if len(bubbles) > 1:
-                return bubbles[:3]
+                return bubbles[:4]
 
     # Clean the single text
     cleaned = _clean_single_telegram_bubble(text, names=names, max_chars=max_chars)
     if not cleaned:
         return []
 
-    # 2. Check paragraph / double newline split
-    if "\n\n" in text:
-        paras = [_clean_single_telegram_bubble(p, names=names, max_chars=max_chars) for p in text.split("\n\n") if p.strip()]
+    # 2. Check paragraph / newline split
+    if "\n" in text:
+        paras = [_clean_single_telegram_bubble(p, names=names, max_chars=max_chars) for p in text.splitlines() if p.strip()]
         paras = [p for p in paras if p]
-        if 1 < len(paras) <= 3 and all(len(p) <= 200 for p in paras):
+        if 1 < len(paras) <= 3:
             return paras[:3]
 
-    pct = float(burstiness_pct if burstiness_pct is not None else 35)
+    pct = float(burstiness_pct if burstiness_pct is not None else 75)
 
     # 3. Conversational interjection / reaction opener split (authentic mobile habit)
     interjection_match = re.match(
-        r"^(wait (?:nah|bro|what|hold up)|nah (?:bro|fr|tbh|man)|bro (?:honestly|listen|fr)|lol (?:nah|yeah|bro)|lmaooo?|fr though?|same (?:here|honestly)|100%|idk (?:tbh|man)|yo|nah)\s*[,.!?—\-]\s*(.+)$",
+        r"^(wait (?:nah|bro|what|hold up)|nah (?:bro|fr|tbh|man)|bro (?:honestly|listen|fr|what)|lol (?:nah|yeah|bro)|lmaooo?|fr though?|same (?:here|honestly)|100%|idk (?:tbh|man)|yo|nah)\s*[,.!?—\-]\s*(.+)$",
         cleaned,
         re.IGNORECASE
     )
-    if interjection_match and pct >= 20:
+    if interjection_match and pct >= 15:
         opener = interjection_match.group(1).strip()
         rest = interjection_match.group(2).strip()
-        if 2 <= len(opener) <= 30 and 4 <= len(rest) <= 220:
+        if 2 <= len(opener) <= 35 and 4 <= len(rest) <= 240:
             return [opener, rest]
 
     # 4. Multi-sentence splitting based on persona burstiness
-    roll_chance = max(0.20, min(0.80, 0.30 + (pct / 100.0) * 0.50))
+    roll_chance = max(0.40, min(0.95, 0.40 + (pct / 100.0) * 0.50))
     if random.random() < roll_chance:
         sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+', cleaned) if s.strip()]
         if len(sentences) == 2:
             s1, s2 = sentences[0], sentences[1]
-            if 3 <= len(s1) <= 160 and 4 <= len(s2) <= 220:
+            if 3 <= len(s1) <= 180 and 4 <= len(s2) <= 240:
                 return [s1, s2]
-        elif len(sentences) == 3 and pct >= 45:
-            if all(3 <= len(s) <= 110 for s in sentences):
+        elif len(sentences) >= 3 and pct >= 35:
+            if all(3 <= len(s) <= 150 for s in sentences[:3]):
                 return sentences[:3]
+
+        # 5. Long single sentence split on comma / conjunction if > 45 chars
+        if len(cleaned) > 45 and pct >= 40:
+            clauses = [c.strip() for c in re.split(r"\s*[,;—]\s*|\s+(?:and|but|so|because)\s+", cleaned) if c.strip()]
+            if len(clauses) >= 2 and all(len(c) >= 6 for c in clauses[:2]):
+                return clauses[:2]
 
     return [cleaned]
 
@@ -502,13 +508,14 @@ async def draft_reply_with_meta(settings, title, persona, msgs, trigger_sender=N
         "- STRICT BANNED TOPICS: NEVER mention Liver King, raw liver, ancestral tenets, duck eggs memes, or tired 2021 internet tropes. These are permanently banned from the group.",
         "- STRICT ZERO @TAGS / USERNAMES MANDATE: NEVER include @tags, usernames, or @handles in your message (NO '@handle', NO '@xbiolabs', NO '@username'). Real Telegram users use the native reply feature instead of typing usernames into message text. When replying or answering someone, just speak directly to them without tagging their name or handle.",
         "- TEAMMATE CHIME-IN DYNAMICS (CRITICAL): When chiming in as a follow-up after a peer spoke, NEVER echo their factual advice, numbers, compound dosages, or instructions! Only offer brief peer backing ('what he said', 'same here'), a quick personal angle/joke, or a short anecdotal nuance. Keep it punchy and brief (3 to 15 words).",
-        "- MULTI-MESSAGE BURSTS (NATURAL MOBILE TEXTING): Real humans texting from mobile phones frequently send 2 (or occasionally 3) rapid consecutive messages instead of one wall of text. For instance: bubble 1 is a quick reaction or initial remark, bubble 2 is the elaboration, question, or follow-up note.",
-        "  If your persona is bursty or the situation calls for it, separate consecutive bubbles using ' ||| '.",
+        "- MANDATORY MULTI-BUBBLE BURSTS (REAL MOBILE TEXTING): Real humans texting on Telegram send 2 or 3 short messages back-to-back (60-80% of the time) instead of a single wall of text!",
+        "  Separate distinct consecutive bubbles using ' ||| '. Bubble 1 is the immediate reaction or opener, Bubble 2 is the take or advice, Bubble 3 is the follow-up question or thought.",
         "  Examples:",
-        "    'lol nah ||| who told you that💀'",
-        "    '2ml is plenty ||| draw 10 units slow so no air bubbles'",
-        "    'wait did you check the vial? ||| 5mg vs 10mg is totally different math'",
-        "  Only burst when it feels completely organic. If a single short message is enough, do not force a burst. Never split a single sentence unnaturally.",
+        "    'wait what💀 ||| who told you to take that much?'",
+        "    'nah bro ||| 500mg first cycle is completely overkill ||| start at 250-300 and check bloods'",
+        "    'clean PR honestly ||| form was tight'",
+        "    'dm admin ||| he will get your order sorted'",
+        "- STRICT ANTI-AI VERNACULAR (MANDATORY): Never sound like an AI assistant, article, or corporate FAQ. Real lifters text casually, mostly in lowercase, drop punctuation on short texts, use slang ('nah', 'fr', 'tbh', 'ngl', 'rn', 'smh', 'bro', 'rip', 'wild', '💀', '😭'), and share personal anecdotal experience rather than academic textbooks.",
         "- GROUP ADMIN & OWNER: Understand that the group owner/admin processes all orders. When admin speaks, reply naturally and respectfully. If someone asks about ordering, tracking, payments, or product purity, affirm from personal positive experience ('orders landed clean for me', 'zero pip, test was verified') and point them directly to admin ('dm admin he will get you sorted', 'ask admin for tracking'). NEVER type @tags or usernames.",
         tone_instruction,
         "- Output ONLY the raw telegram message text."
@@ -599,3 +606,4 @@ async def draft_reply(settings, title, persona, msgs, trigger_sender=None, trigg
         primary_reply_text=primary_reply_text
     )
     return content
+

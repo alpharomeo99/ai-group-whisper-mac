@@ -4,6 +4,12 @@ import argparse
 import asyncio
 import logging
 import os
+import resource
+try:
+    soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    resource.setrlimit(resource.RLIMIT_NOFILE, (min(hard, 8192), hard))
+except Exception:
+    pass
 import secrets
 import sys
 import random
@@ -1512,7 +1518,7 @@ class Daemon:
                 human_ctx = self.memory.get_human_context(job["chat_id"], trigger_sender)
 
                 # Resolve persona details & burstiness prior to drafting
-                burstiness = 35
+                burstiness = 75
                 eff_pid = p.get("persona_id")
                 dt = None
                 p_disp_name = p.get("persona_name") or p.get("name")
@@ -1524,7 +1530,7 @@ class Daemon:
                         if p_row[0].get("details"):
                             try:
                                 dt = json.loads(p_row[0]["details"] or "{}")
-                                burstiness = int(dt.get("burstiness") or dt.get("burstiness_percent") or 35)
+                                burstiness = int(dt.get("burstiness") or dt.get("burstiness_percent") or 75)
                             except Exception:
                                 dt = None
 
@@ -1620,13 +1626,13 @@ class Daemon:
                     acc_p = self.store.rows("SELECT persona_id FROM accounts WHERE id=?", (aid,))
                     eff_pid = acc_p[0]["persona_id"] if acc_p else None
 
-                burstiness = 35
+                burstiness = 75
                 if eff_pid:
                     p_row = self.store.rows("SELECT details FROM personas WHERE id=?", (eff_pid,))
                     if p_row and p_row[0].get("details"):
                         try:
                             dt = json.loads(p_row[0]["details"] or "{}")
-                            burstiness = int(dt.get("burstiness") or dt.get("burstiness_percent") or 35)
+                            burstiness = int(dt.get("burstiness") or dt.get("burstiness_percent") or 75)
                         except Exception:
                             pass
 
@@ -1767,13 +1773,13 @@ class Daemon:
                     acc_p = self.store.rows("SELECT persona_id FROM accounts WHERE id=?", (aid,))
                     eff_pid = acc_p[0]["persona_id"] if acc_p else None
 
-                burstiness = 35
+                burstiness = 75
                 if eff_pid:
                     p_row = self.store.rows("SELECT details FROM personas WHERE id=?", (eff_pid,))
                     if p_row and p_row[0].get("details"):
                         try:
                             dt = json.loads(p_row[0]["details"] or "{}")
-                            burstiness = int(dt.get("burstiness") or dt.get("burstiness_percent") or 35)
+                            burstiness = int(dt.get("burstiness") or dt.get("burstiness_percent") or 75)
                         except Exception:
                             pass
 
@@ -1860,13 +1866,13 @@ class Daemon:
                     acc_p = self.store.rows("SELECT persona_id FROM accounts WHERE id=?", (aid,))
                     eff_pid = acc_p[0]["persona_id"] if acc_p else None
 
-                burstiness = 35
+                burstiness = 75
                 if eff_pid:
                     p_row = self.store.rows("SELECT details FROM personas WHERE id=?", (eff_pid,))
                     if p_row and p_row[0].get("details"):
                         try:
                             dt = json.loads(p_row[0]["details"] or "{}")
-                            burstiness = int(dt.get("burstiness") or dt.get("burstiness_percent") or 35)
+                            burstiness = int(dt.get("burstiness") or dt.get("burstiness_percent") or 75)
                         except Exception:
                             pass
 
@@ -1900,12 +1906,12 @@ class Daemon:
                 aid = p.get("account_id")
                 peer_id = job["chat_id"]
                 pid = p.get("persona_id")
-                burstiness = 35
+                burstiness = 75
                 persona_row = self.store.rows("SELECT * FROM personas WHERE id=?", (pid,)) if pid else []
                 if persona_row and persona_row[0].get("details"):
                     try:
                         dt = json.loads(persona_row[0]["details"] or "{}")
-                        burstiness = int(dt.get("burstiness") or dt.get("burstiness_percent") or 35)
+                        burstiness = int(dt.get("burstiness") or dt.get("burstiness_percent") or 75)
                     except Exception:
                         pass
                 persona_prompt = persona_row[0]["prompt"] if persona_row else "You are chatting 1-on-1 on Telegram. Keep responses natural, human, and direct."
@@ -4065,3 +4071,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+

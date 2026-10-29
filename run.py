@@ -1,6 +1,12 @@
 #!/usr/bin/env python3
 """AI Group Whisper desktop app: native macOS window (Apple WebKit) + background Telegram engine."""
 import os
+import resource
+try:
+    soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    resource.setrlimit(resource.RLIMIT_NOFILE, (min(hard, 8192), hard))
+except Exception:
+    pass
 import socket
 import subprocess
 import sys
@@ -281,3 +287,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

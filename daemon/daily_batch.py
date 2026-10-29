@@ -816,7 +816,12 @@ class DailyBatchEngine:
                 "   - ULTRA-SHORT REACTIONS (25-30% of turns): 1 to 4 words ('lol nah', 'fr tho💀', 'wait what?', 'bro😭', 'same honestly').\n"
                 "   - QUICK TAKES & QUESTIONS (40-45% of turns): 5 to 14 words.\n"
                 "   - DETAILED REPLIES (25-30% of turns): 18 to 45 words.\n"
-                "   - MULTI-MESSAGE BURSTS: Mobile texters often send 2 consecutive bubbles separated with ' ||| '.\n\n"
+                "   - MANDATORY MULTI-MESSAGE BURSTS (50-70% of turns): Real texters rarely send single neat paragraphs. Send 2 to 3 consecutive short bubbles separated by ' ||| '.\n"
+                "     Examples:\n"
+                "       'wait lol ||| did you actually try that? ||| thought you were on a cruise'\n"
+                "       'nah tbh ||| pinning daily gives zero pip'\n"
+                "       'bro what 💀 ||| who told you that bs'\n"
+                "   - STRICT ANTI-AI CHAT RULES: Real Telegram chat is fast, casual, and opinionated. Write mostly in lowercase, drop punctuation on short texts, use natural slang ('nah', 'fr', 'ngl', 'tbh', 'rn', 'wild', 'smh', 'bro', 'lol', 'lmao', 'rip', '💀', '😭'), and share personal lifting opinions rather than neutral essays.\n\n"
                 "2. GENUINE TELEGRAM REPLIES & THREADING:\n"
                 "   - When responding or bantering, specify 'reply_to_step': <0-indexed step of target message in this session>.\n"
                 "   - If starting a new point or opening remark, set 'reply_to_step': null.\n\n"
@@ -974,6 +979,9 @@ class DailyBatchEngine:
                 )
                 item_id = cur_item.lastrowid
 
+                batch_bubbles = self.ai.split_burst_bubbles(text, names=cand_names, burstiness_pct=75)
+                if not batch_bubbles:
+                    batch_bubbles = [text]
                 self.store.enqueue(
                     "batch_scheduled_send",
                     chat_id,
@@ -982,6 +990,7 @@ class DailyBatchEngine:
                         "account_id": aid,
                         "persona_id": pid,
                         "text": text,
+                        "bubbles": batch_bubbles,
                         "reaction": reaction if reaction else None,
                         "reply_to_item_id": parent_item_id
                     },
@@ -1132,3 +1141,4 @@ class DailyBatchEngine:
         self.store.q("UPDATE daily_batch_items SET status='pending', scheduled_ts=? WHERE id=?", (now_ts, it_id))
         self.store.q("UPDATE queue SET status='pending', not_before=? WHERE dedupe_key=?", (now_ts, f"batch_send:{it_id}"))
         return it_id
+

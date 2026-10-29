@@ -11,7 +11,7 @@ log = logging.getLogger('whisper.store')
 
 SCHEMA = """
 PRAGMA journal_mode=WAL;
-PRAGMA busy_timeout=5000;
+PRAGMA busy_timeout=30000;
 PRAGMA synchronous=NORMAL;
 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);
 CREATE TABLE IF NOT EXISTS groups (
@@ -175,7 +175,7 @@ class Store:
         self.db.row_factory = sqlite3.Row
         self.lock = threading.RLock()
         self.db.execute("PRAGMA journal_mode=WAL;")
-        self.db.execute("PRAGMA busy_timeout=5000;")
+        self.db.execute("PRAGMA busy_timeout=30000;")
         self.db.execute("PRAGMA synchronous=NORMAL;")
         self.db.execute("PRAGMA cache_size=-64000;")
         self.db.execute("PRAGMA temp_store=MEMORY;")
@@ -1198,8 +1198,14 @@ class Store:
                    (error, now, qid))
 
     def requeue_in_flight(self, delay=5):
-        """Sleep/wake protection: anything interrupted mid-flight goes back to pending."""
+        """Sleep/wake protection: anything interrupted mid-flight goes back to pending; purge stale backlog."""
         now = int(time.time())
+        stale_cutoff = now - 7200
+        try:
+            self.q("UPDATE queue SET status='cancelled', last_error='stale_startup_purge', updated=? WHERE status IN ('in_flight', 'pending') AND created < ?", (now, stale_cutoff))
+            self.q("UPDATE daily_batch_items SET status='cancelled' WHERE status='pending' AND scheduled_ts < ?", (now - 3600,))
+        except Exception:
+            pass
         return self.q("UPDATE queue SET status='pending', not_before=?, updated=? WHERE status='in_flight'",
                       (now + delay, now)).rowcount
 
@@ -1230,3 +1236,4 @@ class Store:
             return keys
         except Exception:
             return set()
+

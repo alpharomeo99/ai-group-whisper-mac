@@ -34,4 +34,5 @@ if ! cmp -s "$REQ" "$VENV/.req"; then
   cp "$REQ" "$VENV/.req"
 fi
 
+ulimit -n 8192 2>/dev/null || true
 exec "$VENV/bin/python3" "$RES/run.py"
