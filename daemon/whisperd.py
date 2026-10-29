@@ -583,6 +583,10 @@ class Daemon:
 
             if downloaded and os.path.exists(temp_dest) and os.path.getsize(temp_dest) > 500:
                 os.replace(temp_dest, dest)
+                try:
+                    self.sync_account_demographics(aid, me=me, avatar_path=dest)
+                except Exception as e:
+                    log.debug("sync_account_demographics error for %s: %s", aid, e)
                 return True
 
             # Clean stale or corrupted tiny file (< 500 bytes)
@@ -611,6 +615,43 @@ class Daemon:
         except Exception as e:
             log.warning("Avatar fetch failed for account %s: %s", aid, e)
             return False
+
+
+    def sync_account_demographics(self, aid, me=None, avatar_path=None):
+        """Scans name and profile details/photo to infer grounded demographic attributes for linked personas."""
+        try:
+            import demographics
+        except Exception:
+            return
+        try:
+            acc_rows = self.store.rows("SELECT id, name, username, persona_id FROM accounts WHERE id=?", (aid,))
+            if not acc_rows:
+                return
+            acc = acc_rows[0]
+            pid = acc.get("persona_id")
+            if not pid:
+                return
+            p_rows = self.store.rows("SELECT id, name, details, prompt FROM personas WHERE id=?", (pid,))
+            if not p_rows:
+                return
+            p_row = p_rows[0]
+            dt = {}
+            if p_row.get("details"):
+                try:
+                    dt = json.loads(p_row["details"]) if isinstance(p_row["details"], str) else p_row["details"]
+                except Exception:
+                    dt = {}
+
+            name_to_check = p_row.get("name") or acc.get("name")
+            bio_to_check = getattr(me, "about", "") if me else ""
+            demo = demographics.infer_demographics(name=name_to_check, bio=bio_to_check, details=dt,
+                                                  prompt=p_row.get("prompt"), avatar_path=avatar_path)
+            dt["demographics"] = demo
+            self.store.q("UPDATE personas SET details=? WHERE id=?", (json.dumps(dt), pid))
+            log.info("Synced demographics for persona %s (Acc %s): %s (%s)",
+                     pid, aid, demo.get("gender"), demo.get("vibe"))
+        except Exception as e:
+            log.debug("sync_account_demographics error for account %s: %s", aid, e)
 
     async def drop_clients(self):
         for c in list(self.clients.values()):

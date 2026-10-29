@@ -764,10 +764,17 @@ class DailyBatchEngine:
                 else:
                     c_temperament = "CHILL & GROUNDED PRACTICAL PEER (Calm, knowledgeable, explains practical details without corporate tone)"
 
+                demo_info = ai.resolve_persona_demographics(
+                    name=c.get("persona_name"),
+                    details=c_dt,
+                    prompt=c.get("prompt")
+                )
                 persona_summaries.append(
                     f"- ID: {c['persona_id']}, AccountID: {c['account_id']}, Name: {c['persona_name']}\n"
+                    f"  Demographics & Identity: [{demo_info['gender'].upper()}, {demo_info['age_bracket'].upper()}] - {demo_info['vibe']}\n"
                     f"  Vibe/Role: {role}\n"
                     f"  Temperament & Speech Profile: [{c_tier.upper()}] - {c_temperament}\n"
+                    f"  Knowledge & Realism Boundaries: {demo_info['knowledge_rule']}\n"
                     f"  Signature Emojis: {emojis} (habit: {emoji_habit})\n"
                     f"  Typing: {typing}\n"
                     f"  Brief: {c.get('prompt', '')[:140]}...{mem_str}"
@@ -785,6 +792,12 @@ class DailyBatchEngine:
                 "You write authentic, casual group chat exchanges between real people texting from their phones.\n\n"
                 "CRITICAL GUIDELINES FOR AUTHENTIC HUMAN MESSAGING:\n"
                 "AUTHENTIC CONVERSATIONAL FRICTION & ASYMMETRIC TEMPERAMENTS (MANDATORY):\n"
+                "CRITICAL DEMOGRAPHIC & KNOWLEDGE BOUNDARIES (ANTI-OMNISCIENCE MANDATE):\n"
+                "- Real humans ONLY know topics that align with their life stage, background, and demographics!\n"
+                "- Young female personas (e.g. 20s women like Kami, Leila, etc.) MUST NEVER speak like 45-year-old veteran male bodybuilding historians!\n"
+                "- They DO NOT have deep encyclopedic knowledge of vintage 1970s/1980s Mr. Olympia contests (Frank Zane, Serge Nubret, golden era vacuum contests) or heavy male steroid blast cycles.\n"
+                "- If vintage bodybuilding, veteran contest history, or heavy male androgen protocols come up, young/female personas MUST react authentically from their own perspective: e.g. asking who that is ('who is Zane lol', 'the vacuum pose guy?'), making a casual observation about aesthetics vs bloat, cracking a joke about guys obsessing over 1970s bodybuilders, or letting the guys debate it.\n"
+                "- NEVER make everyone sound like identical old-school bodybuilding gurus.\n\n"
                 "- Group chats are NEVER unanimous or polite corporate meetings! Members have completely different social temperaments:\n"
                 "  * LOW-PATIENCE / RAW VERNACULAR PERSONAS: When they speak, they have zero corporate filter and low patience. Use dismissive sharp internet vernacular ('bro what are you even saying rn', 'who told you that garbage💀', 'lol nah', 'stop overcomplicating basic shit and just train').\n"
                 "  * DRY / SARCASTIC PERSONAS: Deadpan, cynical one-liners, rolling eyes at hype ('sure bro whatever you say', 'rip your sleep schedule', 'fascinating theory💀').\n"
@@ -829,7 +842,8 @@ class DailyBatchEngine:
                 f"CONVERSATIONAL FOCUS: {topic_prompt}\n\n"
                 f"TASK:\n"
                 f"Create a natural {th_count}-message conversational thread for this session between these personas.\n"
-                f"Vary message lengths wildly, embrace casual mobile texting shorthand, and never mention Liver King or tired internet memes. Return strictly the JSON array."
+                f"Vary message lengths wildly, embrace casual mobile texting shorthand, and never mention Liver King or tired internet memes.\n"
+                "Ensure dialogue strictly adheres to each persona's demographic reality and knowledge boundaries. If a topic touches vintage male bodybuilding or deep niche history, personas like Kami or other young female members must react realistically (confused, casual outside observer, or asking who that is) rather than quoting 1970s contest facts. Return strictly the JSON array."
             )
 
             th_items = []

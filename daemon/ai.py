@@ -423,6 +423,34 @@ def resolve_persona_temperament(name=None, details=None, prompt=None, trigger_te
     }
 
 
+
+def resolve_persona_demographics(name=None, details=None, prompt=None):
+    try:
+        import demographics
+        return demographics.infer_demographics(name=name, details=details, prompt=prompt)
+    except Exception:
+        nm = str(name or '').lower().split()[0] if name else ''
+        f_set = {'kami', 'leila', 'sophie', 'chloe', 'emma', 'sarah', 'olivia', 'ava', 'mia', 'isabella'}
+        is_f = nm in f_set or any(w in str(prompt or '').lower() for w in ['she/her', 'bikini', 'girl', 'glute'])
+        if is_f:
+            return {
+                'gender': 'female',
+                'age_bracket': '20s',
+                'vibe': '20-something casual fitness & lifestyle regular',
+                'is_young_female': True,
+                'knowledge_rule': 'Speaks from female 20s fitness perspective. DOES NOT know vintage 1970s Olympia lore (Frank Zane, Serge Nubret). Reacts casually or asks who that is if vintage male bodybuilding comes up.',
+                'instruction': '- DEMOGRAPHIC BOUNDARY (MANDATORY): You are a 20s female regular. You do NOT have encyclopedic knowledge of 1970s Mr. Olympia contests (Frank Zane, etc.). React casually or ask questions rather than lecturing on vintage male bodybuilding lore.'
+            }
+        return {
+            'gender': 'male' if nm in {'dorian', 'marcus', 'viktor', 'dave', 'mike', 'chad'} else 'neutral',
+            'age_bracket': 'veteran' if 'dorian' in nm else '20s-30s',
+            'vibe': 'community regular',
+            'is_young_female': False,
+            'knowledge_rule': 'Speaks authentically from own perspective without generic corporate fluff.',
+            'instruction': '- DEMOGRAPHIC BOUNDARY: Speak authentically from your grounded persona background.'
+        }
+
+
 async def draft_reply_with_meta(settings, title, persona, msgs, trigger_sender=None, trigger_text=None, reply_parent_text=None, reply_parent_sender=None, known_names=None, internal_persona_tags=None, is_admin=False, human_context=None, is_teammate_chime=False, temperature=0.76, persona_name=None, persona_details=None, primary_reply_text=None):
     sep = chr(10)
     persona_prompt = persona or "You are a regular member of this Telegram group."
@@ -488,6 +516,9 @@ async def draft_reply_with_meta(settings, title, persona, msgs, trigger_sender=N
     voice_card = build_voice_card(persona_details)
     if voice_card:
         rules.insert(1, voice_card)
+    demo_info = resolve_persona_demographics(name=persona_name, details=persona_details, prompt=persona)
+    if demo_info and demo_info.get("instruction"):
+        rules.insert(1, demo_info["instruction"])
     system = persona_prompt + sep + sep + sep.join(rules)
 
     user_parts = [f"Group: {title}"]
@@ -568,4 +599,3 @@ async def draft_reply(settings, title, persona, msgs, trigger_sender=None, trigg
         primary_reply_text=primary_reply_text
     )
     return content
-
