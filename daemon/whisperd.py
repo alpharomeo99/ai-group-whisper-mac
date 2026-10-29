@@ -79,17 +79,22 @@ class Daemon:
             if curr_cnt < 48:
                 self.store.set("batch_messages_count", 48)
 
-            # Un-jam any batch items or queue jobs that were postponed into the far future by legacy pauses
+            # Un-jam any batch items or queue jobs that were postponed or failed
             now_init = int(time.time())
             self.store.q(
-                "UPDATE daily_batch_items SET scheduled_ts = ? + ABS(RANDOM() % 45), status = 'pending' "
-                "WHERE status = 'postponed' AND scheduled_ts > ?",
-                (now_init + 15, now_init + 240)
+                "UPDATE daily_batch_items SET scheduled_ts = ? + ABS(RANDOM() % 30), status = 'pending', error = NULL "
+                "WHERE status IN ('postponed', 'failed') AND created_at >= ?",
+                (now_init + 10, now_init - 86400)
             )
             self.store.q(
-                "UPDATE queue SET not_before = ? + ABS(RANDOM() % 45), status = 'pending' "
+                "UPDATE queue SET not_before = ? + ABS(RANDOM() % 30), status = 'pending', attempts = 0, last_error = NULL "
+                "WHERE status IN ('failed', 'in_flight') AND created >= ?",
+                (now_init + 10, now_init - 86400)
+            )
+            self.store.q(
+                "UPDATE queue SET not_before = ? + ABS(RANDOM() % 30), status = 'pending' "
                 "WHERE kind = 'batch_scheduled_send' AND status = 'pending' AND not_before > ?",
-                (now_init + 15, now_init + 240)
+                (now_init + 10, now_init + 240)
             )
         except Exception as e:
             log.debug("startup pacing tuning notice: %s", e)
@@ -1526,6 +1531,7 @@ class Daemon:
                     primary_reply_text=primary_reply_text
                 )
                 # Log AI token & latency usage (teammate banter logs under ai_batch to protect human reply allowance)
+                is_teammate = bool(p.get("is_teammate_chime"))
                 evt_type = "ai_batch" if is_teammate else "ai_chat"
                 self.usage.log_ai(evt_type, persona_id=p.get("persona_id"), account_id=p.get("account_id"),
                                   chat_id=job["chat_id"], tokens_prompt=meta.get("prompt_tokens"),
@@ -2250,7 +2256,7 @@ class Daemon:
                                 log.debug("daily_batch_loop: Daily batch spending cap ($%.2f) reached ($%.4f spent).", b_cap, b_spent)
                             elif not existing_batches:
                                 should_generate = True
-                            elif len(upcoming_items) == 0 and (b_cap - b_spent) >= 0.015:
+                            elif len(upcoming_items) == 0 and (b_cap - b_spent) >= 0.003:
                                 # Prior batch completed and remaining daily budget allows a fresh wave
                                 should_generate = True
 

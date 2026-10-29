@@ -880,7 +880,7 @@ class DailyBatchEngine:
         created_items = []
         cand_usage = { (c["persona_id"], c["account_id"]): 0 for c in candidates }
 
-        session_start_min = random.uniform(0.15, 0.45)
+        session_start_min = random.uniform(0.10, 0.25)
         for s_idx, s_items in enumerate(sessions_items):
             clusters = []
             rem = len(s_items)
