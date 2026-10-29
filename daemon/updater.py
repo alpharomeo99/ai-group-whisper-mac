@@ -91,7 +91,7 @@ def fetch_latest_release_sync():
                                 "name": f"AI Group Whisper {tag}",
                             }
     except Exception:
-        pass
+            pass
 
     # 3. Urllib fallback with tight 3-second timeout
     headers = {
@@ -121,10 +121,10 @@ def fetch_latest_release_sync():
         except Exception:
             pass
 
+
     raise RuntimeError("Could not reach GitHub via API or mirrors. Check internet/DNS.")
 
-
-async def latest():
+	async def latest():
     loop = asyncio.get_running_loop()
     return await asyncio.wait_for(loop.run_in_executor(None, fetch_latest_release_sync), timeout=10.0)
 
@@ -158,7 +158,7 @@ def download_archive_sync(tag, progress_cb=None):
                 r = subprocess.run([
                     "curl", "-fsSL",
                     "--connect-timeout", "6",
-                   "--max-time", "90",
+                    "--max-time", "90",
                     "-H", "User-Agent: AIGroupWhisper-Mac/2.x (macOS; in-app-updater)",
                     url, "-o", p
                 ], capture_output=True)
@@ -252,7 +252,7 @@ def routes():
         try:
             return J(await install())
         except Exception as e:  # noqa
-            STATE.update(error=str(e)}
+            STATE.update(error=str(e))
             return J({"error": str(e)})
 
     @r.get("/app/update-progress")
