@@ -67,17 +67,30 @@ class Daemon:
         except Exception as e:
             log.debug("startup failed item purge: %s", e)
 
-        # Proactively tune stored pacing defaults: 25-minute (1500s) cooling window during human conversations
+        # Proactively tune stored pacing defaults: snappy 120s (2-minute) cooling window during human conversations
         try:
-            curr_pause = int(self.store.get("batch_human_pause_seconds", 1500))
-            if curr_pause <= 45:
-                self.store.set("batch_human_pause_seconds", 1500)
+            curr_pause = int(self.store.get("batch_human_pause_seconds", 120))
+            if curr_pause > 300 or curr_pause < 45:
+                self.store.set("batch_human_pause_seconds", 120)
             curr_int = int(self.store.get("batch_session_interval_seconds", 90))
             if curr_int > 180:
                 self.store.set("batch_session_interval_seconds", 90)
             curr_cnt = int(self.store.get("batch_messages_count", 48))
             if curr_cnt < 48:
                 self.store.set("batch_messages_count", 48)
+
+            # Un-jam any batch items or queue jobs that were postponed into the far future by legacy pauses
+            now_init = int(time.time())
+            self.store.q(
+                "UPDATE daily_batch_items SET scheduled_ts = ? + ABS(RANDOM() % 45), status = 'pending' "
+                "WHERE status = 'postponed' AND scheduled_ts > ?",
+                (now_init + 15, now_init + 240)
+            )
+            self.store.q(
+                "UPDATE queue SET not_before = ? + ABS(RANDOM() % 45), status = 'pending' "
+                "WHERE kind = 'batch_scheduled_send' AND status = 'pending' AND not_before > ?",
+                (now_init + 15, now_init + 240)
+            )
         except Exception as e:
             log.debug("startup pacing tuning notice: %s", e)
 
@@ -922,11 +935,12 @@ class Daemon:
                 # Proactively postpone any pending scheduled batch messages so live human conversation has exclusive priority
                 try:
                     now_ts_ev = int(time.time())
-                    cooldown_secs = max(1200, int(self.store.get("batch_human_pause_seconds", 1500)))
+                    cooldown_secs = max(45, min(300, int(self.store.get("batch_human_pause_seconds", 120))))
+                    # Gently shift only messages scheduled right now (within cooling window) to just after the cooling window
                     self.store.q(
-                        "UPDATE daily_batch_items SET status='postponed', scheduled_ts=scheduled_ts+? "
-                        "WHERE chat_id=? AND status IN ('pending', 'postponed') AND scheduled_ts < ?",
-                        (cooldown_secs, chat_id, now_ts_ev + cooldown_secs)
+                        "UPDATE daily_batch_items SET status='postponed', scheduled_ts=? + ABS(RANDOM() % 30) "
+                        "WHERE chat_id=? AND status IN ('pending', 'postponed') AND scheduled_ts <= ?",
+                        (now_ts_ev + cooldown_secs, chat_id, now_ts_ev + cooldown_secs)
                     )
                 except Exception as e:
                     log.debug("Proactive batch postponement: %s", e)
@@ -1511,8 +1525,9 @@ class Daemon:
                     persona_details=dt,
                     primary_reply_text=primary_reply_text
                 )
-                # Log AI token & latency usage
-                self.usage.log_ai("ai_chat", persona_id=p.get("persona_id"), account_id=p.get("account_id"),
+                # Log AI token & latency usage (teammate banter logs under ai_batch to protect human reply allowance)
+                evt_type = "ai_batch" if is_teammate else "ai_chat"
+                self.usage.log_ai(evt_type, persona_id=p.get("persona_id"), account_id=p.get("account_id"),
                                   chat_id=job["chat_id"], tokens_prompt=meta.get("prompt_tokens"),
                                   tokens_completion=meta.get("completion_tokens"), latency_ms=meta.get("latency_ms"),
                                   model=meta.get("model"))
@@ -1645,11 +1660,11 @@ class Daemon:
 
             elif job["kind"] == "batch_scheduled_send":
                 now_ts = int(time.time())
-                # Human conversation cooling window: default 25 minutes (1500s), minimum 20 minutes (1200s)
-                configured_pause = max(1200, int(self.store.get("batch_human_pause_seconds", 1500)))
+                # Human conversation cooling window: snappy 120s (2m), clamped between 45s and 300s
+                configured_pause = max(45, min(300, int(self.store.get("batch_human_pause_seconds", 120))))
 
-                # Check recent human activity across the last 45 minutes
-                human_count, last_human_ts, avg_gap = self.store.get_recent_human_message_stats(job["chat_id"], window_secs=2700)
+                # Check recent human activity across the last 10 minutes
+                human_count, last_human_ts, avg_gap = self.store.get_recent_human_message_stats(job["chat_id"], window_secs=600)
                 if not last_human_ts:
                     last_human_ts = self.store.get_last_human_message_ts(job["chat_id"])
 
@@ -1677,10 +1692,10 @@ class Daemon:
 
                 elapsed_since_human = max(0, now_ts - last_human_ts) if last_human_ts else 999999
 
-                # If a human has spoken within the cooling window, smoothly YIELD
+                # If a human has spoken within the cooling window, yield briefly without starvation
                 if last_human_ts and elapsed_since_human < configured_pause:
-                    remaining = max(20, configured_pause - elapsed_since_human)
-                    defer_secs = remaining + random.randint(15, 60)
+                    remaining = max(15, configured_pause - elapsed_since_human)
+                    defer_secs = remaining + random.randint(5, 20)
 
                     p["_postpone_count"] = postpone_count + 1
                     p["_first_attempt_ts"] = first_attempt_ts
@@ -2234,7 +2249,9 @@ class Daemon:
                             if not can_batch:
                                 log.debug("daily_batch_loop: Daily batch spending cap ($%.2f) reached ($%.4f spent).", b_cap, b_spent)
                             elif not existing_batches:
-                                # Strictly ONE meticulous batch per group per day
+                                should_generate = True
+                            elif len(upcoming_items) == 0 and (b_cap - b_spent) >= 0.015:
+                                # Prior batch completed and remaining daily budget allows a fresh wave
                                 should_generate = True
 
                             if should_generate:

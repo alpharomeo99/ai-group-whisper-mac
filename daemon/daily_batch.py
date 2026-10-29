@@ -533,13 +533,19 @@ class DailyBatchEngine:
         chat_id = int(chat_id)
         today = self.today_str()
 
-        # Enforce ONE meticulous batch per group per day unless explicitly overridden
+        # Check for active existing batch for today
         if not topic_override:
             existing = self.store.rows("SELECT id, topic FROM daily_batches WHERE chat_id=? AND date_str=?", (chat_id, today))
             if existing:
-                log.info("generate_batch_for_group: Batch for group %s on %s already exists (id=%s). One batch per day enforced.",
-                         chat_id, today, existing[0]["id"])
-                return {"count": 0, "status": "already_exists", "batch_id": existing[0]["id"]}
+                pending_check = self.store.rows(
+                    "SELECT COUNT(*) as cnt FROM daily_batch_items WHERE chat_id=? AND status IN ('pending', 'postponed') AND scheduled_ts > ?",
+                    (chat_id, int(time.time()))
+                )
+                cnt = (pending_check[0]["cnt"] if pending_check else 0)
+                if cnt > 2:
+                    log.info("generate_batch_for_group: Batch for group %s on %s has %d upcoming items (id=%s). Holding next wave.",
+                             chat_id, today, cnt, existing[0]["id"])
+                    return {"count": 0, "status": "already_exists", "batch_id": existing[0]["id"]}
 
         # Hard budget cap guard ($0.05/day for automated batch dialogue)
         can_batch, spent, cap = self.store.check_batch_budget_available()
@@ -883,7 +889,7 @@ class DailyBatchEngine:
                 clusters.append(c_size)
                 rem -= c_size
 
-            target_cluster_gap_min = max(22.0, min(42.0, 180.0 / max(len(clusters), 1)))
+            target_cluster_gap_min = max(3.0, min(7.5, 45.0 / max(len(clusters), 1)))
             session_offsets = []
             cur_time = session_start_min
 
@@ -894,7 +900,7 @@ class DailyBatchEngine:
                 m_time = cur_time
                 for msg_i in range(c_size):
                     if msg_i > 0:
-                        m_time += random.uniform(0.30, 1.20)
+                        m_time += random.uniform(0.18, 0.55)
                     session_offsets.append(m_time)
 
             session_created = []
@@ -984,9 +990,9 @@ class DailyBatchEngine:
 
             last_session_end = session_offsets[-1] if session_offsets else session_start_min
             if len(sessions_items) >= 3:
-                session_start_min = last_session_end + random.uniform(45.0, 75.0)
+                session_start_min = last_session_end + random.uniform(8.0, 16.0)
             else:
-                session_start_min = last_session_end + random.uniform(60.0, 100.0)
+                session_start_min = last_session_end + random.uniform(10.0, 20.0)
 
         if not created_items:
             raise RuntimeError("Failed to generate any valid messages across batch sessions")
