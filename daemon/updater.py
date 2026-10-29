@@ -124,7 +124,7 @@ def fetch_latest_release_sync():
 
     raise RuntimeError("Could not reach GitHub via API or mirrors. Check internet/DNS.")
 
-	async def latest():
+async def latest():
     loop = asyncio.get_running_loop()
     return await asyncio.wait_for(loop.run_in_executor(None, fetch_latest_release_sync), timeout=10.0)
 
