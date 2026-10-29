@@ -11,7 +11,20 @@
   window.agw = {
     api: call,
     appInfo: () => call('GET', '/app/info'),
-    checkUpdates: async () => { const i = await call('GET', '/app/check-updates'); if (!i.error) emit('update-info', i); return i; },
+    checkUpdates: async () => {
+      const ctrl = new AbortController();
+      const tid = setTimeout(() => ctrl.abort(), 8000);
+      try {
+        const res = await fetch('/app/check-updates', { method: 'GET', headers: { 'Content-Type': 'application/json' }, signal: ctrl.signal });
+        clearTimeout(tid);
+        const i = await res.json();
+        if (!i.error) emit('update-info', i);
+        return i;
+      } catch (e) {
+        clearTimeout(tid);
+        return { error: e.name === 'AbortError' ? 'Check timed out' : e.message };
+      }
+    },
     openExternal: (url) => call('POST', '/app/open', { url }),
     on: (ch, cb) => { (subs[ch] = subs[ch] || []).push(cb); },
     installUpdate: async () => {
@@ -809,8 +822,13 @@ $('check-updates').onclick = async (e) => {
   const oldText = 'Check for updates';
   lnk.textContent = 'Checking...';
   lnk.style.pointerEvents = 'none';
+  const autoReset = setTimeout(() => {
+    lnk.textContent = oldText;
+    lnk.style.pointerEvents = '';
+  }, 10000);
   try {
     const info = await window.agw.checkUpdates();
+    clearTimeout(autoReset);
     if (info.error) {
       lnk.textContent = 'Check failed: ' + (info.error.length > 25 ? info.error.slice(0, 22) + '...' : info.error);
       setTimeout(() => { lnk.textContent = oldText; lnk.style.pointerEvents = ''; }, 4000);
@@ -824,6 +842,7 @@ $('check-updates').onclick = async (e) => {
       else await window.agw.installUpdate();
     }
   } catch (err) {
+    clearTimeout(autoReset);
     lnk.textContent = 'Error: ' + err.message;
     setTimeout(() => { lnk.textContent = oldText; lnk.style.pointerEvents = ''; }, 4000);
   }

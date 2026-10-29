@@ -38,65 +38,95 @@ def vtuple(v):
 
 
 def fetch_latest_release_sync():
-    """Resilient release checker trying GitHub API, web release redirect, and raw VERSION."""
-    headers = {
-        "User-Agent": "AIGroupWhisper-Mac/2.x (macOS; in-app-updater)",
-        "Accept": "application/vnd.github+json",
-    }
-
-    # 1. Try GitHub REST API with urllib (uses macOS system DNS resolver)
-    api_url = f"https://api.github.com/repos/{REPO}/releases/latest"
-    for attempt in range(2):
+    """Ultra-resilient release checker prioritizing macOS native curl (avoids getaddrinfo stalls) with urllib fallback."""
+    # 1. Try macOS native curl with GitHub REST API and raw VERSION
+    for endpoint in (
+        f"https://api.github.com/repos/{REPO}/releases/latest",
+        f"https://raw.githubusercontent.com/{REPO}/main/VERSION",
+    ):
         try:
-            req = urllib.request.Request(api_url, headers=headers)
-            with urllib.request.urlopen(req, timeout=12) as resp:
-                if resp.status == 200:
-                    data = json.loads(resp.read().decode("utf-8"))
-                    if data.get("tag_name"):
-                        return data
-        except Exception:
-            time.sleep(0.5)
-
-    # 2. Try web release page redirect: github.com/owner/repo/releases/latest -> /releases/tag/vX.X.X
-    web_url = f"https://github.com/{REPO}/releases/latest"
-    try:
-        req = urllib.request.Request(web_url, headers={"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"})
-        with urllib.request.urlopen(req, timeout=12) as resp:
-            final_url = resp.geturl()
-            if "/releases/tag/" in final_url:
-                tag = final_url.split("/releases/tag/")[-1].strip("/")
-                if tag:
-                    return {
-                        "tag_name": tag,
-                        "html_url": final_url,
-                        "name": f"AI Group Whisper {tag}",
-                    }
-    except Exception:
-        pass
-
-    # 3. Try raw.githubusercontent.com VERSION fallback
-    raw_url = f"https://raw.githubusercontent.com/{REPO}/main/VERSION"
-    try:
-        req = urllib.request.Request(raw_url, headers=headers)
-        with urllib.request.urlopen(req, timeout=12) as resp:
-            if resp.status == 200:
-                ver = resp.read().decode("utf-8").strip()
-                if ver:
+            r = subprocess.run([
+                "curl", "-sS", "-f",
+                "--connect-timeout", "3",
+                "--max-time", "6",
+                "-H", "User-Agent: AIGroupWhisper-Mac/2.x (macOS; in-app-updater)",
+                "-H", "Accept: application/vnd.github+json",
+                endpoint,
+            ], capture_output=True, text=True)
+            if r.returncode == 0 and r.stdout.strip():
+                out = r.stdout.strip()
+                if endpoint.endswith("/VERSION"):
+                    ver = out
                     tag = f"v{ver}" if not ver.startswith("v") else ver
                     return {
                         "tag_name": tag,
                         "html_url": f"https://github.com/{REPO}/releases/tag/{tag}",
                         "name": f"AI Group Whisper {tag}",
                     }
+                else:
+                    data = json.loads(out)
+                    if data.get("tag_name"):
+                        return data
+        except Exception:
+            pass
+
+    # 2. Try web release page redirect via curl
+    try:
+        r = subprocess.run([
+            "curl", "-sS", "-I",
+            "--connect-timeout", "3",
+            "--max-time", "6",
+            f"https://github.com/{REPO}/releases/latest"
+        ], capture_output=True, text=True)
+        if r.returncode == 0:
+            for line in r.stdout.splitlines():
+                if line.lower().startswith("location:"):
+                    loc = line.split(":", 1)[1].strip()
+                    if "/releases/tag/" in loc:
+                        tag = loc.split("/releases/tag/")[-1].strip("/")
+                        if tag:
+                            return {
+                                "tag_name": tag,
+                                "html_url": loc,
+                                "name": f"AI Group Whisper {tag}",
+                            }
     except Exception:
         pass
 
-    raise RuntimeError("Could not reach GitHub via API, web releases, or raw mirrors. Check internet/DNS.")
+    # 3. Urllib fallback with tight 3-second timeout
+    headers = {
+        "User-Agent": "AIGroupWhisper-Mac/2.x (macOS; in-app-updater)",
+        "Accept": "application/vnd.github+json",
+    }
+    for url, is_raw in (
+        (f"https://api.github.com/repos/{REPO}/releases/latest", False),
+        (f"https://raw.githubusercontent.com/{REPO}/main/VERSION", True),
+    ):
+        try:
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req, timeout=3) as resp:
+                if resp.status == 200:
+                    out = resp.read().decode("utf-8").strip()
+                    if is_raw and out:
+                        tag = f"v{out}" if not out.startswith("v") else out
+                        return {
+                            "tag_name": tag,
+                            "html_url": f"https://github.com/{REPO}/releases/tag/{tag}",
+                            "name": f"AI Group Whisper {tag}",
+                        }
+                    elif not is_raw:
+                        data = json.loads(out)
+                        if data.get("tag_name"):
+                            return data
+        except Exception:
+            pass
+
+    raise RuntimeError("Could not reach GitHub via API or mirrors. Check internet/DNS.")
 
 
 async def latest():
     loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(None, fetch_latest_release_sync)
+    return await asyncio.wait_for(loop.run_in_executor(None, fetch_latest_release_sync), timeout=10.0)
 
 
 async def check():
@@ -114,54 +144,57 @@ async def check():
 
 
 def download_archive_sync(tag, progress_cb=None):
-    """Resilient download with retries across codeload and git archive endpoints."""
+    """Download update archive using curl directly to temporary zip file, with urllib fallback."""
     urls = [
         f"https://codeload.github.com/{REPO}/zip/refs/tags/{tag}",
-        f"https://api.github.com/repos/{REPO}/zipball/{tag}",
         f"https://github.com/{REPO}/archive/refs/tags/{tag}.zip",
+        f"https://api.github.com/repos/{REPO}/zipball/{tag}",
     ]
-    headers = {
-        "User-Agent": "AIGroupWhisper-Mac/2.x (macOS; in-app-updater)",
-        "Accept": "*/*",
-    }
+    # Try curl first
+    for url in urls:
+        try:
+            with tempfile.TemporaryDirectory() as td:
+                p = os.path.join(td, "update.zip")
+                r = subprocess.run([
+                    "curl", "-fsSL",
+                    "--connect-timeout", "6",
+                   "--max-time", "90",
+                    "-H", "User-Agent: AIGroupWhisper-Mac/2.x (macOS; in-app-updater)",
+                    url, "-o", p
+                ], capture_output=True)
+                if r.returncode == 0 and os.path.exists(p) and os.path.getsize(p) > 1000:
+                    with zipfile.ZipFile(p) as z:
+                        if z.namelist():
+                            data = open(p, "rb").read()
+                            return io.BytesIO(data)
+        except Exception:
+            pass
+
+    # Urllib fallback
+    headers = {"User-Agent": "AIGroupWhisper-Mac/2.x (macOS; in-app-updater)", "Accept": "*/*"}
     last_err = None
     for url in urls:
-        for attempt in range(3):
-            try:
-                req = urllib.request.Request(url, headers=headers)
-                with urllib.request.urlopen(req, timeout=30) as resp:
-                    if resp.status != 200:
-                        raise RuntimeError(f"HTTP {resp.status}")
-                    total = int(resp.headers.get("Content-Length") or 0)
-                    buf = io.BytesIO()
-                    read_bytes = 0
-                    while True:
-                        chunk = resp.read(65536)
-                        if not chunk:
-                            break
-                        buf.write(chunk)
-                        read_bytes += len(chunk)
-                        if total and progress_cb:
-                            progress_cb(int(read_bytes * 100 / total))
-                    buf.seek(0)
+        try:
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                if resp.status == 200:
+                    buf = io.BytesIO(resp.read())
                     with zipfile.ZipFile(buf) as z:
-                        if not z.namelist():
-                            raise RuntimeError("Downloaded archive was empty")
-                    buf.seek(0)
-                    return buf
-            except Exception as e:
-                last_err = e
-                time.sleep(1.0)
-    raise RuntimeError(f"Download failed after retries: {last_err}")
+                        if z.namelist():
+                            buf.seek(0)
+                            return buf
+        except Exception as e:
+            last_err = e
+    raise RuntimeError(f"Download failed: {last_err}")
 
 
 async def install():
-    STATE.update(stage="Checking", pct=None, error=None)
+    STATE.update(stage="Preparing", pct=None, error=None)
     info = await check()
     if not info["available"]:
         STATE.update(stage="Already up to date")
         return info
-    STATE.update(stage="Downloading", pct=0)
+    STATE.update(stage="Downloading update", pct=None)
 
     def on_progress(pct):
         STATE["pct"] = pct
@@ -219,7 +252,7 @@ def routes():
         try:
             return J(await install())
         except Exception as e:  # noqa
-            STATE.update(error=str(e))
+            STATE.update(error=str(e)}
             return J({"error": str(e)})
 
     @r.get("/app/update-progress")
