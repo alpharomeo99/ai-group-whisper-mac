@@ -797,15 +797,36 @@ function renderUpdate(info) {
 }
 window.agw.on('update-info', renderUpdate);
 window.agw.on('update-progress', (p) => {
-  const st = $('upd-status'); if (!st) return;
-  st.textContent = p.error ? 'Update failed: ' + p.error : p.stage + (p.pct != null ? ` ${p.pct}%` : '');
+  const st = $('upd-status'); if (st) st.textContent = p.error ? 'Update failed: ' + p.error : p.stage + (p.pct != null ? ` ${p.pct}%` : '');
+  const lnk = $('check-updates');
+  if (lnk && p.stage) {
+    lnk.textContent = p.error ? 'Update failed' : `${p.stage}${p.pct != null ? ' ' + p.pct + '%' : '...'}`;
+  }
 });
 $('check-updates').onclick = async (e) => {
   e.preventDefault();
-  const info = await window.agw.checkUpdates();
-  if (info.error) alert('Could not check for updates: ' + info.error);
-  else if (!info.available) alert(`You're up to date (${info.current}).`);
-  else if (info.canInstall && confirm(`Version ${info.latest} is available. Update now? The app will restart.`)) $('upd-install')?.click();
+  const lnk = $('check-updates');
+  const oldText = 'Check for updates';
+  lnk.textContent = 'Checking...';
+  lnk.style.pointerEvents = 'none';
+  try {
+    const info = await window.agw.checkUpdates();
+    if (info.error) {
+      lnk.textContent = 'Check failed: ' + (info.error.length > 25 ? info.error.slice(0, 22) + '...' : info.error);
+      setTimeout(() => { lnk.textContent = oldText; lnk.style.pointerEvents = ''; }, 4000);
+    } else if (!info.available) {
+      lnk.textContent = `✓ Up to date (${info.current})`;
+      setTimeout(() => { lnk.textContent = oldText; lnk.style.pointerEvents = ''; }, 3000);
+    } else if (info.canInstall) {
+      lnk.textContent = `Updating to v${info.latest}...`;
+      const btn = $('upd-install');
+      if (btn) btn.click();
+      else await window.agw.installUpdate();
+    }
+  } catch (err) {
+    lnk.textContent = 'Error: ' + err.message;
+    setTimeout(() => { lnk.textContent = oldText; lnk.style.pointerEvents = ''; }, 4000);
+  }
 };
 
 window.agw.appInfo().then((i) => { $('version').textContent = 'v' + i.version; });
