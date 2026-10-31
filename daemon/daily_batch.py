@@ -769,6 +769,15 @@ class DailyBatchEngine:
                     details=c_dt,
                     prompt=c.get("prompt")
                 )
+                p_hash = abs(hash(str(c.get("persona_name") or c["persona_id"]))) % 4
+                if p_hash == 0:
+                    c_cadence = "Single-bubble purist (always 1 clean message, never splits into multiple bubbles)"
+                elif p_hash == 1:
+                    c_cadence = "Concise & direct (1 message usually, 5-12 words, rare follow-up)"
+                elif p_hash == 2:
+                    c_cadence = "Conversational (occasionally sends 2 short bubbles with ' ||| ' when reacting then expanding)"
+                else:
+                    c_cadence = "Terse lurker (1-6 words or emoji reaction only)"
                 persona_summaries.append(
                     f"- ID: {c['persona_id']}, AccountID: {c['account_id']}, Name: {c['persona_name']}\n"
                     f"  Demographics & Identity: [{demo_info['gender'].upper()}, {demo_info['age_bracket'].upper()}] - {demo_info['vibe']}\n"
@@ -777,6 +786,7 @@ class DailyBatchEngine:
                     f"  Knowledge & Realism Boundaries: {demo_info['knowledge_rule']}\n"
                     f"  Signature Emojis: {emojis} (habit: {emoji_habit})\n"
                     f"  Typing: {typing}\n"
+                    f"  Texting Rhythm: {c_cadence}\n"
                     f"  Brief: {c.get('prompt', '')[:140]}...{mem_str}"
                 )
                 proto_card = self.store.get_persona_protocol_card(c.get('persona_id'))
@@ -812,16 +822,16 @@ class DailyBatchEngine:
                 "TELEGRAM NATIVE EMOJI REACTIONS (15-25% OF TURNS):\n"
                 "- Real people frequently react with emojis (🔥, 😂, 💀, 👍, 👀, 💯, 💪, ❤️) instead of typing text!\n"
                 "- Set: \"reaction\": \"🔥\", \"reply_to_step\": <target step number>, \"text\": \"\"\n\n"
-                "1. WILDLY ASYMMETRICAL LENGTH DIVERSITY:\n"
-                "   - ULTRA-SHORT REACTIONS (25-30% of turns): 1 to 4 words ('lol nah', 'fr tho💀', 'wait what?', 'bro😭', 'same honestly').\n"
-                "   - QUICK TAKES & QUESTIONS (40-45% of turns): 5 to 14 words.\n"
-                "   - DETAILED REPLIES (25-30% of turns): 18 to 45 words.\n"
-                "   - MANDATORY MULTI-MESSAGE BURSTS (50-70% of turns): Real texters rarely send single neat paragraphs. Send 2 to 3 consecutive short bubbles separated by ' ||| '.\n"
-                "     Examples:\n"
-                "       'wait lol ||| did you actually try that? ||| thought you were on a cruise'\n"
-                "       'nah tbh ||| pinning daily gives zero pip'\n"
-                "       'bro what 💀 ||| who told you that bs'\n"
-                "   - STRICT ANTI-AI CHAT RULES: Real Telegram chat is fast, casual, and opinionated. Write mostly in lowercase, drop punctuation on short texts, use natural slang ('nah', 'fr', 'ngl', 'tbh', 'rn', 'wild', 'smh', 'bro', 'lol', 'lmao', 'rip', '💀', '😭'), and share personal lifting opinions rather than neutral essays.\n\n"
+                "1. ASYMMETRICAL LENGTH & NATURAL CADENCE (ANTI-PATTERN MANDATE):\n"
+                "   - DO NOT MAKE EVERYONE SOUND LIKE THE SAME AUTHOR!\n"
+                "   - NO MECHANICAL 2-MESSAGE BURSTS: 75-80% of messages MUST be single standalone bubbles. Real people do NOT send 2 back-to-back texts on every turn!\n"
+                "   - Only occasionally (15-25%), when reacting quickly and then adding an afterthought, use ' ||| ' between two short bubbles.\n"
+                "   - FORBID UNIFORM OPENERS: Consecutive messages MUST NOT start with the same reaction words ('nah', 'bro', 'wait'). Mix up sentence beginnings: start with verbs, direct answers, questions, or short gym shorthand.\n"
+                "   - WILD LENGTH ASYMMETRY:\n"
+                "     * ULTRA-SHORT (25-30% of turns): 1 to 5 words ('same honestly', 'clean numbers', 'definitely not', 'which compound?', 'zero pip for me').\n"
+                "     * QUICK TAKES & QUESTIONS (45-50% of turns): 6 to 14 words.\n"
+                "     * OCCASIONAL ELABORATION (20-25% of turns): 15 to 30 words.\n"
+                "   - NO CANNED SLANG CLUSTERS: Avoid cramming generic internet clichés ('fr tho', 'ngl tbh', skull emojis) into every turn. Personas have their own distinct vocabulary based on their Demographics & Speech Profile.\n\n"
                 "2. GENUINE TELEGRAM REPLIES & THREADING:\n"
                 "   - When responding or bantering, specify 'reply_to_step': <0-indexed step of target message in this session>.\n"
                 "   - If starting a new point or opening remark, set 'reply_to_step': null.\n\n"
@@ -979,7 +989,17 @@ class DailyBatchEngine:
                 )
                 item_id = cur_item.lastrowid
 
-                batch_bubbles = self.ai.split_burst_bubbles(text, names=cand_names, burstiness_pct=75)
+                c_burst = 25
+                if pid:
+                    for cand_item in candidates:
+                        if cand_item.get("persona_id") == pid:
+                            try:
+                                dt_val = json.loads(cand_item["details"]) if isinstance(cand_item.get("details"), str) else (cand_item.get("details") or {})
+                                c_burst = int(dt_val.get("burstiness") or dt_val.get("burstiness_percent") or 25)
+                            except Exception:
+                                c_burst = 25
+                            break
+                batch_bubbles = self.ai.split_burst_bubbles(text, names=cand_names, burstiness_pct=c_burst)
                 if not batch_bubbles:
                     batch_bubbles = [text]
                 self.store.enqueue(

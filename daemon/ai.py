@@ -246,10 +246,11 @@ def format_telegram_message(text, names=None, max_chars=360, strip_tags=None):
     return _clean_single_telegram_bubble(text, names=names, max_chars=max_chars, strip_tags=strip_tags)
 
 
-def split_burst_bubbles(text, names=None, burstiness_pct=75, max_chars=360):
-    """Splits a message into 1 to 3 distinct Telegram message bubbles for authentic multi-message texting.
-    Handles explicit markers (' ||| '), conversational interjections, and natural sentence/clause splitting
-    calibrated by persona burstiness.
+def split_burst_bubbles(text, names=None, burstiness_pct=25, max_chars=360):
+    """Splits a message into distinct Telegram bubbles for authentic texting.
+    Only splits when explicit burst markers (' ||| ') were deliberately generated, or when
+    persona burstiness rolls a rare natural follow-up. Never mechanically chops single sentences at commas
+    or conjunctions.
     """
     if not text:
         return []
@@ -260,51 +261,43 @@ def split_burst_bubbles(text, names=None, burstiness_pct=75, max_chars=360):
             parts = [_clean_single_telegram_bubble(p, names=names, max_chars=max_chars) for p in text.split(sep)]
             bubbles = [p for p in parts if p]
             if len(bubbles) > 1:
-                return bubbles[:4]
+                return bubbles[:3]
 
     # Clean the single text
     cleaned = _clean_single_telegram_bubble(text, names=names, max_chars=max_chars)
     if not cleaned:
         return []
 
-    # 2. Check paragraph / newline split
-    if "\n" in text:
-        paras = [_clean_single_telegram_bubble(p, names=names, max_chars=max_chars) for p in text.splitlines() if p.strip()]
+    # 2. Check explicit double-newline paragraph break
+    if "\n\n" in text:
+        paras = [_clean_single_telegram_bubble(p, names=names, max_chars=max_chars) for p in text.split("\n\n") if p.strip()]
         paras = [p for p in paras if p]
-        if 1 < len(paras) <= 3:
-            return paras[:3]
+        if 1 < len(paras) <= 2:
+            return paras[:2]
 
-    pct = float(burstiness_pct if burstiness_pct is not None else 75)
+    pct = float(burstiness_pct if burstiness_pct is not None else 25)
 
-    # 3. Conversational interjection / reaction opener split (authentic mobile habit)
-    interjection_match = re.match(
-        r"^(wait (?:nah|bro|what|hold up)|nah (?:bro|fr|tbh|man)|bro (?:honestly|listen|fr|what)|lol (?:nah|yeah|bro)|lmaooo?|fr though?|same (?:here|honestly)|100%|idk (?:tbh|man)|yo|nah)\s*[,.!?—\-]\s*(.+)$",
-        cleaned,
-        re.IGNORECASE
-    )
-    if interjection_match and pct >= 15:
-        opener = interjection_match.group(1).strip()
-        rest = interjection_match.group(2).strip()
-        if 2 <= len(opener) <= 35 and 4 <= len(rest) <= 240:
-            return [opener, rest]
+    # 3. Conversational interjection opener split only for high-burstiness personas (rare, 15% roll)
+    if pct >= 50:
+        interjection_match = re.match(
+            r"^(wait (?:nah|bro|what|hold up)|nah (?:bro|fr|tbh|man)|bro (?:honestly|listen|fr|what)|lol (?:nah|yeah|bro)|lmaooo?|fr though?|same (?:here|honestly)|100%|idk (?:tbh|man)|yo|nah)\s*[,.!?—\-]\s*(.+)$",
+            cleaned,
+            re.IGNORECASE
+        )
+        if interjection_match and random.random() < 0.15:
+            opener = interjection_match.group(1).strip()
+            rest = interjection_match.group(2).strip()
+            if 2 <= len(opener) <= 25 and 6 <= len(rest) <= 240:
+                return [opener, rest]
 
-    # 4. Multi-sentence splitting based on persona burstiness
-    roll_chance = max(0.40, min(0.95, 0.40 + (pct / 100.0) * 0.50))
+    # 4. Multi-sentence splitting based on persona burstiness (capped at 20% roll max)
+    roll_chance = min(0.20, (pct / 100.0) * 0.20)
     if random.random() < roll_chance:
         sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+', cleaned) if s.strip()]
         if len(sentences) == 2:
             s1, s2 = sentences[0], sentences[1]
-            if 3 <= len(s1) <= 180 and 4 <= len(s2) <= 240:
+            if 3 <= len(s1) <= 120 and 4 <= len(s2) <= 180:
                 return [s1, s2]
-        elif len(sentences) >= 3 and pct >= 35:
-            if all(3 <= len(s) <= 150 for s in sentences[:3]):
-                return sentences[:3]
-
-        # 5. Long single sentence split on comma / conjunction if > 45 chars
-        if len(cleaned) > 45 and pct >= 40:
-            clauses = [c.strip() for c in re.split(r"\s*[,;—]\s*|\s+(?:and|but|so|because)\s+", cleaned) if c.strip()]
-            if len(clauses) >= 2 and all(len(c) >= 6 for c in clauses[:2]):
-                return clauses[:2]
 
     return [cleaned]
 
@@ -472,23 +465,23 @@ async def draft_reply_with_meta(settings, title, persona, msgs, trigger_sender=N
     if p_tier == "aggressive_low_patience":
         if p_low_pat and not (is_admin or (trigger_sender and "xbiolabs" in trigger_sender.lower())):
             tone_instruction = (
-                "- RAW, AGGRESSIVE & LOW-PATIENCE INTERNET VERNACULAR (ACTIVE): "
-                "You have ZERO patience for corporate politeness, hand-holding, or dumb questions right now. "
-                "Text like a raw, blunt internet regular with zero filter: Use dismissive, sharp internet vernacular "
-                "('bro what are you even saying rn', 'who told you that bs💀', 'are you serious with this question', 'lol nah', "
-                "'stop overthinking simple shit and just train', 'zero chance', 'why would you even touch that'). "
-                "Never comfort, sugarcoat, or use polite customer-support phrasing. Cut straight through nonsense with sharp reality checks. "
-                "Keep it short, biting, and punchy (1 to 2 short sentences or rapid burst). No polite preamble."
+                "- RAW, DIRECT & LOW-PATIENCE PEER (ACTIVE): "
+                "You have zero patience for overthinking, hand-holding, or repetitive questions right now. "
+                "Be blunt and cut straight through nonsense with concise reality checks ('stop overcomplicating simple shit and just train', "
+                "'why would you even touch that dosage', 'zero chance that works', 'you are overthinking it'). "
+                "Never comfort, sugarcoat, or use polite customer-support phrasing. "
+                "Keep it short, direct, and punchy (1 to 2 direct sentences). No polite preamble."
             )
         else:
             tone_instruction = (
                 "- BLUNT & INFORMAL PEER: You are direct, punchy, and informal. You don't sugarcoat or waste words, but you aren't raging right now. "
-                "Give the direct verdict in 1-2 short sentences without corporate fluff ('clean numbers bro', 'drop caffeine after 1pm', '2ml is standard')."
+                "Give the direct verdict in 1-2 short sentences without corporate fluff ('clean numbers', 'drop caffeine after 1pm', '2ml is standard')."
             )
     elif p_tier == "dry_sarcastic":
         tone_instruction = (
-            "- DRY, DEADPAN & SKEPTICAL VERNACULAR: You are unimpressed by hype, drama, or bro-science. "
-            "Drop short, sarcastic, deadpan one-liners or weary reality checks ('sure bro whatever you say', 'rip your sleep schedule', 'fascinating theory💀', 'good luck with that'). "
+            "- DRY, DEADPAN & SKEPTICAL: You are unimpressed by hype, drama, or bro-science. "
+            "Drop short, deadpan one-liners or weary reality checks ('good luck with that sleep schedule', 'sure, if you enjoy wasting money', "
+            "'wild theory honestly', 'let us know how that works out'). "
             "Don't get openly furious, but have zero patience for hype or drama."
         )
     else:  # chill_grounded
@@ -508,14 +501,8 @@ async def draft_reply_with_meta(settings, title, persona, msgs, trigger_sender=N
         "- STRICT BANNED TOPICS: NEVER mention Liver King, raw liver, ancestral tenets, duck eggs memes, or tired 2021 internet tropes. These are permanently banned from the group.",
         "- STRICT ZERO @TAGS / USERNAMES MANDATE: NEVER include @tags, usernames, or @handles in your message (NO '@handle', NO '@xbiolabs', NO '@username'). Real Telegram users use the native reply feature instead of typing usernames into message text. When replying or answering someone, just speak directly to them without tagging their name or handle.",
         "- TEAMMATE CHIME-IN DYNAMICS (CRITICAL): When chiming in as a follow-up after a peer spoke, NEVER echo their factual advice, numbers, compound dosages, or instructions! Only offer brief peer backing ('what he said', 'same here'), a quick personal angle/joke, or a short anecdotal nuance. Keep it punchy and brief (3 to 15 words).",
-        "- MANDATORY MULTI-BUBBLE BURSTS (REAL MOBILE TEXTING): Real humans texting on Telegram send 2 or 3 short messages back-to-back (60-80% of the time) instead of a single wall of text!",
-        "  Separate distinct consecutive bubbles using ' ||| '. Bubble 1 is the immediate reaction or opener, Bubble 2 is the take or advice, Bubble 3 is the follow-up question or thought.",
-        "  Examples:",
-        "    'wait what💀 ||| who told you to take that much?'",
-        "    'nah bro ||| 500mg first cycle is completely overkill ||| start at 250-300 and check bloods'",
-        "    'clean PR honestly ||| form was tight'",
-        "    'dm admin ||| he will get your order sorted'",
-        "- STRICT ANTI-AI VERNACULAR (MANDATORY): Never sound like an AI assistant, article, or corporate FAQ. Real lifters text casually, mostly in lowercase, drop punctuation on short texts, use slang ('nah', 'fr', 'tbh', 'ngl', 'rn', 'smh', 'bro', 'rip', 'wild', '💀', '😭'), and share personal anecdotal experience rather than academic textbooks.",
+        "- NATURAL TEXTING CADENCE (DEFAULT SINGLE BUBBLE): In real Telegram messaging, most replies (80%+) are a SINGLE natural message. Do NOT force multiple messages or split sentences into chunks. Only if you naturally have an immediate short reaction followed by a distinct afterthought, separate them with ' ||| ' (max 2 bubbles). Most of the time, just write one clean message.",
+        "- DISTINCT INDIVIDUAL VOICE (ANTI-CLICHE MANDATE): Never sound like an AI assistant or corporate FAQ, but ALSO avoid recycling generic internet clichés ('fr tho', 'ngl tbh', 'wait what', skull emojis) into every sentence. Text with genuine variety: direct answers, personal lifting observations, and casual gym shorthand without sounding like a meme template.",
         "- GROUP ADMIN & OWNER: Understand that the group owner/admin processes all orders. When admin speaks, reply naturally and respectfully. If someone asks about ordering, tracking, payments, or product purity, affirm from personal positive experience ('orders landed clean for me', 'zero pip, test was verified') and point them directly to admin ('dm admin he will get you sorted', 'ask admin for tracking'). NEVER type @tags or usernames.",
         tone_instruction,
         "- Output ONLY the raw telegram message text."

@@ -1518,7 +1518,7 @@ class Daemon:
                 human_ctx = self.memory.get_human_context(job["chat_id"], trigger_sender)
 
                 # Resolve persona details & burstiness prior to drafting
-                burstiness = 75
+                burstiness = 25
                 eff_pid = p.get("persona_id")
                 dt = None
                 p_disp_name = p.get("persona_name") or p.get("name")
@@ -1626,7 +1626,7 @@ class Daemon:
                     acc_p = self.store.rows("SELECT persona_id FROM accounts WHERE id=?", (aid,))
                     eff_pid = acc_p[0]["persona_id"] if acc_p else None
 
-                burstiness = 75
+                burstiness = 25
                 if eff_pid:
                     p_row = self.store.rows("SELECT details FROM personas WHERE id=?", (eff_pid,))
                     if p_row and p_row[0].get("details"):
@@ -1773,7 +1773,7 @@ class Daemon:
                     acc_p = self.store.rows("SELECT persona_id FROM accounts WHERE id=?", (aid,))
                     eff_pid = acc_p[0]["persona_id"] if acc_p else None
 
-                burstiness = 75
+                burstiness = 25
                 if eff_pid:
                     p_row = self.store.rows("SELECT details FROM personas WHERE id=?", (eff_pid,))
                     if p_row and p_row[0].get("details"):
@@ -1866,7 +1866,7 @@ class Daemon:
                     acc_p = self.store.rows("SELECT persona_id FROM accounts WHERE id=?", (aid,))
                     eff_pid = acc_p[0]["persona_id"] if acc_p else None
 
-                burstiness = 75
+                burstiness = 25
                 if eff_pid:
                     p_row = self.store.rows("SELECT details FROM personas WHERE id=?", (eff_pid,))
                     if p_row and p_row[0].get("details"):
@@ -1906,7 +1906,7 @@ class Daemon:
                 aid = p.get("account_id")
                 peer_id = job["chat_id"]
                 pid = p.get("persona_id")
-                burstiness = 75
+                burstiness = 25
                 persona_row = self.store.rows("SELECT * FROM personas WHERE id=?", (pid,)) if pid else []
                 if persona_row and persona_row[0].get("details"):
                     try:
