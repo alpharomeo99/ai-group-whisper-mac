@@ -586,10 +586,9 @@ def fallback_industrial_persona(params=None):
         },
         "sleep_start": float([22.5, 23.5, 1.0, 3.0, 5.0, 21.5][sum(ord(c) for c in name) % 6]),
         "sleep_end": float([6.0, 7.5, 8.5, 10.5, 12.5, 5.0][sum(ord(c) for c in name) % 6]),
-        "peak_hour": float([13.0, 15.0, 17.0, 20.0, 22.0, 12.0][sum(ord(c) for c in name) % 6]),
         "tz_offset": float(((sum(ord(c) for c in name) % 7) - 3) * 1.0),
         "chronotype": ["early_bird", "standard", "moderate_night_owl", "late_night_owl", "graveyard_shift", "morning_athlete"][sum(ord(c) for c in name) % 6],
-        "peak_hour": int(params.get("peak_hour") or random.choice([18, 19, 20, 21, 22]))
+        "peak_hour": int(params.get("peak_hour") or [13, 15, 17, 20, 22, 12][sum(ord(c) for c in name) % 6])
     }
 
     data["prompt"] = compile_industrial_prompt(data)

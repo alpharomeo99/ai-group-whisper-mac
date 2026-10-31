@@ -1006,6 +1006,14 @@ class Store:
         spent = self.get_daily_reply_spend()
         return (spent < cap), spent, cap
 
+    def checkpoint_wal(self):
+        """Executes a passive WAL checkpoint to prevent -wal log files from accumulating unboundedly."""
+        with self.lock:
+            try:
+                self.db.execute("PRAGMA wal_checkpoint(PASSIVE);")
+            except Exception:
+                pass
+
     def reset_daily_spend(self):
         """Resets today's tracked AI spend so testing or capped days can be continued immediately."""
         today_start = self.get_today_start_ts()

@@ -112,6 +112,7 @@ class Daemon:
                 await asyncio.sleep(12 * 3600)
                 res = self.memory.prune_memories()
                 log.info("Autonomous memory cleanup completed: %s", res)
+                self.store.checkpoint_wal()
             except asyncio.CancelledError:
                 break
             except Exception as e:
@@ -954,7 +955,7 @@ class Daemon:
                     text_lower = raw_text.lower()
                     for a in all_accounts:
                         uname = (a.get("username") or "").lower().lstrip("@")
-                        if uname and uname != "xbiolabs" and (f"@{uname}" in text_lower or re.search(r"(?:|_)" + re.escape(uname) + r"(?:|_)", text_lower)):
+                        if uname and uname != "xbiolabs" and (f"@{uname}" in text_lower or re.search(r"\b" + re.escape(uname) + r"\b", text_lower)):
                             is_direct = True
                             target_account_id = a["id"]
                             target_persona_id = a.get("persona_id")
@@ -965,7 +966,7 @@ class Daemon:
                     text_lower = raw_text.lower()
                     for p in all_personas:
                         pname = (p.get("name") or "").lower()
-                        if pname and len(pname) >= 2 and re.search(r"(?:|_)" + re.escape(pname) + r"(?:|_)", text_lower):
+                        if pname and len(pname) >= 2 and re.search(r"\b" + re.escape(pname) + r"\b", text_lower):
                             is_direct = True
                             target_persona_id = p["id"]
                             matching_accs = [a for a in all_accounts if a.get("persona_id") == p["id"] and a.get("active", 1)]
@@ -992,6 +993,11 @@ class Daemon:
                     self.store.q(
                         "UPDATE daily_batch_items SET status='postponed', scheduled_ts=? + ABS(RANDOM() % 30) "
                         "WHERE chat_id=? AND status IN ('pending', 'postponed') AND scheduled_ts <= ?",
+                        (now_ts_ev + cooldown_secs, chat_id, now_ts_ev + cooldown_secs)
+                    )
+                    self.store.q(
+                        "UPDATE queue SET not_before=? + ABS(RANDOM() % 25) "
+                        "WHERE chat_id=? AND kind='batch_scheduled_send' AND status='pending' AND not_before <= ?",
                         (now_ts_ev + cooldown_secs, chat_id, now_ts_ev + cooldown_secs)
                     )
                 except Exception as e:
@@ -1530,7 +1536,7 @@ class Daemon:
                         if p_row[0].get("details"):
                             try:
                                 dt = json.loads(p_row[0]["details"] or "{}")
-                                burstiness = int(dt.get("burstiness") or dt.get("burstiness_percent") or 75)
+                                burstiness = int(dt.get("burstiness") or dt.get("burstiness_percent") or 25)
                             except Exception:
                                 dt = None
 
@@ -1632,7 +1638,7 @@ class Daemon:
                     if p_row and p_row[0].get("details"):
                         try:
                             dt = json.loads(p_row[0]["details"] or "{}")
-                            burstiness = int(dt.get("burstiness") or dt.get("burstiness_percent") or 75)
+                            burstiness = int(dt.get("burstiness") or dt.get("burstiness_percent") or 25)
                         except Exception:
                             pass
 
@@ -1779,7 +1785,7 @@ class Daemon:
                     if p_row and p_row[0].get("details"):
                         try:
                             dt = json.loads(p_row[0]["details"] or "{}")
-                            burstiness = int(dt.get("burstiness") or dt.get("burstiness_percent") or 75)
+                            burstiness = int(dt.get("burstiness") or dt.get("burstiness_percent") or 25)
                         except Exception:
                             pass
 
@@ -1872,7 +1878,7 @@ class Daemon:
                     if p_row and p_row[0].get("details"):
                         try:
                             dt = json.loads(p_row[0]["details"] or "{}")
-                            burstiness = int(dt.get("burstiness") or dt.get("burstiness_percent") or 75)
+                            burstiness = int(dt.get("burstiness") or dt.get("burstiness_percent") or 25)
                         except Exception:
                             pass
 
@@ -1911,7 +1917,7 @@ class Daemon:
                 if persona_row and persona_row[0].get("details"):
                     try:
                         dt = json.loads(persona_row[0]["details"] or "{}")
-                        burstiness = int(dt.get("burstiness") or dt.get("burstiness_percent") or 75)
+                        burstiness = int(dt.get("burstiness") or dt.get("burstiness_percent") or 25)
                     except Exception:
                         pass
                 persona_prompt = persona_row[0]["prompt"] if persona_row else "You are chatting 1-on-1 on Telegram. Keep responses natural, human, and direct."
