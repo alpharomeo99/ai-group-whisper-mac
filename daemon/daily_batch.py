@@ -15,7 +15,10 @@ import random
 import re
 import time
 from datetime import datetime
-import ai
+try:
+    import ai
+except ImportError:
+    from . import ai
 
 log = logging.getLogger("whisper.batch")
 
@@ -568,13 +571,19 @@ class DailyBatchEngine:
         if not candidates:
             raise ValueError("No active accounts with personas found for this group. Link personas to accounts first.")
 
-        # 2. Get recent chat context for continuity
+        # 2. Get recent chat context and multi-day condensed conversation history
         recent_msgs = self.store.recent(chat_id, limit=12)
         transcript_lines = []
         for m in recent_msgs:
             if m.get("text"):
                 transcript_lines.append(f"[{m.get('sender', 'Member')}]: {m.get('text')}")
         recent_transcript = "\n".join(transcript_lines) or "(Group chat is fresh / quiet)"
+
+        condensed_history = ""
+        if hasattr(self.store, "get_condensed_conversation_history"):
+            condensed_history = self.store.get_condensed_conversation_history(chat_id, max_msgs=16, lookback_hours=72)
+        if not condensed_history or condensed_history.startswith("("):
+            condensed_history = recent_transcript
 
         # 2B. Build ABSOLUTE ZERO REPETITION blacklist from the last 48 hours
         now_ts = int(time.time())
@@ -694,6 +703,7 @@ class DailyBatchEngine:
         settings = {k: self.store.get(k) for k in ("fal_key", "ai_model")}
 
         sessions_items = []
+        session_digests = []
         for th_idx, (th_theme, th_query, th_count) in enumerate(thread_configs):
             can_batch, spent, cap = self.store.check_batch_budget_available()
             if not can_batch:
@@ -708,6 +718,18 @@ class DailyBatchEngine:
                 "Session 3 Domain [Pop Culture, UFC Fight Recaps, Sports, Crypto/Tech & Late-Night Thoughts]",
             ]
             s_label = domain_labels[th_idx] if th_idx < len(domain_labels) else f"Session {th_idx + 1}"
+
+            if session_digests:
+                intra_day_lines = [f"  * {d}" for d in session_digests]
+                intra_day_context = (
+                    "EARLIER SESSIONS IN TODAY'S CONVERSATION (BUILD FORWARD NATURALLY):\n"
+                    + "\n".join(intra_day_lines) + "\n"
+                    "- CRITICAL: Do NOT restart the chat from scratch with generic openers or re-ask questions answered earlier today.\n"
+                    "- Personas should chat like they have already been active in the room earlier today—transition casually, reference earlier takes, or introduce this new topic naturally."
+                )
+            else:
+                intra_day_context = "EARLIER SESSIONS TODAY: (This is Session 1 - the opening session of today's conversation)."
+
             if th_idx == 0 and transcript_lines and random.random() < 0.25:
                 recent_snippet = " ".join(m.get("text", "") for m in recent_msgs[-3:] if m.get("text"))[:140]
                 topic_prompt = (
@@ -815,6 +837,11 @@ class DailyBatchEngine:
                 "- This asymmetrical friction is what makes the group feel authentic and alive!\n\n"
                 "BANNED MEME TROPES (PERMANENT ZERO-TOLERANCE):\n" \
                 "- NEVER under any circumstance mention Liver King, raw liver ancestral tenets, duck eggs memes, or tired 2021 meme personalities. These are permanently banned from the community.\n\n" \
+                "CONTINUITY WITH PAST CONVERSATIONS & NOVELTY MANDATE:\n" \
+                "- You are given RECENT CONVERSATION HISTORY & ESTABLISHED CONTEXT and EARLIER SESSIONS TODAY.\n" \
+                "- NEVER repeat questions, advice, anecdotes, or facts already discussed in prior sessions or recent chat.\n" \
+                "- Real group members remember what was said earlier today and yesterday. If someone already asked about PCT timing, do not start a debate asking about PCT timing again—move the discussion forward, discuss another compound, or share a real-world workout observation.\n" \
+                "- Avoid formulaic starter lines ('anyone here tried X?'). Real active group members jump in with opinions, quick updates, or observations.\n\n" \
                 "CRITICAL: ABSOLUTE ZERO REPETITION MANDATE (STRICTLY ENFORCED):\n"
                 f"{forbidden_block}\n"
                 "- Do NOT re-ask questions that were already discussed.\n"
@@ -853,12 +880,14 @@ class DailyBatchEngine:
                 f"COMMUNITY GROUP: {group_title}\n"
                 f"ABOUT: {group_about}\n"
                 f"DOMAIN TOPICS: {group_domain}\n\n"
+                f"RECENT CONVERSATION HISTORY & ESTABLISHED CONTEXT:\n{condensed_history}\n\n"
+                f"{intra_day_context}\n\n"
                 f"AVAILABLE PERSONAS:\n{persona_str}\n\n"
                 f"CONVERSATIONAL FOCUS: {topic_prompt}\n\n"
                 f"TASK:\n"
-                f"Create a natural {th_count}-message conversational thread for this session between these personas.\n"
+                f"Create a natural {th_count}-message conversational thread for this session ({s_label}) between these personas.\n"
                 f"Vary message lengths wildly, embrace casual mobile texting shorthand, and never mention Liver King or tired internet memes.\n"
-                "Ensure dialogue strictly adheres to each persona's demographic reality and knowledge boundaries. If a topic touches vintage male bodybuilding or deep niche history, personas like Kami or other young female members must react realistically (confused, casual outside observer, or asking who that is) rather than quoting 1970s contest facts. Return strictly the JSON array."
+                "CONTINUITY MANDATE: Connect organically with the RECENT CONVERSATION HISTORY and EARLIER SESSIONS TODAY. Advance the conversation forward—do NOT repeat topics, advice, or questions already asked. Ensure dialogue strictly adheres to each persona's demographic reality and knowledge boundaries. Return strictly the JSON array."
             )
 
             th_items = []
@@ -904,6 +933,12 @@ class DailyBatchEngine:
                 except Exception as e:
                     log.warning("Formatting error in session %d: %s", th_idx + 1, e)
                 sessions_items.append(th_items)
+
+                # Generate compact algorithmic digest of this session for subsequent sessions and archiving
+                s_speakers = list(dict.fromkeys(it.get("sender_name") for it in th_items if it.get("sender_name")))[:4]
+                s_snippets = [it.get("text", "").replace("\n", " ")[:60] for it in th_items if it.get("text") and not it.get("text", "").startswith("[reaction:")][:3]
+                snippet_str = "; ".join(f"'{s}'" for s in s_snippets)
+                session_digests.append(f"{s_label} [{th_theme[:40]}]: with {', '.join(s_speakers)}. Highlights: {snippet_str}")
 
         now_ts = int(time.time())
         created_items = []
@@ -1036,6 +1071,9 @@ class DailyBatchEngine:
                 session_start_min = last_session_end + random.uniform(8.0, 16.0)
             else:
                 session_start_min = last_session_end + random.uniform(10.0, 20.0)
+
+        if hasattr(self.store, "save_condensed_batch_summary") and session_digests:
+            self.store.save_condensed_batch_summary(chat_id, batch_id, today, session_digests)
 
         if not created_items:
             raise RuntimeError("Failed to generate any valid messages across batch sessions")

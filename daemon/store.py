@@ -1245,3 +1245,98 @@ class Store:
         except Exception:
             return set()
 
+    def get_condensed_conversation_history(self, chat_id, max_msgs=16, lookback_hours=72):
+        """Extracts and condenses recent group conversation history and daily summaries.
+        Provides rich, concise conversational context without consuming LLM tokens/budget.
+        """
+        now = int(time.time())
+        cutoff = now - (lookback_hours * 3600)
+        sections = []
+
+        # 1. Past batch topics from daily_batches
+        try:
+            batch_rows = self.rows(
+                "SELECT date_str, topic FROM daily_batches WHERE chat_id=? AND created_at > ? ORDER BY id DESC LIMIT 4",
+                (chat_id, cutoff)
+            )
+            if batch_rows:
+                topic_lines = []
+                for b in batch_rows:
+                    d_str = b.get("date_str") or "Recently"
+                    top = (b.get("topic") or "").strip()
+                    if top:
+                        topic_lines.append(f"• [{d_str}]: {top[:180]}")
+                if topic_lines:
+                    sections.append("RECENT THEMES ALREADY COVERED (DO NOT REPEAT):\n" + "\n".join(topic_lines))
+        except Exception as e:
+            log.debug("get_condensed_history batch topics error: %s", e)
+
+        # 2. Stored summaries/digests from summaries table
+        try:
+            summary_rows = self.rows(
+                "SELECT body, created FROM summaries WHERE chat_id=? AND created > ? ORDER BY id DESC LIMIT 3",
+                (chat_id, cutoff)
+            )
+            if summary_rows:
+                sum_lines = []
+                for s in summary_rows:
+                    b_text = (s.get("body") or "").strip()
+                    if b_text:
+                        clean_body = re.sub(r"\s+", " ", b_text)[:200]
+                        sum_lines.append(f"• {clean_body}")
+                if sum_lines:
+                    sections.append("PREVIOUS CONVERSATION DIGESTS & NOTES:\n" + "\n".join(sum_lines))
+        except Exception as e:
+            log.debug("get_condensed_history summaries error: %s", e)
+
+        # 3. Recent actual messages from group chat (messages table)
+        msg_lines = []
+        try:
+            recent_msgs = self.rows(
+                "SELECT sender, text, ts FROM messages WHERE chat_id=? AND is_bot=0 AND ts > ? ORDER BY ts DESC LIMIT ?",
+                (chat_id, cutoff, max_msgs)
+            )
+            for m in reversed(recent_msgs):
+                snd = (m.get("sender") or "Member").strip()
+                txt = (m.get("text") or "").strip().replace("\n", " ")
+                if txt and not txt.startswith("[reaction:"):
+                    msg_lines.append(f"[{snd}]: {txt[:120]}")
+        except Exception as e:
+            log.debug("get_condensed_history messages error: %s", e)
+
+        # 4. If recent messages count is low, pull recent persona messages from daily_batch_items
+        if len(msg_lines) < 8:
+            try:
+                batch_items = self.rows(
+                    "SELECT sender_name, text FROM daily_batch_items "
+                    "WHERE chat_id=? AND status IN ('sent', 'pending') AND (scheduled_ts > ? OR created_at > ?) "
+                    "ORDER BY id DESC LIMIT ?",
+                    (chat_id, cutoff, cutoff, max_msgs - len(msg_lines))
+                )
+                for bi in reversed(batch_items):
+                    s_name = (bi.get("sender_name") or "Regular").strip()
+                    s_txt = (bi.get("text") or "").strip().replace("\n", " ")
+                    if s_txt and not s_txt.startswith("[reaction:"):
+                        msg_lines.append(f"[{s_name}]: {s_txt[:120]}")
+            except Exception as e:
+                log.debug("get_condensed_history batch_items error: %s", e)
+
+        if msg_lines:
+            sections.append("RECENT GROUP CHAT TRANSCRIPT (ESTABLISHED DISCUSSIONS):\n" + "\n".join(msg_lines[-max_msgs:]))
+
+        if not sections:
+            return "(Group chat is fresh / quiet. No recent conversation on record.)"
+
+        return "\n\n".join(sections)
+
+    def save_condensed_batch_summary(self, chat_id, batch_id, date_str, session_summaries):
+        """Archives a compact algorithmic summary of today's generated sessions in the summaries table."""
+        try:
+            if not session_summaries:
+                return
+            body = f"[Daily Batch Dialogue Digest {date_str}]\n" + "\n".join(f"• {s}" for s in session_summaries)
+            self.q("INSERT INTO summaries(chat_id, body, created) VALUES(?,?,?)",
+                   (int(chat_id), body[:1000], int(time.time())))
+        except Exception as e:
+            log.debug("save_condensed_batch_summary error: %s", e)
+
