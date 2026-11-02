@@ -37,44 +37,89 @@ STOP_WORDS = {
     'where', 'which', 'while', 'who', 'whom', 'why', 'with', 'you', 'your', 'yours', 'yourself'
 }
 
-SLOT_DEFINITIONS = [
-    ("protocol", "PROTOCOL", 1, [
-        r"\b(?:running|taking|pinning|dosing|on|started|titrating|blasting|cruising)\b.*\b(?:tirz(?:epatide)?|reta(?:trutide)?|sema(?:glutide)?|glp-?1|bpc(?:-?157)?|tb-?500|trt|test|testosterone|cyp|enanthate|prop|tren|deca|anavar|var|dbol|primo|mast|sarms|rad-?140|lgd-?4033|mk-?677|cjc|ipam|gh|hgh|hcg|pct|arimidex|aromasin)\b",
-        r"\b(?:tirz(?:epatide)?|reta(?:trutide)?|sema(?:glutide)?|glp-?1|bpc(?:-?157)?|tb-?500|trt|test|testosterone|cyp|enanthate|tren|deca|anavar|var|dbol|primo|masteron|rad-?140|mk-?677|cjc-?1295|ipamorelin|hgh)\b.*\b(?:\d+\s*(?:mg|mcg|iu|ml)|dose|split|subq|im|bid|ed|eod|weekly|daily)\b",
-        r"\b(?:my current|current)\s+(?:cycle|stack|protocol|dose|split|trt)\b",
-        r"\b(?:reconstituted|bac water|vial|peptides?|reconstitution)\b"
-    ]),
-    ("injury_rehab", "INJURY & REHAB", 2, [
-        r"\b(?:rotator cuff|shoulder|tendon|tendonitis|tendinopathy|golfers? elbow|tennis elbow|knee|patellar|lower back|disc|herniated|sciatica|impingement|tear|sprain|strain|bicep tendon|achilles)\b",
-        r"\b(?:injury|rehab|physical therapy|pt|flare-?up|healing|mobility work|joint pain|nerve pain)\b"
-    ]),
-    ("vendor_order", "ORDERS & SOURCING", 3, [
-        r"\b(?:xbiolabs|xbio)\b",
-        r"\b(?:order|ordered|pack|package|package landed|pack landed|landed today|tracking|usps|label created|carrier|customs|delivery|informed delivery)\b",
-        r"\b(?:janoshik|purity test|coa|third-?party testing|tested at \d+)\b"
-    ]),
-    ("training", "TRAINING & PHYSIQUE", 4, [
-        r"\b(?:push pull legs|ppl|upper lower|bro split|arnold split|hypertrophy|strength program)\b",
-        r"\b(?:bench|squat|deadlift|overhead press|ohp|incline|rdl|pr|1rm)\b",
-        r"\b(?:cutting|bulking|bulk|cut|maintenance|bodyfat|body fat|\d{2,3}\s*lbs|\d{2,3}\s*kg)\b"
-    ]),
-    ("health_labs", "HEALTH & LABS", 5, [
-        r"\b(?:bloodwork|bloods|labs|blood test|panel)\b",
-        r"\b(?:hematocrit|hdl|ldl|lipids|ast|alt|liver enzymes?|creatinine|egfr|estradiol|e2|prolactin|shbg|free test|total test)\b",
-        r"\b(?:blood pressure|bp|sleep score|oura|whoop|resting heart rate|rhr|apnea)\b"
-    ]),
-    ("stances_takes", "CORE BELIEFS", 6, [
-        r"\b(?:i swear by|overrated|underrated|waste of money|garbage|never touching|never again|essential|golden rule|my stance|unpopular opinion)\b",
-        r"\b(?:i (?:always|never) recommend|always verify|slow titration)\b"
-    ]),
-    ("personal_bio", "BACKGROUND", 7, [
-        r"\b(?:years old|\d{2}\s*yo)\b",
-        r"\b(?:i live in|moved to|originally from)\b",
-        r"\b(?:my wife|my gf|girlfriend|my kids?|my son|my daughter)\b",
-        r"\b(?:i work (?:as|in)|my day job|software engineer|construction|finance)\b",
-        r"\b(?:train at \d\s*(?:am|pm)|early morning lifter|garage gym)\b"
-    ])
-]
+SLOT_DEFINITIONS = [   (   'protocol',
+        'PROTOCOL & DOSING',
+        1,
+        [   '\\b(?:running|taking|pinning|dosing|on|started|titrating|blasting|cruising)\\b.*\\b(?:tirz(?:epatide)?|reta(?:trutide)?|sema(?:glutide)?|glp-?1|bpc(?:-?157)?|tb-?500|trt|test|testosterone|cyp|enanthate|prop|tren|deca|anavar|var|dbol|primo|mast|sarms|rad-?140|lgd-?4033|mk-?677|cjc|ipam|gh|hgh|hcg|pct|arimidex|aromasin)\\b',
+            '\\b(?:tirz(?:epatide)?|reta(?:trutide)?|sema(?:glutide)?|glp-?1|bpc(?:-?157)?|tb-?500|trt|test|testosterone|cyp|enanthate|tren|deca|anavar|var|dbol|primo|masteron|rad-?140|mk-?677|cjc-?1295|ipamorelin|hgh)\\b.*\\b(?:\\d+\\s*(?:mg|mcg|iu|ml)|dose|split|subq|im|bid|ed|eod|weekly|daily)\\b',
+            '\\b(?:my '
+            'current|current)\\s+(?:cycle|stack|protocol|dose|split|trt)\\b',
+            '\\b(?:reconstituted|bac water|vial|peptides?|reconstitution)\\b']),
+    (   'injury_rehab',
+        'INJURY & REHAB',
+        2,
+        [   '\\b(?:rotator '
+            'cuff|shoulder|tendon|tendonitis|tendinopathy|golfers? '
+            'elbow|tennis elbow|knee|patellar|lower '
+            'back|disc|herniated|sciatica|impingement|tear|sprain|strain|bicep '
+            'tendon|achilles)\\b',
+            '\\b(?:injury|rehab|physical therapy|pt|flare-?up|healing|mobility '
+            'work|joint pain|nerve pain)\\b']),
+    (   'vendor_order',
+        'ORDERS & SOURCING',
+        3,
+        [   '\\b(?:xbiolabs|xbio)\\b',
+            '\\b(?:order|ordered|pack|package|package landed|pack '
+            'landed|landed today|tracking|usps|label '
+            'created|carrier|customs|delivery|informed delivery)\\b',
+            '\\b(?:janoshik|purity test|coa|third-?party testing|tested at '
+            '\\d+)\\b']),
+    (   'training',
+        'TRAINING & PHYSIQUE',
+        4,
+        [   '\\b(?:push pull legs|ppl|upper lower|bro split|arnold '
+            'split|hypertrophy|strength program)\\b',
+            '\\b(?:bench|squat|deadlift|overhead '
+            'press|ohp|incline|rdl|pr|1rm|hip thrust)\\b',
+            '\\b(?:cutting|bulking|bulk|cut|maintenance|bodyfat|body '
+            'fat|\\d{2,3}\\s*lbs|\\d{2,3}\\s*kg)\\b']),
+    (   'health_labs',
+        'HEALTH & LABS',
+        5,
+        [   '\\b(?:bloodwork|bloods|labs|blood test|panel)\\b',
+            '\\b(?:hematocrit|hdl|ldl|lipids|ast|alt|liver '
+            'enzymes?|creatinine|egfr|estradiol|e2|prolactin|shbg|free '
+            'test|total test)\\b',
+            '\\b(?:blood pressure|bp|sleep score|oura|whoop|resting heart '
+            'rate|rhr|apnea)\\b']),
+    (   'nootropics_work',
+        'WORK & COGNITION',
+        6,
+        [   '\\b(?:modafinil|armodafinil|semax|selank|bromantane|noopept|piracetam|phenylpiracetam|alpha-?gpc|tyrosine|l-?theanine|caffeine)\\b',
+            '\\b(?:deep work|work sprint|brain fog|focus|productivity|remote '
+            'work|slack|zoom|desk|office|overtime|shift|deadline)\\b']),
+    (   'life_dating_humor',
+        'LIFE, DATING & BANTER',
+        7,
+        [   '\\b(?:dating|tinder|hinge|girlfriend|boyfriend|gf|bf|date|first '
+            'date|wife|husband|social life|weekend|party|bar|drinking)\\b',
+            '\\b(?:funny|hilarious|bizarre|gym character|curling in the '
+            'rack|tripod|tiktok|playlist|creami|meal prep fail)\\b']),
+    (   'sports_combat',
+        'SPORTS & COMBAT',
+        8,
+        [   '\\b(?:ufc|mma|bjj|jiu[- '
+            ']?jitsu|grappling|wrestling|boxing|sparring|fight card|fight '
+            'night|open mat|popped rib|rash guard)\\b',
+            '\\b(?:cardio|stamina|conditioning|weight cut|combat)\\b']),
+    (   'stances_takes',
+        'CORE BELIEFS',
+        9,
+        [   '\\b(?:i swear by|overrated|underrated|waste of '
+            'money|garbage|never touching|never again|essential|golden rule|my '
+            'stance|unpopular opinion)\\b',
+            '\\b(?:i (?:always|never) recommend|always verify|slow '
+            'titration)\\b']),
+    (   'personal_bio',
+        'BACKGROUND',
+        10,
+        [   '\\b(?:years old|\\d{2}\\s*yo)\\b',
+            '\\b(?:i live in|moved to|originally from)\\b',
+            '\\b(?:my wife|my gf|girlfriend|my kids?|my son|my daughter)\\b',
+            '\\b(?:i work (?:as|in)|my day job|software '
+            'engineer|construction|finance|marketing)\\b',
+            '\\b(?:train at \\d\\s*(?:am|pm)|early morning lifter|garage '
+            'gym)\\b'])]
 
 HUMAN_SLOT_PATTERNS = [
     ("order_vendor", [
@@ -564,7 +609,7 @@ class MemoryEngine:
             return ""
 
         # Build compact, high-density structured prompt (<180 tokens)
-        lines = ["--- YOUR ACTIVE STATE & CORE MEMORIES (Stay 100% consistent) ---"]
+        lines = ["--- YOUR PERSONAL BACKGROUND & CORE CONTEXT (Internal Only - DO NOT recite unprompted) ---"]
         for slot_key, label, _prio, _pats in SLOT_DEFINITIONS:
             if slot_key in active_slots:
                 lines.append(f"[{label}] {active_slots[slot_key]}")
@@ -574,25 +619,29 @@ class MemoryEngine:
             for ep in selected_episodic:
                 lines.append(f"- {ep}")
 
-        lines.append("Never recite memories verbatim or force them unprompted; let them naturally guide your state and opinions.")
+        lines.append(
+            "- CRITICAL ANTI-REPETITION INSTRUCTION: These are your internal background traits. "
+            "DO NOT recite them unprompted or repeat your exact cycle numbers in chat every day. "
+            "Move conversations forward with fresh observations, questions, or banter."
+        )
         return "\n".join(lines)
 
     def auto_record_statement(self, persona_id, account_id, chat_id, text, is_reply_to=None):
-        """Parses outgoing persona message text and autonomously updates domain slots or records episodic facts."""
+        """Parses outgoing persona message text and autonomously updates domain slots or records genuine biographical facts."""
         clean = clean_memory_text((text or "").strip())
-        if not clean or len(clean) < 8:
+        if not clean or len(clean) < 10:
             return None
 
-        # Filter out generic chatter noise
-        if re.match(r"^(ok|okay|yes|no|thanks|thx|lol|haha|sure|sounds good|fr|facts|true)[.!?\s]*$", clean, re.IGNORECASE):
+        # Filter out generic chatter noise, brief reactions, and casual banter
+        if re.match(r"^(ok|okay|yes|no|thanks|thx|lol|haha|sure|sounds good|fr|facts|true|same|definitely|clean|solid)[.!?\s]*$", clean, re.IGNORECASE):
             return None
 
-        # Do not record vendor complaint hallucinations into memory
+        # Do not record vendor complaint hallucinations
         if any(bad in clean.lower() for bad in ["payment portal", "weak batch", "card processor", "recurring nightmare", "bad vial", "shit show", "bugging out"]):
             return None
 
-        # Questions are not biographical facts
-        if clean.endswith("?") or re.match(r"^(what|why|how|where|when|who|is|are|does|can|could|did|anyone|anybody)\b", clean.lower()):
+        # Questions and generic advice are not personal biographical facts
+        if clean.endswith("?") or re.match(r"^(what|why|how|where|when|who|is|are|does|can|could|did|anyone|anybody|check out|try|you should|make sure|always)", clean.lower()):
             return None
 
         # Check for domain slot match
@@ -607,32 +656,17 @@ class MemoryEngine:
                 salience=0.95
             )
 
-        # First-person biographical patterns
+        # First-person biographical patterns (ONLY store actual first-person personal facts)
         first_person_patterns = [
-            r"\b(?:i am|i'm|im|i have been|i've been)\s+(?:running|taking|pinning|dosing|on)\b",
-            r"\b(?:my|my current)\s+(?:cycle|stack|protocol|dose|split|routine)\b",
-            r"\bi\s+(?:run|take|pin|dose|reconstituted|started)\s+\d+",
-            r"\b(?:my bloodwork|my labs|my injury|my tendon|my shoulder|my knee)\b"
+            r"(?:i am|i'm|im|i have been|i've been)\s+(?:running|taking|pinning|dosing|on|eating|training|cutting|bulking)",
+            r"(?:my|my current)\s+(?:cycle|stack|protocol|dose|split|routine|diet|weight|job|career)",
+            r"i\s+(?:run|take|pin|dose|reconstituted|started|stopped|switched to|dropped|upped|weighed in at)\s+\d+",
+            r"(?:my bloodwork|my labs|my injury|my tendon|my shoulder|my knee|my elbow|my sleep score)",
+            r"(?:i work as|my day job|i just got|i moved to|i train at)"
         ]
         is_first_person_fact = any(re.search(pat, clean.lower()) for pat in first_person_patterns)
-
-        is_substantial = any(kw in clean.lower() for kw in [
-            "workout", "gym", "squat", "bench", "deadlift", "sets", "reps", "sleep", "recovery",
-            "batch", "order", "shipping", "xbiolabs", "janoshik", "experience", "felt", "works",
-            "bpc", "tb500", "tirz", "reta", "sema", "trt", "bac", "reconstitution",
-            "nootropics", "semax", "selank", "bromantane", "modafinil", "tyrosine", "alpha-gpc",
-            "magnesium", "sauna", "cold plunge", "electrolytes", "hypertrophy", "bulk", "cut", "diet"
-        ])
-
-        if is_first_person_fact:
-            tier = "long"
-            salience = 0.95
-        elif is_substantial:
-            tier = "medium"
-            salience = 0.75
-        else:
-            tier = "short"
-            salience = 0.45
+        if not is_first_person_fact:
+            return None
 
         return self.add_memory(
             persona_id=persona_id,
@@ -640,8 +674,8 @@ class MemoryEngine:
             account_id=account_id,
             chat_id=chat_id,
             kind="statement",
-            retention_tier=tier,
-            salience=salience
+            retention_tier="long",
+            salience=0.95
         )
 
     def record_human_interaction(self, chat_id, sender_name, sender_id=None, sender_username=None, text=""):

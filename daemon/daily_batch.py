@@ -84,286 +84,953 @@ def format_relationship_graph(candidates):
 # COMPREHENSIVE 3-SESSION CONVERSATIONAL THEME REPOSITORY (270 TOTAL THEMES)
 # ======================================================================
 # Session 1: Peptides, Compounds, TRT, Bloodwork & Recovery Protocols (90 themes)
-SESSION_1_THEMES = [
-    ("Tendon & joint healing protocols: BPC-157 vs TB-500 experiences, golfer's elbow, rotator cuff flare-ups, recovery timelines.", "bpc tb500 healing tendon joint elbow"),
-    ("GLP-1 appetite suppression & cutting: Tirzepatide vs Retatrutide vs Semaglutide, 'food noise' going silent, nausea management, dosing titration.", "tirz reta sema glp1 food noise cut appetite"),
-    ("Growth hormone secretagogues: CJC-1295 / Ipamorelin vs MK-677, vivid REM dreams, morning water retention, tingling hands and skin glow.", "cjc ipam mk677 gh dreams sleep growth"),
-    ("Skin, hair & anti-aging peptides: GHK-Cu copper peptide injections vs topicals, sting management, Epithalon cellular longevity protocols.", "ghk copper epithalon skin hair antiaging"),
-    ("Reconstitution chemistry & gear prep: BAC water ratios, insulin syringe gauge (29g vs 31g), fridge storage, preventing peptide degradation.", "recon bac water insulin syringe storage fridge math"),
-    ("Peptides while traveling: flying through airport security with pre-mixed pens, cooling travel cases, TSA experiences.", "travel airport tsa cooling pen flight carryon"),
-    ("Nootropic peptides & cognitive drive: Semax, Selank, Bromantane, conquering afternoon brain fog and workplace focus.", "semax selank bromantane nootropic focus cognitive"),
-    ("Mitochondrial & endurance peptides: MOTS-c, SS-31, cellular energy output, cardio stamina boosts.", "mots ss31 mitochondria energy cardio endurance"),
-    ("Third-party lab testing & HPLC verification: reading purity percentages, endotoxin testing, why cheap underground vendors cut corners.", "hplc coa purity test lab vendor testing"),
-    ("Appetite ramp-ups for hardgainers: MK-677 hunger spikes, waking up at 3am raiding the fridge, managing insulin sensitivity.", "mk677 hunger appetite bulk fridge glucose"),
-    ("Post-injury rehab milestones: combining physiotherapy, eccentrics, and tissue-repair peptides to get back under heavy barbells.", "rehab injury physio squat bench recovery"),
-    ("Subq vs shallow IM injection debate: absorption rates, lumps/bruising, needle anxiety vs smooth pin routines.", "subq im injection pin needle bruise site"),
-    ("TRT clinic optimization: navigating clinics vs self-prescribing, dialing in 100-150mg/wk, twice weekly vs microdosing every day.", "trt clinic testosterone dose frequency protocol"),
-    ("High hematocrit & RBC management: donating whole blood vs therapeutic phlebotomy, staying hydrated, cardio for blood viscosity.", "hematocrit rbc blood donation hydration viscosity trt"),
-    ("Estrogen management & sides: puffy nipples, mood swings, water retention, why crashing E2 with too much Arimidex feels like death.", "estrogen e2 arimidex aromasin sides nipple ai"),
-    ("Pinning soreness (PIP) horror stories: virgin muscle pip, quad pinning regrets vs smooth ventroglute, warming vials before drawing.", "pip injection pain ventroglute quad delt soreness"),
-    ("Bloodwork deep-dive: analyzing liver enzymes (AST/ALT), kidney eGFR, lipid panels (HDL/LDL), and when to worry vs stay chill.", "bloodwork labs ast alt hdl ldl lipids kidneys"),
-    ("Hair loss & DHT sensitivity: finasteride, dutasteride, topical minoxidil, RU58841, deciding whether the hair or the delts matter more.", "hair shedding dht finasteride minoxidil baldness delts"),
-    ("Cardiovascular protection on cycle: daily fish oil, citrus bergamot, CoQ10, telmisartan, monitoring resting heart rate and blood pressure.", "cardio heart blood pressure citrus bergamot bp fish oil"),
-    ("Acne & skin flare-ups: backne breakout solutions, salicylic acid washes, benzoyl peroxide, when people resort to low-dose accutane.", "acne backne skin breakout accutane wash clear"),
-    ("Blast & Cruise vs cycling off (PCT): why modern lifters abandon PCT, the mental crash of coming off, committing to testosterone for life.", "blast cruise pct nolva clomid crash cruise off"),
-    ("Oral compounds debate: Anavar vs Turinabol vs Dianabol, pump back pumps, liver toxicity, why orals are overrated vs injectables.", "anavar tbol dbol orals pumps liver toxic"),
-    ("Masteron vs Primobolan: cosmetic dry look, anti-estrogenic feeling, DHT fullness, dealing with counterfeit primo.", "primo masteron mast dry cosmetic dht fake"),
-    ("First cycle regrets & mistakes: running too much too early, not having bloods done first, listening to bro-science at local gyms.", "first cycle mistake regret bloodwork broscience beginner"),
-    ("Golden era bodybuilding aesthetics vs modern mass: Arnold, Frank Zane, Serge Nubret vs modern 280lb mass monsters with gut distension.", "golden era arnold zane aesthetic vacuum gut mass"),
-    ("Sleep apnea & heavy lifter breathing: thick necks, snoring, CPAP machines changing life quality and daytime fatigue.", "sleep apnea cpap snore breathing neck fatigue"),
-    ("RAD-140 (Testolone) experiences: aggressive gym drive, dry vascularity, joint stiffness, suppression timeline.", "rad140 testolone strength dry aggression joints"),
-    ("LGD-4033 (Ligandrol) fullness vs water bloat: crazy glycogen storage, strength increases, post-cycle fatigue.", "lgd4033 ligandrol pumps bulk water bloat"),
-    ("Ostarine (MK-2866) realistic expectations: mild recomp, saving muscle in a steep calorie deficit, joint soothing.", "ostarine mk2866 cut recomp joints mild"),
-    ("Cardarine (GW-501516) unlimited cardio engine: dropping 5k run times, stamina, the infamous rodent cancer study debate.", "cardarine gw501516 cardio stamina endurance 5k"),
-    ("Enclomiphene as a test base: keeping LH and FSH alive during research chemical runs, eye floaters risk, source purity.", "enclomiphene enclo test base lh fsh floaters"),
-    ("SARM liquid vs capsules: horrible ethanol / PEG taste, dosing accuracy with oral syringes, sublingual myths.", "sarms liquid peg taste oral syringe dosing dropper"),
-    ("SARM goblin culture & TikTok hype: teenagers taking compounds without knowing what testosterone is, gym memes.", "sarm goblin tiktok teen gym memes hype"),
-    ("Suppression bloodwork: waking up with zero morning wood, feeling lethargic week 5, getting real blood panels.", "suppression libido bloodwork lethargy test drop"),
-    ("BPC-157 oral arginate vs subq acetate: gut healing, Crohn's/IBS flare-ups, systemic bioavailability differences.", "bpc arginate acetate oral subq gut ibs bioavailability"),
-    ("TB-500 systemic migration vs local site pinning: muscle belly tears, hamstring strains, tissue remodeling.", "tb500 systemic migration local pin muscle tear hamstring strain"),
-    ("GHK-Cu injection burn solutions: dilution ratios with BAC water, combining with BPC-157 in the same barrel to kill sting.", "ghk copper sting burn dilute bac water bpc barrel combo"),
-    ("CJC-1295 no DAC vs DAC: half-life mechanics, pulsatile GH release vs constant somatotroph stimulation and pituitary bleed.", "cjc no dac dac half life somatotroph gh pulse pituitary"),
-    ("Ipamorelin vs GHRP-2 / GHRP-6: avoiding prolactin and cortisol spikes, clean GH release without insane midnight hunger.", "ipamorelin ghrp2 ghrp6 prolactin cortisol hunger gh spike"),
-    ("Epithalon (Epitalon) longevity protocol: 10-day bi-annual cycles, pineal gland reset, endogenous melatonin, deep restorative sleep.", "epithalon epitalon telomere pineal melatonin sleep longevity"),
-    ("Selank & Semax intranasal dosing: acute cognitive focus during heavy workloads, BDNF stimulation, zero-jitter anxiety relief.", "selank semax intranasal bdnf cognitive focus anxiety work"),
-    ("MOTS-c metabolic peptide timing: morning fasted cardio administration, fatty acid oxidation, endurance capacity, GLUT4 translocation.", "motsc mitochondria fasted cardio fat oxidation endurance glut4"),
-    ("SS-31 mitochondrial repair: cardiolipin targeting, cellular ATP restoration, chronic fatigue relief, cardiac tissue recovery.", "ss31 mitochondria cardiolipin atp fatigue cellular recovery"),
-    ("AOD-9604 vs Fragment 176-191: fasted morning fat burning, lipolysis without affecting blood glucose or IGF-1 spikes.", "aod9604 fragment 176 191 lipolysis fat burn fasting glucose igf1"),
-    ("Tesofensine appetite suppression: dopamine and noradrenaline reuptake, laser focus, dry mouth, keeping caloric deficits effortless.", "tesofensine dopamine noradrenaline appetite deficit cut laser focus"),
-    ("KPV anti-inflammatory tripeptide: gut mucosal healing, colitis relief, systemic inflammation, antimicrobial properties.", "kpv tripeptide inflammation gut colitis mucosal healing antimicrobial"),
-    ("ARA-290 for peripheral neuropathy: repairing damaged nerve endings, burning nerve pain relief without raising hematocrit.", "ara290 neuropathy nerve repair burning pain rbc erythropoietin"),
-    ("PT-141 (Bremelanotide) timing & experience: CNS melanocortin receptor stimulation, timing 4-6 hours prior, transient flushing and mild nausea.", "pt141 bremelanotide libido melanocortin timing nausea flush"),
-    ("Melanotan II (MT-2) summer dosing: micro-dosing to avoid facial freckles, rapid tan with minimal UV, spontaneous erections.", "melanotan mt2 tan freckles uv sun libido erections microdose"),
-    ("IGF-1 LR3 vs DES: pre-workout vs post-workout, intense pumps, hypoglycemia management, muscle nutrient shuttling.", "igf1 lr3 des pump hypoglycemia preworkout postworkout shuttling"),
-    ("PEG-MGF (Mechano Growth Factor): localized muscle recovery after brutal eccentric workouts, satellite cell activation.", "peg mgf mechano growth factor eccentric satellite cell repair"),
-    ("Thymosin Alpha-1 immune defense: warding off flu season, T-cell activation, keeping training uninterrupted while others get sick.", "thymosin alpha1 immune tcell infection illness defense flu"),
-    ("Kisspeptin-10 for HPTA stimulation: restarting LH pulses, testicular fullness on TRT without HCG, timing and dosage.", "kisspeptin hpta lh pulses testes trt fertility restart"),
-    ("FOXO4-DRI senolytic clearance: clearing out senescent 'zombie' cells, tissue rejuvenation, joint and skin recovery.", "foxo4 senolytic zombie cells longevity joint rejuvenation"),
-    ("Reconstitution math without mistakes: 2ml vs 3ml BAC water calculations, insulin syringe tick marks, preventing wasted peptide.", "recon math bac water units iu tick marks calculation syringe"),
-    ("Bacteriostatic water shelf life & acidity: benzyl alcohol stinging, checking for particulate floaters, fridge storage hygiene.", "bacteriostatic water bac shelf life benzyl alcohol sting fridge"),
-    ("Needle gauges & comfort: 31g 5/16 vs 29g 1/2 inch, backloading syringes, zero dead-space needles, painless subq pinning.", "needle gauge 31g 29g backload zero dead space subq pain"),
-    ("Traveling internationally with peptides: cooling travel cases, doctor notes, carry-on rules, hotel fridge temperature checks.", "travel flight cooling case carryon hotel fridge international"),
-    ("Testosterone Cypionate vs Enanthate: castor oil vs cottonseed oil, ester clearance rates, allergic reactions to carrier oils.", "testosterone cypionate enanthate carrier oil castor cottonseed ester"),
-    ("Sustanon 250 multi-ester debate: short-acting propionate PIP, hormonal fluctuations, why flat single-ester Cyp is smoother.", "sustanon propionate pip fluctuations single ester cypionate smooth"),
-    ("Subcutaneous vs Shallow IM TRT: absorption speed, aromatization rates, avoiding subcutaneous oil nodules, delt pinning ease.", "subq shallow im trt aromatization nodules delt pin absorption"),
-    ("Daily micro-dosing vs 2x weekly TRT: flattening estradiol and DHT spikes, eliminating the weekend crash, stable mood and libido.", "daily microdose 2x weekly trt stable mood crash estradiol dht"),
-    ("Estrogen management & sensitive estradiol tests: LC/MS-MS vs standard ECLIA immunoassay, why ultra-sensitive labs matter.", "estrogen estradiol sensitive lcms e2 test immunoassay labs accurate"),
-    ("Crashing E2 with Arimidex horror stories: dry aching joints, emotional numbness, zero libido, why Aromasin suicidal inhibition differs.", "crash e2 arimidex joints emotion libido aromasin exemestane ai"),
-    ("Prolactin management on 19-nors (Deca/Tren): P5P (active B6) vs cabergoline, progesterone sensitivity, nipple sensitivity.", "prolactin 19nor deca tren p5p cabergoline progesterone nipple"),
-    ("Deca vs NPP (Nandrolone Phenylpropionate): joint lubrication relief, half-life clearance speed if sides hit, deca-dick prevention.", "deca npp nandrolone joint relief half life deca dick test base"),
-    ("Turinabol (Tbol) clean dry strength: zero water retention, steady endurance, liver enzymes on orals, steady progress without bloat.", "tbol turinabol dry strength endurance liver water bloat oral"),
-    ("Proviron (Mesterolone) for SHBG reduction: freeing up bound testosterone, enhanced libido, hard dry cosmetic look, vascularity.", "proviron mesterolone shbg free test libido dry cosmetic look"),
-    ("Equipoise (Boldenone) endurance vs RBC count: incredible cardio stamina, slow undecylenate ester, ravenous appetite, monitoring kidney values.", "equipoise eq boldenone rbc endurance stamina appetite kidneys"),
-    ("Trestolone (MENT) potency: 10x more anabolic than test, rapid strength surges, heavy aromatization control, short half-life.", "ment trestolone potency strength aromatization mass short ester"),
-    ("Virgin muscle PIP (Post-Injection Pain): walking like a pirate after first quad pin, why ventroglute is the king of injection sites.", "virgin muscle pip quad injection limp ventroglute pain soreness"),
-    ("Preventing scar tissue buildup: rotating pin sites (delts, lats, glutes, ventroglute), massage guns, warm compresses, using 27g-29g.", "scar tissue rotation pin sites delts lats glutes ventroglute needle"),
-    ("Bloodwork deep-dive: high AST/ALT caused by heavy weight training vs actual liver damage, testing GGT and CK (creatine kinase).", "bloodwork ast alt lifting muscle damage ggt ck liver labs"),
-    ("eGFR and Creatinine false alarms: heavy lifting and high muscle mass elevating creatinine, why Cystatin-C is the true kidney benchmark.", "egfr creatinine false alarm muscle mass cystatin c kidney test"),
-    ("Lipid management on blast: ApoB vs LDL-C, citrus bergamot 1000mg, aged garlic extract, high-EPA fish oil, preserving HDL.", "lipids apob ldl hdl citrus bergamot garlic fish oil cholesterol"),
-    ("High SHBG optimization: boron 10mg daily, Tongkat Ali, carb refeeds, freeing up free testosterone when total test is high.", "shbg boron tongkat free test carbs binding globulin labs"),
-    ("Blood pressure protocols for lifters: Telmisartan ARB benefits, nebivolol, daily cardio, sauna flushing, reducing left ventricular hypertrophy.", "blood pressure bp telmisartan nebivolol lvh cardio hypertension"),
-    ("Acne & skin protocols: salicylic acid 2%, PanOxyl 10% benzoyl peroxide, hypochlorous acid sprays, low-dose Accutane (10-20mg/wk).", "acne benzoyl peroxide salicylic panoxyl hypochlorous accutane skin"),
-    ("HCG (Human Chorionic Gonadotropin) on TRT: 250-500 IU 2-3x/week, intratesticular testosterone, maintaining Leydig cell function & fertility.", "hcg fertility leydig testicles trt sperm intratesticular"),
-    ("Torn pec and shoulder rehab milestones: eccentric cable work, BPC/TB local therapy, rebuilding bench press with neutral grip dumbbells.", "pec tear rehab shoulder eccentric bench bpc tb dumbbells"),
-    ("Patellar tendonitis & jumper's knee fixes: slant board eccentric squats, isometric wall sits, flossing bands, strengthening quads and hips.", "patellar tendonitis knee slant board eccentrics isometric quad"),
-    ("Shoulder impingement & rotator cuff fixes: dead hangs from pull-up bars, face pulls with external rotation, rear delt activation.", "shoulder impingement rotator cuff dead hangs face pulls rear delt"),
-    ("Blood Flow Restriction (BFR) training: 20-30% 1RM loads, occluding venous return, insane muscle hypertrophy without joint wear.", "bfr blood flow restriction occlusion cuffs hypertrophy joints light"),
-    ("Cold plunge debate: why cold plunge right after lifting kills muscle protein synthesis, moving ice baths to rest days or morning.", "cold plunge ice bath hypertrophy mtor protein synthesis timing"),
-    ("Sauna protocols for longevity: 20 minutes at 180°F, heat shock proteins, growth hormone release, cardiovascular conditioning.", "sauna heat shock proteins gh cardiovascular blood flow recovery"),
-    ("Liver protection stacks: NAC (N-Acetyl Cysteine) 1200mg + TUDCA 500mg, why taking NAC before vs after alcohol/orals matters.", "nac tudca liver protection glutathione orals bile acid enzymes"),
-    ("Insulin sensitivity optimization: Berberine 500mg with high-carb meals, Metformin, post-meal 10-minute walks, morning fasted cardio.", "berberine insulin sensitivity glucose metformin walks carbs postmeal"),
-    ("Coronary Artery Calcium (CAC) scan: calcium scores in lifters, early plaque detection, why every lifter over 30 on gear should get one.", "cac coronary calcium scan plaque heart heart disease lifter gear"),
-    ("Thyroid optimization (T3 / T4): TSH suppression during prolonged cutting deficits, thyroid reboot, maintaining basal metabolic rate.", "thyroid t3 t4 tsh cut deficit metabolic rate metabolism"),
-    ("Growth Hormone (HGH) real pharma vs generic: 2-4 IU anti-aging and fat mobilization, carpal tunnel symptoms, water retention in fingers.", "hgh somatropin fat loss carpal tunnel water retention pharma iu"),
-]
+SESSION_1_THEMES = [   (   'Tendon & joint healing: BPC-157 vs TB-500 experiences, golfers elbow, '
+        'rotator cuff flare-ups, recovery timelines.',
+        'bpc tb500 healing tendon joint elbow'),
+    (   'Pinning soreness PIP realities: virgin muscle pip, quad pinning '
+        'regrets vs smooth ventroglute, warming vials.',
+        'pip injection pain ventroglute quad delt soreness'),
+    (   'Testosterone base optimization: 120-200mg/wk cruise vs blast, '
+        'microdosing daily vs 2x/wk, steady serum levels.',
+        'trt test cyp enan cruise blast frequency'),
+    (   'Managing estrogen without crashing E2: puffy nipples, water '
+        'retention, why crashing E2 with too much Arimidex feels like death.',
+        'estrogen e2 arimidex aromasin sides nipple ai crash'),
+    (   'Bloodwork deep-dive: analyzing liver AST/ALT, kidney eGFR, lipid '
+        'panels (HDL/LDL), and when to worry vs stay chill.',
+        'bloodwork labs ast alt hdl ldl lipids kidneys'),
+    (   'Tirzepatide & Retatrutide cutting: food noise going completely dead '
+        'silent, nausea management, high protein intake to preserve muscle.',
+        'tirz reta sema glp1 food noise cut appetite'),
+    (   'Growth hormone secretagogues: CJC-1295 / Ipamorelin vs MK-677, vivid '
+        'REM dreams, morning water retention, tingling hands.',
+        'cjc ipam mk677 gh dreams sleep growth'),
+    (   'Skin, hair & anti-aging peptides: GHK-Cu copper peptide injections vs '
+        'topicals, sting management, dilution with BAC water.',
+        'ghk copper epithalon skin hair antiaging'),
+    (   'Reconstitution chemistry & gear prep: BAC water ratios, insulin '
+        'syringe gauge (29g vs 31g), fridge storage, preventing degradation.',
+        'recon bac water insulin syringe storage fridge math'),
+    (   'Peptides while traveling: flying through airport security with '
+        'pre-mixed pens, cooling travel cases, TSA experiences.',
+        'travel airport tsa cooling pen flight carryon'),
+    (   'Appetite ramp-ups for hardgainers: MK-677 hunger spikes, waking up at '
+        '3am raiding the fridge, managing insulin sensitivity.',
+        'mk677 hunger appetite bulk fridge glucose'),
+    (   'Post-injury rehab milestones: combining physiotherapy, eccentrics, '
+        'and tissue-repair peptides to get back under heavy barbells.',
+        'rehab injury physio squat bench recovery'),
+    (   'Subq vs shallow IM injection debate: absorption rates, '
+        'lumps/bruising, needle anxiety vs smooth pin routines.',
+        'subq im injection pin needle bruise site'),
+    (   'High hematocrit & RBC management: whole blood donation vs therapeutic '
+        'phlebotomy, staying hydrated, cardio for blood viscosity.',
+        'hematocrit rbc blood donation hydration viscosity trt'),
+    (   'Hair loss & DHT sensitivity: finasteride, dutasteride, topical '
+        'minoxidil, RU58841, deciding whether hair or delts matter more.',
+        'hair shedding dht finasteride minoxidil baldness delts'),
+    (   'Cardiovascular protection on cycle: daily fish oil, citrus bergamot, '
+        'CoQ10, telmisartan, monitoring resting heart rate and BP.',
+        'cardio heart blood pressure citrus bergamot bp fish oil'),
+    (   'Acne & skin flare-ups: backne breakout solutions, salicylic acid '
+        'washes, benzoyl peroxide, when people resort to low-dose accutane.',
+        'acne backne skin breakout accutane wash clear'),
+    (   'Blast & Cruise vs cycling off (PCT): why modern lifters abandon PCT, '
+        'the mental crash of coming off, committing to test for life.',
+        'blast cruise pct nolva clomid crash cruise off'),
+    (   'Oral compounds debate: Anavar vs Turinabol vs Dianabol, pump back '
+        'pumps, liver toxicity, why orals are overrated vs injectables.',
+        'anavar tbol dbol orals pumps liver toxic'),
+    (   'Masteron vs Primobolan: cosmetic dry look, anti-estrogenic feeling, '
+        'DHT fullness, dealing with counterfeit primo.',
+        'primo masteron mast dry cosmetic dht fake'),
+    (   'First cycle regrets & mistakes: running too much too early, not '
+        'having bloods done first, listening to bro-science at local gyms.',
+        'first cycle mistake regret bloodwork broscience beginner'),
+    (   'Sleep apnea & heavy lifter breathing: thick necks, snoring, CPAP '
+        'machines changing life quality and daytime fatigue.',
+        'sleep apnea cpap snore breathing neck fatigue'),
+    (   'RAD-140 (Testolone) experiences: aggressive gym drive, dry '
+        'vascularity, joint stiffness, suppression timeline.',
+        'rad140 testolone strength dry aggression joints'),
+    (   'LGD-4033 (Ligandrol) fullness vs water bloat: crazy glycogen storage, '
+        'strength increases, post-cycle fatigue.',
+        'lgd4033 ligandrol pumps bulk water bloat'),
+    (   'Ostarine (MK-2866) realistic expectations: mild recomp, saving muscle '
+        'in a steep calorie deficit, joint soothing.',
+        'ostarine mk2866 cut recomp joints mild'),
+    (   'Cardarine (GW-501516) unlimited cardio engine: dropping 5k run times, '
+        'stamina, the infamous rodent study debate.',
+        'cardarine gw501516 cardio stamina endurance 5k'),
+    (   'Enclomiphene as a test base: keeping LH and FSH alive during research '
+        'chemical runs, eye floaters risk, source purity.',
+        'enclomiphene enclo test base lh fsh floaters'),
+    (   'BPC-157 oral arginate vs subq acetate: gut healing, IBS flare-ups, '
+        'systemic bioavailability differences.',
+        'bpc arginate acetate oral subq gut ibs bioavailability'),
+    (   'TB-500 systemic migration vs local site pinning: muscle belly tears, '
+        'hamstring strains, tissue remodeling.',
+        'tb500 systemic migration local pin muscle tear hamstring strain'),
+    (   'GHK-Cu injection burn solutions: dilution ratios with BAC water, '
+        'combining with BPC-157 in the same barrel to kill sting.',
+        'ghk copper sting burn dilute bac water bpc barrel combo'),
+    (   'Tesamorelin vs Ipamorelin for visceral fat loss: belly fat reduction, '
+        'IGF-1 levels, nighttime administration timing.',
+        'tesamorelin ipam visceral fat igf1 night dosing'),
+    (   'Prolactin flare-ups on 19-nors: puffy sensitive nipples without high '
+        'E2, P5P vs Cabergoline, mood changes.',
+        'prolactin p5p caber cabergoline 19nor deca npp sides'),
+    (   'Nandrolone Decanoate (Deca) vs NPP (Phenylpropionate): joint '
+        'lubrication benefits vs Deca dick and mental fog.',
+        'deca npp nandrolone joint lubrication deca dick mental'),
+    (   'Equipoise (Boldenone) endurance vs high hematocrit: insane '
+        'vascularity, slow ester clearance, anxiety on EQ.',
+        'equipoise boldenone eq vascularity rbc anxiety hematocrit'),
+    (   'Winstrol (Stanozolol) dry aesthetics vs joint pain: dry graininess '
+        'before beach trips, brittle knees, fish oil dosing.',
+        'winstrol winny dry joints knees brittle aesthetics cut'),
+    (   'Clenbuterol fat burner shakes: hand tremors, taurine supplementation '
+        'to stop muscle cramps, heart rate spikes.',
+        'clen clenbuterol shakes tremors taurine cramps fat loss'),
+    (   'T3 (Cytomel) thyroid speedups: flat muscles from glycogen depletion, '
+        'pairing T3 with anabolics to prevent muscle loss.',
+        't3 cytomel thyroid metabolism flat muscle catabolism'),
+    (   'HCG on TRT: preserving testicular size, fertility protocols, '
+        'intratesticular testosterone, managing E2 spikes from HCG.',
+        'hcg fertility balls size trt estrogen aromatase'),
+    (   'Needle gauge selection: 27g vs 29g vs 31g insulin pins for shallow IM '
+        'delts, minimizing scar tissue over years of pinning.',
+        'needle gauge pin 27g 29g 31g insulin delt scar tissue'),
+    (   'Drawing thick oil: warming vials in warm water, 21g drawing pin vs '
+        '25g/27g injection pin, drawing air first.',
+        'drawing oil needle warm vial 21g 25g slow draw air pin'),
+    (   'Ventroglute mapping: finding the exact pocket between hip bone and '
+        'iliac crest, zero pain, why it beats quads 100 to 1.',
+        'ventroglute hip injection site glute map quad pip painless'),
+    (   'Delt pinning technique: locating middle delt, 0.5ml-1ml max volume, '
+        'avoiding the circumflex nerve.',
+        'delt shoulder pin injection volume needle length ml site'),
+    (   'Lats and pecs pinning: advanced injection sites, terrifying virgin '
+        'muscle PIP, why most lifters stick to glutes and delts.',
+        'lats pecs pin chest site injection pip advanced'),
+    (   'Aromasin (Exemestane) suicidal aromatase inhibitor: why it prevents '
+        'estrogen rebound vs Arimidex, dosing 6.25mg-12.5mg.',
+        'aromasin exemestane ai suicidal inhibitor e2 rebound arimidex'),
+    (   'Crashing E2 horror stories: dry clicking joints, erectile '
+        'dysfunction, zero libido, severe depression, recovering with HCG or '
+        'Dbol.',
+        'crashed e2 low estrogen joint dry libido depression recover dbol'),
+    (   'High E2 symptoms: emotional outbursts, crying at movies, oily '
+        'forehead, morning wood vanishing, water bloat on ankles.',
+        'high e2 symptoms emotional water bloat face nipples wood'),
+    (   'Liver toxicity support stacks: TUDCA vs NAC vs Milk Thistle, taking '
+        'TUDCA 2 hours away from orals to avoid liver stress.',
+        'tudca nac liver support enzymes ast alt toxicity orals'),
+    (   'Kidney health on gear: eGFR drops from high muscle mass and creatine '
+        'vs real kidney damage, cystatin-C testing.',
+        'kidney egfr cystatin c creatinine hydration bp damage renal'),
+    (   'Blood pressure management on blast: Telmisartan (Micardis) 20-40mg, '
+        'Nebivolol for heart rate, avoiding left ventricular hypertrophy.',
+        'telmisartan nebivolol bp blood pressure heart lvh cardio gear'),
+    (   'Lipid profile fixes: Citrus Bergamot 1000mg, Ezetimibe, Red Yeast '
+        'Rice, omega 3, rescuing HDL crushed by orals.',
+        'citrus bergamot ezetimibe lipids hdl ldl cholesterol statin orals'),
+    (   'Melanotan 2 (MT2) tanning protocols: acute nausea on first pin, '
+        'random facial freckles, avoiding dark moles, sun exposure.',
+        'melanotan mt2 tan skin nausea freckles moles sun libido'),
+    (   'PT-141 (Bremelanotide) aphrodisiac peptide: crazy libido spikes, '
+        'nausea window, dosing 4 hours before date night.',
+        'pt141 bremelanotide libido erection sex nausea date night'),
+    (   'Epithalon (Epitalon) longevity protocol: 10-day cycles, pineal gland '
+        'reset, deep restorative delta sleep.',
+        'epithalon epitalon telomere pineal melatonin sleep longevity'),
+    (   'MOTS-c mitochondrial peptide: morning fasted cardio administration, '
+        'fat oxidation, endurance capacity.',
+        'motsc mitochondria fasted cardio fat oxidation endurance energy'),
+    (   'SS-31 mitochondrial repair: cellular ATP restoration, chronic fatigue '
+        'relief, tendon recovery.',
+        'ss31 mitochondria atp fatigue recovery tendon cellular'),
+    (   'Glutathione injectable antioxidant: skin brightening, liver detox, '
+        'sulfur smell after pin, combining with vitamin C.',
+        'glutathione antioxidant liver detox skin sulfur pin injectable'),
+    (   'L-Carnitine injectable: upgrading androgen receptor density, fishy '
+        'TMAO concerns, taking garlic extract, pinning pre-workout.',
+        'carnitine injectable ar androgen receptor preworkout tmao pumps'),
+    (   'BPC-157 for severe gut issues: healing acid reflux, ulcerative '
+        'colitis flare-ups, taking oral caps with food.',
+        'bpc gut ibs acid reflux stomach healing oral caps'),
+    (   'TB-500 loading vs maintenance: 2mg twice a week for 4 weeks then 2mg '
+        'bi-weekly, flexibility and systemic recovery.',
+        'tb500 dose loading protocol maintenance flexibility recovery tissue'),
+    (   'Knee joint cartilage wear: combining BPC-157, Pentosan Polysulfate '
+        '(PPS), and hyaluronic acid for meniscus support.',
+        'knee meniscus cartilage pps pentosan bpc joint wear osteoarthritis'),
+    (   'Bicep tendonitis relief: eccentric hammer curls, deep tissue '
+        'scraping, BPC local subcutaneous injections.',
+        'bicep tendon tendonitis hammer curl scraping bpc pin local'),
+    (   'Achilles tendon tightness: eccentric heel drops on stairs, TB-500 '
+        'recovery, avoiding heavy calf raises during flare-ups.',
+        'achilles tendon heel drop calf tb500 running mobility'),
+    (   'Lower back pumps on deadlifts: Taurine 3g-5g daily, potassium, '
+        'hydrating with electrolytes to relieve crippling back stiffness.',
+        'back pumps deadlift taurine electrolytes potassium stiffness orals'),
+    (   'Sleep quality on Trenbolone: night sweats soaking bedsheets, '
+        'Trenbolone insomnia, waking up at 2am with raging heartbeat.',
+        'tren night sweats insomnia sleep sheet soak heart rate paranoia'),
+    (   'Mental sides on 19-nors: relationship paranoia, irrational jealousy, '
+        'dopamine downregulation, managing mental health on cycle.',
+        'tren deca mental sides paranoia jealousy relationship dopamine mood'),
+    (   'Anavar pump cramps: forearm pumps so tight you cant hold a steering '
+        'wheel, Shin pumps while walking up hills.',
+        'anavar pumps forearm shin cramps walking steering wheel tightness'),
+    (   'Masteron mood enhancement: feeling like a Greek god, clean '
+        'confidence, androgenic drive without estrogen water bloat.',
+        'masteron mood confidence drive dry hardness cosmetic aesthetic'),
+    (   'Primobolan source authenticity: why 80% of cheap Primo is just Test '
+        'or Masteron, lab testing with Janoshik.',
+        'primo test fake source janoshik purity coa underground lab'),
+    (   'Sustanon 250 vs single ester Test Cypionate: hormone rollercoaster '
+        'from short prop ester vs flat stable levels on Cyp.',
+        'sustanon test cyp prop ester rollercoaster peak trough stability'),
+    (   'Subcutaneous TRT vs IM TRT: smoother aromatization curve, zero scar '
+        'tissue, dealing with small itchy lumps under skin.',
+        'subq im trt aromatization lumps scar tissue insulin pin daily'),
+    (   'Donating whole blood risks: crashing ferritin levels into single '
+        'digits, extreme fatigue, checking ferritin before phlebotomy.',
+        'blood donation ferritin iron crash fatigue rbc hematocrit phlebotomy'),
+    (   'Resting heart rate spikes on cycle: resting HR going from 55 to 78, '
+        'daily Zone 2 cardio on incline treadmill to bring it down.',
+        'resting heart rate rhr cardio zone2 treadmill blast health'),
+    (   'Insulin pins for peptide mixing: why 0.3ml and 0.5ml 31g syringes '
+        'give 5x better dosing accuracy than 1ml barrels.',
+        'insulin pin 31g 03ml 05ml syringe accuracy math peptide recon'),
+    (   'BAC water shelf life: cloudy vials, benzyl alcohol degradation, '
+        'keeping open BAC bottles in dark fridge drawers.',
+        'bac water shelf life cloudy sterile benzyl alcohol fridge storage'),
+    (   'Lyophilized peptide storage: freezer powder stability for 2 years vs '
+        'reconstituted liquid degrading after 4-6 weeks.',
+        'lyophilized powder storage freezer stability fridge degrade weeks'),
+    (   'Sublingual peptides myth: why oral swallow vs under tongue matters, '
+        'gastric breakdown without arginate salt.',
+        'sublingual oral peptide myth stomach acid arginate absorption'),
+    (   'Morning fasted cardio on GLP-1s: keeping blood sugar stable, drinking '
+        'electrolytes, avoiding dizzy spells.',
+        'fasted cardio glp1 hypoglycemia dizziness electrolytes morning '
+        'routine'),
+    (   'Satiety vs nausea on Tirzepatide: sweet spot between zero cravings '
+        'and feeling sick, why force-feeding protein is needed.',
+        'tirzepatide dose sweet spot nausea cravings protein shake'),
+    (   'Preserving glutes & delts on GLP-1 cut: heavy lifting volume, '
+        'creatine, maintaining strength numbers while weight drops.',
+        'glp1 cut preserve muscle strength creatine volume glutes delts'),
+    (   'Retatrutide triple agonist: glucagon receptor boosting thermogenesis, '
+        'heart rate increases, the future of cutting peptides.',
+        'retatrutide reta glucagon thermogenesis heart rate cutting fat loss'),
+    (   'Cagrilintide amylin analogue: pairing with Semaglutide for extreme '
+        'appetite control, feeling full on 3 bites of food.',
+        'cagrilintide cagri sema amylin satiety hunger full bites'),
+    (   'Microdosing GLP-1s for maintenance: 1.25mg Tirzepatide every 10 days '
+        'to keep food noise quiet without losing more weight.',
+        'microdose glp1 maintenance tirzepatide weight stability food noise'),
+    (   'Rebound hunger after stopping GLP-1s: preparing meal discipline, '
+        'keeping fiber and volume high so fat doesnt snap back.',
+        'glp1 rebound hunger stop diet volume fiber discipline regain'),
+    (   'Steroid-induced gynecomastia (gyno) surgery: glandular excision vs '
+        'liposuction, recovery timelines, preventing scar tissue.',
+        'gyno surgery excision gland lipo recovery scar tissue raloxifene'),
+    (   'Raloxifene for gyno reversal: 60mg daily for 6-8 weeks to shrink '
+        'established lumps under nipples, SERM effectiveness.',
+        'raloxifene gyno lump nipple shrink serm tamoxifen reversal'),
+    (   'Tamoxifen (Nolvadex) vs Clomid for PCT: why Clomid causes emotional '
+        'mood swings and floaters while Nolva is cleaner.',
+        'nolvadex clomid pct serm mood swings floaters emotional recovery'),
+    (   'HPTA restart timeline: how long testicle signaling actually takes '
+        'after 12 weeks of suppression, realistic recovery windows.',
+        'hpta restart testicle signaling lh fsh recovery months suppression'),
+    (   'Cruising on 150mg Test vs going natural: weighing lifelong pins '
+        'against hormone stability and high quality of life.',
+        'cruise trt natural lifestyle lifelong injections quality life '
+        'hormones'),
+    (   'Bloodwork timing: why drawing blood at peak vs trough matters, '
+        'fasting 12 hours before test, avoiding heavy workout day before.',
+        'bloods timing peak trough fasting liver workout ast alt skew'),
+    (   'High SHBG lifters: why total test looks high while free test is '
+        'crushed, using Boron 10mg or low dose Proviron to free up test.',
+        'shbg free test boron proviron binding total test low libido'),
+    (   'Low SHBG lifters: rapid testosterone clearance, daily pinning '
+        'schedules, dealing with rapid aromatization.',
+        'low shbg daily pinning microdose clearance aromatization e2 spikes'),
+    (   'Proviron (Mesterolone) libido polish: DHT derivative, hardening '
+        'effect, vascularity, mood elevation on TRT.',
+        'proviron mesterolone dht libido hardness vascularity mood'),
+    (   'Masteron vs hair genetics: if you are prone to male pattern baldness, '
+        'DHT compounds will accelerate it in weeks.',
+        'masteron dht hair baldness mpb genetics shedding crown temples'),
+    (   'Ketoconazole (Nizoral) shampoo: 2% shampoo leave-on for 5 minutes, '
+        'washing away scalp sebum and DHT buildup.',
+        'nizoral ketoconazole shampoo scalp dht shedding hair protection'),
+    (   'Microneedling scalp for hair regrowth: 1.5mm dermaroller once a week '
+        'paired with topical minoxidil, real hair results.',
+        'microneedling dermaroller scalp minoxidil hair growth follicles'),
+    (   'Pre-exhausting delts before heavy overhead press: lateral raises '
+        'first, sparing shoulder rotator cuffs from heavy load.',
+        'pre exhaust delts lateral raise ohp shoulder health press'),
+    (   'Incline dumbbell press vs flat barbell bench: deeper stretch on '
+        'clavicular pec, lower shoulder impingement risk.',
+        'incline dumbbell bench pec stretch shoulder impingement chest'),
+    (   'Squat heel elevation: squatted in Olympic lifting shoes or wedges, '
+        'quad quad isolation, fixing poor ankle mobility.',
+        'squat shoes wedges heel elevation quad mobility ankle depth'),
+    (   'Romanian deadlifts (RDLs) for hamstring growth: hip hinge mechanics, '
+        'feeling the hamstring stretch, avoiding lumbar flexion.',
+        'rdl romanian deadlift hamstring glute stretch hinge back safe'),
+    (   'Hip thrust pad bruising: using thick barbell pads or mats, locking '
+        'out glutes at the top without hyperextending back.',
+        'hip thrust pad bruise barbell lockout glute hypertrophy form'),
+    (   'Wrist wraps vs lifting straps: when to train raw grip vs when straps '
+        'are essential to overload lats on heavy rows.',
+        'straps wrist wraps grip strength lats deadlift overload back'),
+    (   'Cold plunge after lifting debate: why ice baths blunt hypertrophy if '
+        'done within 4 hours of resistance training.',
+        'cold plunge ice bath hypertrophy blunt inflammation recovery window'),
+    (   'Sauna post-workout: heat shock proteins, blood flow to sore joints, '
+        'relaxation, drinking 1L water with sodium after.',
+        'sauna heat shock protein recovery joints relaxation hydration salt'),
+    (   'Electrolyte balance on low carbs: 4g-5g sodium, potassium, magnesium '
+        'glycinate, curing keto gym headaches.',
+        'electrolytes sodium salt potassium magnesium headache low carb gym')]
 
-# Session 2: Everyday Life, Hilarious Gym Characters, Dating, Meal Prep & Banter (90 themes)
-SESSION_2_THEMES = [
-    ("Corporate absurdity & corporate speak: 'let's circle back', meetings that could have been an email, replying to Slack on the bench press.", "corporate job boss slack email meeting office work"),
-    ("Remote work perks & struggles: lifting at 2 PM on a Tuesday, mouse-jiggler paranoia, home office cabin fever.", "remote work wfh home office zoom camera gym midday"),
-    ("Trades & blue collar vs office workers banter: trades guys laughing at desk job hand calluses, working in the freezing cold.", "trades blue collar construction desk job hands work hard"),
-    ("Side hustles & entrepreneurial ideas: e-commerce, consulting, flipping gear, trying to escape the 9-to-5 grind.", "hustle side business ecommerce money grind quit job"),
-    ("Monday morning survival mode: double scoop pre-workout, 5 cups of black coffee, barely surviving the 9 AM team standup.", "monday morning coffee preworkout tired work dread survive"),
-    ("Job interviews & salary negotiations: bluffing on resumes, funny interview questions, securing the bag.", "interview job salary offer resume negotiation hiring"),
-    ("Burnout & work-life balance: working 60-hour weeks while trying to hit the gym 5 days, recovery collapse.", "burnout stress hours work overtime balance fatigue life"),
-    ("Work travel survival: hotel gyms with one 35lb dumbbell, eating airport salads, keeping up routines on the road.", "hotel gym business trip travel airport workout dumbbell"),
-    ("Coworkers noticing physique changes: 'what are you eating?', questions about protein shakes, desk snacks drama.", "coworker office food comments shake protein snacks questions"),
-    ("Getting laid off or switching careers: taking a leap of faith, severance pay, using free time to get in the best shape ever.", "career switch layoff job hunt change severance time grind"),
-    ("Gym life vs romantic partner friction: partner complaining about 6 tupperware meals in the fridge and 2-hour gym sessions.", "girlfriend wife partner relationship tupperware mealprep gym time"),
-    ("Modern dating app horror stories: Hinge / Tinder disaster dates, catfishing, bizarre first date conversations.", "dating tinder hinge date dinner awkward story ghosted"),
-    ("Gym crushes & awkward moments: accidental eye contact across the cable cross, dropping a weight, trying to play it cool.", "gym crush eye contact awkward cable dumbbell pretend smooth"),
-    ("Social events while on a strict cut: going to weddings or dinners, sipping sparkling water with lime, dodging dessert pressure.", "wedding dinner social cut alcohol sparkling water diet peer pressure"),
-    ("Trying to fit into formal clothes after a bulk: suit jackets ripping at the shoulders, thighs choking in dress pants.", "suit pants clothes bulk dress formal wedding tight shoulders"),
-    ("Dating another lifter vs non-lifter: sharing macros, spotting each other, or someone who doesn't understand why you weigh rice.", "dating lifter weigh food macros gym couple rice scale"),
-    ("Nightlife & alcohol trade-offs: the brutal 3-day hangover after turning 28, how alcohol ruins protein synthesis and sleep scores.", "alcohol hangover drink beer party sleep recovery headache"),
-    ("Family gatherings & unsolicited advice: aunts and uncles saying 'you're getting too big' or 'careful with those powders'.", "family holiday dinner comments too big powder parents aunt"),
-    ("Planning vacations around gym access: checking Google Maps for gyms near the hotel before booking the flight.", "vacation holiday hotel gym maps beach travel workout"),
-    ("Balancing kids, family duties and training: waking up at 5 AM before the kids wake up, garage gym parenting.", "kids family parenting early 5am morning garage schedule"),
-    ("Costco & grocery bulk hauls: clearing out 30 lbs of chicken breast, 10 cartons of egg whites, huge Greek yogurt tubs.", "costco grocery haul chicken egg whites yogurt bulk cart"),
-    ("Protein ice cream & Ninja Creami obsessions: xanthan gum disasters, pint turning into a solid block of ice, perfection recipes.", "ninja creami protein ice cream xanthan frozen recipe snack"),
-    ("The legendary post-cut cheat meal: whole pizza, burgers, box of donuts, waking up with swollen ankles and 10 lbs of water.", "cheat meal pizza burger donuts feast water weight bloat"),
-    ("Digestive bloat & gut health: digestive enzymes, feeling like a hot air balloon after 400g of carbs, pepcid and ginger.", "digestion bloat enzymes carbs stomach gas food gut"),
-    ("Air fryer supremacy: cooking chicken, crispy potatoes, steak bites in 12 minutes, the greatest invention for meal prep.", "airfryer chicken potatoes crispy mealprep fast easy cooking"),
-    ("Chicken breast fatigue & marinades: tired of plain poultry, discovering Greek yogurt marinades, hot sauces, switching to lean beef.", "chicken breast dry hot sauce beef marinade cook flavor tired"),
-    ("Ground beef vs rice ratio: the classic monster mash bowl, bone broth, easy digestion when force-feeding calories.", "ground beef rice monster mash bowl digest calories meal"),
-    ("Protein bars tasting like sweetened chalk: ranking bars, microwave tricks, stomach cramps from sugar alcohols.", "protein bar chalk taste microwave snack sugar alcohol"),
-    ("Late night hunger hacks: sugar-free jello, massive bowls of popcorn, sparkling water to trick the brain while cutting.", "late night hunger jello popcorn diet volume low cal hack"),
-    ("Cooking fails & burned meal prep: setting off smoke alarms at midnight cooking 5 lbs of chicken, smoking the kitchen out.", "cooking fail burned mealprep smoke alarm kitchen disaster ruined"),
-    ("Weird characters at the local commercial gym: the guy lifting in work boots and jeans, the shadowboxer by the mirrors.", "weird gym characters boots jeans shadowboxer mirror funny"),
-    ("Sauna regulars & crazy conversations: old dudes having loud geopolitical debates completely naked, pouring cold water on the sensor.", "sauna steam room old guys debate hot heat sensor etiquette"),
-    ("The gym music battlefield: gym speakers playing soft acoustic pop while someone is attempting an 800lb deadlift PR.", "gym music speakers radio pop terrible songs loud headphones"),
-    ("Equipment hogs & gym etiquette: someone putting a towel and water bottle on 4 machines simultaneously at peak 5 PM hours.", "equipment hog towel water bottle machines etiquette peak hours rude"),
-    ("The dreaded gym bathroom horror stories: walking in after leg day, people taking pre-workout dumps, no paper towels.", "bathroom locker room preworkout leg day horror funny gym"),
-    ("Old gym injuries & dumb childhood stunts: breaking an arm jumping off a shed at 10 years old, dropping a 25lb plate on a toe.", "injury childhood dumb story broke bone toe dropped plate hospital"),
-    ("Shoes for lifting debate: barefoot / socks vs Converse Chuck Taylors vs Vans vs expensive squat lifting shoes.", "shoes lifting converse vans barefoot squat shoes flat sole"),
-    ("Pre-workout side effects: face itching from beta-alanine, heart racing, feeling like you can fight a bear in traffic.", "preworkout beta alanine tingles itch heart pump energy scoops"),
-    ("Lifting belt & gear addiction: lever belt vs prong, knee sleeves smelling like biological hazard, wrist wraps.", "lever belt sbd inzer knee sleeves smell wrist wraps gear gym"),
-    ("Existential gym thoughts: why do we lift heavy iron in circles just to put it back down, but we wouldn't trade it for the world.", "existential lifting why iron heavy circles life love philosophy"),
-    ("The high-school broccoli-hair SARM squad: 5 kids taking turns doing half-reps on the cable station for 45 minutes while texting.", "broccoli hair teens sarm squad cable machine hog phone text gym"),
-    ("The 135lb screaming bench presser: chalking hands like an Olympic lifter, yelling at the ceiling, dropping the bar onto safety pins.", "screaming bench press 135 chalk yell loud noise gym funny"),
-    ("The naked locker room philosopher: 70-year-old dude holding a 15-minute geopolitical conversation while totally naked on a bench.", "locker room naked old dude conversation bench towel funny"),
-    ("The tripod influencer invasion: setting up 3 tripods in the dumbbell section and glaring at people who walk in their shot.", "influencer tripod filming camera dumbbell walkway glare social media"),
-    ("The dumbbell hoarder fortress: gathering 6 pairs of dumbbells around one flat bench and refusing to let anyone work in.", "dumbbell hoarder fortress bench greed gym etiquette work in"),
-    ("Unsolicited quarter-squat advice: the gym veteran with knee wraps giving advice on squat depth while doing 2-inch knee bends.", "quarter squat unsolicited advice knee wraps depth ego lifting"),
-    ("The treadmill winter parka runner: wearing a full heavy winter jacket and sweatpants in a 75-degree gym looking like a hostage.", "treadmill parka winter jacket sweat running sweatbox hostage"),
-    ("The shadowboxer by the mirrors: throwing wild 6-punch combos between sets of lat pulldowns, dodging imaginary hooks.", "shadowboxer mirror punches combo lat pulldown imaginary fight funny"),
-    ("The dropped Pyrex disaster: dropping a glass container of 2 lbs ground beef and jasmine rice on the kitchen tile at 11:30 PM.", "pyrex glass shatter tile ground beef rice midnight disaster food"),
-    ("The forgotten shaker bottle in a hot car: left in July for 4 days, opening it and releasing chemical biological warfare in the garage.", "shaker bottle hot car rotten whey biological warfare smell stench"),
-    ("Tuna in the corporate breakroom: heating up canned tuna in the office microwave and getting passive-aggressive emails from HR.", "tuna microwave office breakroom hr smell fish complaint coworker"),
-    ("The Ninja Creami frozen concrete disaster: blade screeching, motor smoking, ending up with a solid cylinder of protein ice.", "ninja creami blade smoke concrete frozen block protein ice fail"),
-    ("Running out of toilet paper on 70g fiber: the catastrophic realization after eating 3 bags of broccoli and 400g oats.", "toilet paper fiber emergency bathroom oats broccoli digestive crisis"),
-    ("Air fryer grease fire with turkey bacon: smoke alarms waking the entire apartment complex up at 6 AM on a Sunday.", "airfryer fire smoke alarm turkey bacon apartment morning disaster"),
-    ("Dry chicken breast choking hazard: chewing plain chicken breast until it turns into sawdust, needing 4 gulps of water per swallow.", "dry chicken sawdust choking water swallow mealprep chewing jaw"),
-    ("Accidental 5,000-calorie peanut butter binge: telling yourself 'just one spoon' at midnight during week 8 of a strict cut.", "peanut butter binge midnight spoon jar calories cut deficit fail"),
-    ("The food scale at a sushi restaurant: pulling out a digital scale on a first date to weigh sashimi, watching her face dissolve.", "food scale sushi date restaurant awkward weigh sashimi macros"),
-    ("Girlfriend complaining about leg twitches: nervous system fried after heavy leg day, shaking the entire mattress while trying to sleep.", "leg twitch nervous system leg day mattress sleep girlfriend twitching"),
-    ("Matching with a gym regular on Hinge: having an awkward date, then having to make accidental eye contact at the squat rack every Tuesday.", "hinge date gym regular awkward squat rack eye contact avoid"),
-    ("Dating someone who doesn't understand lifting: 'Why do you need so much powder? Can't you just eat an apple?'.", "dating non lifter protein powder apple confusion relationship macros"),
-    ("The suit jacket shoulder blowout: reaching across the dinner table at a wedding and feeling the back seam rip open.", "suit jacket rip shoulders wedding blowout formal tight bulk"),
-    ("Getting caught flexing in the bathroom mirror: someone walking in while you're checking lat spread lighting under the airport sink.", "flexing bathroom mirror caught airport lighting lat spread awkward"),
-    ("Falling asleep on mute in an all-hands Zoom call: waking up 20 minutes after the meeting ended with only 2 people left in the room.", "zoom call sleep mute meeting remote work camera asleep awkward"),
-    ("Taking fake business calls for 10,000 steps: pacing the office hallway with a dead phone against your ear just to hit cardio goals.", "fake phone call steps hallway pacing cardio 10k steps office"),
-    ("Lower back pumps in corporate office chairs: lumbar spine completely seized up after deadlifts, unable to sit down for 30 minutes.", "back pumps office chair lumbar desk standing deadlifts work"),
-    ("Tradesmen roasting corporate desk workers: construction buddy laughing when you complain about mouse hand and screen fatigue.", "trades construction desk worker mouse wrist calluses roast banter"),
-    ("The pre-workout double espresso commute disaster: digestive urgency hitting exactly when you get stuck in bumper-to-bumper bridge traffic.", "preworkout espresso coffee traffic commute bridge bathroom emergency"),
-    ("Costco bulk haul cart dominance: 40 lbs of chicken breast, 12 cartons of egg whites, 6 tubs of Fage yogurt, cashier asking if you own a restaurant.", "costco cart chicken egg whites yogurt cashier bulk grocery restaurant"),
-    ("Protein bar digestive aftermath: eating 3 fiber-heavy protein bars in an afternoon and feeling like a pressurized gas tank.", "protein bar fiber gas bloat stomach cramps afternoon snack"),
-    ("Late night hunger volume hacks: eating an entire head of cabbage with hot sauce at 1 AM just to feel anything in your stomach.", "cabbage hot sauce volume eating late night hunger cut deficit"),
-    ("The post-cut legendary cheat meal: whole large pizza, box of Crumbl cookies, waking up 12 lbs heavier with sausage fingers.", "crumbl cookies pizza cheat meal water weight sodium fingers bloat"),
-    ("The commercial gym acoustic pop soundtrack: trying to PR an 800lb deadlift while Taylor Swift soft acoustic plays through overhead speakers.", "taylor swift acoustic pop gym music speakers deadlift pr heavy"),
-    ("Lifting shoes vs Converse Chuck Taylors: why cheap canvas shoes beat 200-dollar high-tech lifting shoes every day of the week.", "converse chuck taylors lifting shoes flat sole barefoot cheap vs expensive"),
-    ("Knee sleeves that smell like toxic waste: neoprene sleeves that haven't been washed in 6 months cleared out the entire power rack area.", "knee sleeves neoprene smell toxic wash odor gym bag stink"),
-    ("Face itching from beta-alanine tingles: feeling like fire ants are crawling under your skin while sitting at a red light.", "beta alanine fire ants itch tingles red light face preworkout"),
-    ("The dreaded gym bathroom after leg day: squatting down onto the seat with trembling quads, wondering if you'll ever stand back up.", "bathroom toilet leg day trembling quads stand up toilet struggle"),
-    ("Accidental eye contact during cable flyes: locking eyes with a stranger through the mirror mid-rep and both people looking away instantly.", "cable fly mirror eye contact stranger mid rep awkward glance"),
-    ("Lifting belt lever snap: lever popping open mid-valsalva maneuver with a gunshot sound that scares everyone in the weight room.", "lever belt snap gunshot valsalva pop weight room scare loud"),
-    ("Working out in an unheated garage gym in January: barbell feels like dry ice, exhaling fog clouds between sets of heavy overhead press.", "garage gym winter freezing cold dry ice barbell fog breath"),
-    ("Summer garage gym sauna session: lifting in 95-degree heat, sweat dripping onto the chalk tray, shirt weighing 5 lbs by set 4.", "summer garage gym heat humidity sweat chalk tray sauna session"),
-    ("Chalk etiquette police: dropping half a block of gym chalk on the platform and watching the staff manager sprint over with a broom.", "chalk platform dust staff manager broom gym rules clean"),
-    ("Accidentally wearing gym clothes inside out: hitting 4 sets of heavy incline dumbbell press before realizing the tag is sticking out on your chest.", "inside out gym shirt tag chest dumbbell press wardrobe fail"),
-    ("Pre-workout powder dry-scoop disaster: inhaling half a scoop into the windpipe, coughing an orange powder cloud across the gym parking lot.", "dry scoop windpipe cough orange powder cloud preworkout parking lot"),
-    ("The 4 PM Sunday meal prep existential crisis: staring at 6 identical glass containers of ground beef, wondering what decisions led here.", "sunday mealprep glass containers ground beef existential crisis rice routine"),
-    ("Dating a vegan while eating 1.5g protein per lb: navigating restaurant menus where one person eats tofu and the other orders two 12oz ribeyes.", "vegan dating steak ribeye protein macros restaurant menu clash"),
-    ("Leaving your headphones at home: the pure despair of walking into the gym, realizing you forgot your AirPods, and having to lift in silence.", "forgot headphones airpods gym silence acoustic pop despair lift"),
-    ("The 5 AM alarm battle: staring at the ceiling in pitch-black darkness negotiating with your soul whether today is a rest day.", "5am alarm morning pitch black rest day snooze mental battle bed"),
-    ("Buying gym clothes in large vs XL: tight sleeves cutting off circulation vs looking like a kid wearing their dad's oversized shirt.", "gym clothes tight sleeves oversized pump cover sizing fit dilemma"),
-    ("Spilling an entire 5lb tub of vanilla whey powder: a white nuclear dust cloud settling over the dark kitchen floorboards and cat.", "whey powder spill floor 5lb tub kitchen mess dust cloud clean"),
-    ("Accidentally loading uneven weights on the barbell: hitting 3 reps of bench press wondering why the left shoulder hurts before seeing a 35 instead of a 25.", "uneven weight barbell bench 35 25 plates mistake shoulder balance"),
-]
+SESSION_2_THEMES = [   (   'Corporate Slack drama: passive-aggressive thumbs up emojis from '
+        'middle managers, avoiding workplace drama.',
+        'slack corporate drama office manager passive aggressive emoji'),
+    (   '8am Zoom calls after brutal leg day: sitting on a hard office chair '
+        'when quads and glutes are completely on fire.',
+        'zoom meeting leg day sore chair corporate morning cameras'),
+    (   'Remote work vs office grind: sneaking a 45-minute gym session at '
+        'lunch vs sitting in bumper-to-bumper commute traffic.',
+        'remote work office wfh lunch workout commute traffic routine'),
+    (   'Standing desks and back pain: switching between sitting and standing, '
+        'ergonomic chairs, relieving lower back tightness.',
+        'standing desk back pain posture ergonomics office work sitting'),
+    (   'Meal prep disasters: glass Tupperware exploding in gym bag, rice and '
+        'ground beef covering clean lifting shirts.',
+        'tupperware glass explode meal prep gym bag rice beef disaster'),
+    (   'Ground beef and jasmine rice fatigue: eating 1lb beef daily for 4 '
+        'months, trying different hot sauces to make it tolerable.',
+        'ground beef rice food fatigue hot sauce bulk seasoning meal prep'),
+    (   'Ninja Creami protein ice cream: xantham gum, fairlife milk, whey '
+        'isolate, creating 300-calorie pints to survive a cut.',
+        'ninja creami protein ice cream fairlife xanthan whey volume cut'),
+    (   'Dating someone who doesn’t lift: them asking why your fridge has 18 '
+        'meal prep containers and zero beer.',
+        'dating non lifter fridge meal prep tupperware dinner awkward'),
+    (   'Gym selfies on dating profiles: whether bathroom mirror flex pics '
+        'help or completely scare away normal girls.',
+        'dating apps tinder hinge gym selfie mirror flex cringe bio'),
+    (   'Awkward first dates at restaurants: trying to guess the calories in '
+        'restaurant steak while your date orders cocktails.',
+        'first date restaurant menu calories steak tracking macros awkward'),
+    (   'Skipping alcohol on night outs: ordering club soda with lime to avoid '
+        'questions, waking up at 7am with zero hangover.',
+        'alcohol night out club soda lime sober gym morning hangover'),
+    (   'Gym character: the guy curling in the squat rack with an empty '
+        'barbell while 4 people are waiting to squat.',
+        'curling squat rack empty bar waiting gym pet peeve character'),
+    (   'Gym character: teenage tripod armies filming TikToks: setting up 3 '
+        'phone tripods in the dumbbell section for 45 mins.',
+        'tripod tiktok teens gym camera filming dumbbell path block'),
+    (   'Gym character: the screamer on leg press: loading 3 plates and '
+        'screaming like he is lifting a car, quarter reps.',
+        'leg press screamer plates quarter reps noise gym character'),
+    (   'Commercial gym music atrocities: 2014 EDM pop remixes played at '
+        'ear-splitting volume, noise-cancelling headphones dying.',
+        'gym music playlist pop edm airpods dead battery noise cancel'),
+    (   'Forgetting lifting straps on heavy back day: forearms burning out on '
+        'set 2 of bent-over rows, grip failing early.',
+        'forgot straps back day grip forearm burn heavy rows gym fail'),
+    (   'Exploded shaker cup in hot car: leaving whey protein in the cup under '
+        'the summer sun for 3 days, biological hazard smell.',
+        'shaker cup smell hot car whey protein rotten biological hazard wash'),
+    (   'Weekend grocery haul: spending $250 on chicken breast, eggs, Greek '
+        'yogurt, and berries, cashier looking terrified.',
+        'groceries haul chicken eggs greek yogurt berries cost bulk food'),
+    (   'Costco gym essentials: 5lb bags of frozen wild blueberries, egg '
+        'whites by the case, giant flank steak packs.',
+        'costco gym haul egg whites blueberries flank steak protein savings'),
+    (   'Air fryer meal prep speedruns: cooking 2lbs of diced chicken thighs '
+        'in 14 minutes with zero mess, seasoning blends.',
+        'air fryer chicken thighs meal prep fast cook crispy seasoning'),
+    (   'Greek yogurt late night snack: mixing chocolate whey into Fage 0% '
+        'Greek yogurt for protein pudding, zero cravings.',
+        'greek yogurt fage whey pudding late night snack sweet craving'),
+    (   'Hydration gallon jug habit: carrying a giant water jug everywhere, '
+        'getting weird looks in office boardroom meetings.',
+        'gallon jug water hydration office meeting bathroom breaks desk'),
+    (   'Office coffee machine abuse: drinking 4 espressos before noon, '
+        'afternoon jitters, switching to decaf after 1pm.',
+        'coffee espresso caffeine office jitters afternoon crash decaf'),
+    (   'Commuting after heavy workout: manual transmission car when your left '
+        'calf and clutch foot are cramping up.',
+        'commute manual car clutch calf cramp leg day driving traffic'),
+    (   'Gym clothes laundry mountain: washing 6 gym shirts and knee sleeves '
+        'every 3 days, athletic fabric detergent.',
+        'laundry gym clothes knee sleeves smell athletic wash detergent sweat'),
+    (   'Knee sleeve funk: washing neoprene sleeves in vinegar to kill the '
+        'sweat bacteria smell that survives regular soap.',
+        'knee sleeves smell neoprene vinegar wash bacteria stink gym gear'),
+    (   'Gym buddy flaking on leg day: getting the cancel text at 5:45am, '
+        'lifting heavy solo.',
+        'gym buddy flake leg day text solo workout morning discipline'),
+    (   'Home gym vs commercial gym: lifting in a cold garage in winter vs '
+        'having 8 different cable machines and sauna.',
+        'home gym garage cold winter commercial cables machines sauna pros '
+        'cons'),
+    (   'Work deadlines killing gym motivation: pushing through a 45-minute '
+        'upper body session at 8pm just to keep consistency.',
+        'work deadline tired 8pm evening gym consistency mental discipline'),
+    (   'Boss scheduling Friday 4:30pm meetings: the rage of watching your '
+        'pre-workout kick in while stuck in a pointless Zoom.',
+        'preworkout meeting zoom friday boss scheduling rage focus wasted'),
+    (   'Gym crush eye contact: making awkward 1-second eye contact across the '
+        'cable crossovers, focusing back on your set.',
+        'gym crush eye contact cables workout awkward focus lift'),
+    (   'Gym pet peeve: leaving dumbbells scattered: 85lb dumbbells left in '
+        'front of the rack, tripping hazards.',
+        'rerack weights dumbbells floor gym etiquette pet peeve laziness'),
+    (   'Gym pet peeve: sweating on the bench and walking away: leaving a '
+        'human silhouette of sweat without wiping it down.',
+        'wipe bench sweat towel gym etiquette hygiene spray paper towel'),
+    (   'Sweet potato fries air fryer hack: tossing in avocado oil spray and '
+        'cinnamon, post-workout carb reload.',
+        'sweet potato fries air fryer post workout carbs cinnamon avocado oil'),
+    (   'Rice cooker game changer: rinsing jasmine rice 4 times, using bone '
+        'broth instead of water for extra flavor and protein.',
+        'rice cooker jasmine bone broth flavor carbs easy digestion prep'),
+    (   'Liquid egg white chugging: whether anyone actually drinks pasteurized '
+        'egg whites straight from the carton.',
+        'egg whites liquid drink carton chug raw pasteurized protein fast'),
+    (   'Whey protein digestion bloat: switching from whey concentrate to whey '
+        'isolate or beef protein to stop bloating.',
+        'whey concentrate isolate bloat digestion stomach gas beef protein'),
+    (   'Lifting on an empty stomach: morning fasted lifting vs having cream '
+        'of rice and honey 45 mins before training.',
+        'fasted lifting cream of rice honey pre workout meal pumps energy'),
+    (   'Cream of rice with peanut butter: the elite pre-workout carb source '
+        'that digests in 20 minutes with zero stomach heaviness.',
+        'cream of rice peanut butter carbs pre workout digest fast energy'),
+    (   'Salt before training: adding half a teaspoon of pink Himalayan salt '
+        'to pre-workout for skin-splitting pumps.',
+        'salt pre workout pump pink himalayan sodium hydration vascular'),
+    (   'Dating app red flags: girls whose bio says fluent in sarcasm vs guys '
+        'posing in front of rented sports cars.',
+        'dating apps hinge red flags bio sarcasm gym lifestyle match'),
+    (   'Balancing social life and lifting: leaving the bar at 11pm to get 8 '
+        'hours of sleep, friends giving you hard times.',
+        'social life bar friends leaving early sleep recovery discipline '
+        'balance'),
+    (   'Holiday family dinners: relatives asking if you are still doing that '
+        'diet thing while examining your plate.',
+        'family dinner holidays diet questions relatives food comments plate'),
+    (   'Vacation gym hunting: looking for hardcore bodybuilding gyms in other '
+        'cities with day passes instead of hotel gyms.',
+        'travel vacation gym day pass hardcore dumbbells hotel gym search'),
+    (   'Hotel gym horrors: two 15lb dumbbells, a broken treadmill, and a yoga '
+        'ball from 2004.',
+        'hotel gym dumbbells broken treadmill travel workout struggle'),
+    (   'Buying dress clothes as a lifter: shirts that fit the delts and chest '
+        'billowing like parachutes around the waist.',
+        'dress shirts suits lifter tailoring broad shoulders waist taper '
+        'clothes'),
+    (   'Jeans shopping with big quads: thighs completely painted on while '
+        'waist has a 4-inch gap, stretch denim salvation.',
+        'jeans quads big legs stretch denim waist gap clothes shopping'),
+    (   'Lifting shoes vs bare feet: deadlifting in socks or flat wrestling '
+        'shoes vs running shoes with squishy air soles.',
+        'shoes deadlift socks wrestling flat sole cushion stability form'),
+    (   'Gym bag inventory: belt, knee sleeves, liquid chalk, wraps, bands, '
+        'smelling salts, weighing 25 lbs.',
+        'gym bag belt sleeves wraps chalk bands heavy gear essentials'),
+    (   'Liquid chalk vs dry chalk: commercial gyms banning chalk, sneaking '
+        'liquid chalk that dries in 10 seconds with no dust.',
+        'liquid chalk dry gym ban grip deadlift mess sneak hands'),
+    (   'Earbuds falling out during heavy sets: mid-squat cable snag or sweaty '
+        'ear tips popping out during a top set.',
+        'earbuds fall out airpods sweat bench squat heavy set music lost'),
+    (   'Foam rolling: whether spending 20 minutes rolling IT bands actually '
+        'does anything or if active warmups beat it.',
+        'foam roll warmup it band mobility stretch active warmup time'),
+    (   'Morning mobility routine: couch stretch, 90/90 hips, world greatest '
+        'stretch, opening up hips before squatting.',
+        'mobility routine hips couch stretch 9090 squat warmup movement'),
+    (   'Deload week mental challenge: lifting 50% lighter and feeling like '
+        'you are wasting time, trusting the systemic recovery.',
+        'deload week light mental fatigue nervous system joint recovery trust'),
+    (   'Overtraining vs under-recovering: realizing your fatigue is just from '
+        '5 hours of sleep and eating 1800 calories.',
+        'overtraining sleep food recovery fatigue calories stress burnout'),
+    (   'Walking 10k steps a day: how daily low-intensity walking drops fat '
+        'without making you ravenously hungry.',
+        'steps 10k walking neat fat loss low intensity recovery cardio'),
+    (   'Desk posture stretches: chin tucks, doorway pec stretch, countering 8 '
+        'hours of hunching over a laptop.',
+        'posture desk stretch doorway pec chin tuck neck hunch laptop'),
+    (   'Blue light glasses at night: placebo vs actually falling asleep '
+        'faster when looking at computer screens after 9pm.',
+        'blue light glasses screens sleep evening melatonin eye strain'),
+    (   'Blackout curtains & bedroom cold temp: setting AC to 66 degrees, '
+        'total dark, waking up completely refreshed.',
+        'blackout curtains sleep bedroom cold temp deep rem recovery'),
+    (   'White noise machines vs silence: brown noise, fan humming, blocking '
+        'out city street sounds for deep sleep.',
+        'white noise brown sound fan sleep city noise block deep sleep'),
+    (   'Weekend cheat meals turning into all-day binges: eating a whole pizza '
+        'and wake up 6 lbs heavier from water.',
+        'cheat meal binge pizza water weight scale spike morning bloat'),
+    (   'Scale weight fluctuations on a cut: scale jumping 3lbs after eating '
+        'high sodium dinner, trusting the weekly average.',
+        'scale weight daily fluctuate sodium water weekly average cut panic'),
+    (   'Taking progress photos: same lighting, same time morning, why '
+        'bathroom mirror lighting lies to you.',
+        'progress photos lighting morning mirror scale bodyfat tracking truth'),
+    (   'Cooking meal prep for the week: 3 sheet pans in the oven, whole '
+        'kitchen smelling like seasoned chicken and paprika.',
+        'meal prep sheet pan oven chicken seasoning batch cook sunday routine'),
+    (   'Bulk cooking jasmine rice: 6 cups dry rice in the cooker, storing in '
+        'glass Pyrex with a damp paper towel.',
+        'bulk rice pyrex storage reheating fluffy jasmine meal prep routine'),
+    (   'Canned tuna convenience vs mercury: keeping 4 cans in the pantry for '
+        'lazy protein emergencies, spicy mustard trick.',
+        'canned tuna mercury fast protein mustard pantry emergency meal'),
+    (   'Cottage cheese comeback: blending cottage cheese into pasta sauces or '
+        'protein dip, macro cheat code.',
+        'cottage cheese blend pasta sauce protein dip macro volume food'),
+    (   'Caffeine tolerance resets: surviving 4 days with zero caffeine, '
+        'headache withdrawal, first cup back hitting like a truck.',
+        'caffeine reset tolerance withdrawal headache coffee first cup energy'),
+    (   'Pre-workout beta-alanine tingles: face and fingertips feeling like '
+        'ants are crawling under skin, love it vs hate it.',
+        'beta alanine tingles face itch pre workout paresthesia energy'),
+    (   'High stim pre-workouts: 400mg caffeine plus exotic stims, crashing at '
+        '2pm, switching to pump formulas.',
+        'high stim preworkout crash 400mg caffeine pump nonstim formula'),
+    (   'Non-stim pump formulas: L-Citrulline 8g-10g, Nitrosigine, Glycerol, '
+        'roadmap vascularity without the jitters.',
+        'non stim pump l citrulline nitrosigine glycerol vascularity no '
+        'jitters'),
+    (   'Electrolyte salt packets: LMNT vs DIY salt/potassium mix, saving $40 '
+        'a month making your own.',
+        'lmnt electrolytes diy salt potassium bulk mix savings hydration'),
+    (   'Gym towel hygiene: using the same gym towel for 3 days vs fresh towel '
+        'every workout, stopping face acne.',
+        'gym towel fresh wash hygiene face acne skin bacteria wipe'),
+    (   'Lockers with combination locks: forgetting which locker you put your '
+        'gym bag in after a brutal session.',
+        'locker gym combination lock forgot number tired brain post workout'),
+    (   'Front desk staff at the gym: the friendly greeting vs scanning badge '
+        'and putting headphones in immediately.',
+        'front desk gym greeting scan headphones social energy lift'),
+    (   'Peak gym hours 5:30pm chaos: every bench taken, circling the floor '
+        'like a vulture waiting for cables to open.',
+        'peak hours 5pm gym busy wait benches cables crowd patience'),
+    (   'Late night 10pm gym serenity: only 4 people in the whole facility, '
+        'playing your own music, pure focus.',
+        'late night gym 10pm empty peaceful music focus supersets'),
+    (   'Early morning 5am lifter discipline: freezing car, pitch black '
+        'outside, having the whole day won before 7am.',
+        '5am gym morning early cold dark discipline win day mental edge'),
+    (   'Weekend morning gym session: relaxed pace, no work emails pending, '
+        'taking 3-minute rests between heavy sets.',
+        'weekend morning workout relaxed rest sets no rush coffee lift'),
+    (   'Gym gear upgrades: Pioneer leather belt vs cheap Amazon velcro belt, '
+        'night and day core bracing stability.',
+        'pioneer belt leather lever prong velcro upgrade core brace'),
+    (   'Lifting chalk on black gym clothes: white chalk handprints covering '
+        'black shirts and shorts, badge of honor.',
+        'chalk marks black clothes shorts gym mess lifting badge honor'),
+    (   'Calluses on palms: pumice stone vs shaving dead skin with a razor, '
+        'stopping calluses from ripping off on deadlifts.',
+        'calluses palms rip deadlift razor pumice care grip skin'),
+    (   'Thumb tear on hook grip: wrapping thumbs with athletic tape, '
+        'surviving heavy pulls without tearing skin.',
+        'hook grip thumb tape athletic deadlift tear skin pain traction'),
+    (   'Gym water fountain pressure: fountains that only trickle water vs '
+        'modern bottle refill stations that fill in 5s.',
+        'water fountain gym pressure bottle refill station cold hydrations'),
+    (   'Protein powder flavors that taste like chalk: buying a 5lb tub of '
+        'cheap protein and regretting every scoop.',
+        'protein powder flavor bad chalk 5lb tub regret finish mix oats'),
+    (   'Mixing protein into hot oatmeal: whey curdling into weird chunks if '
+        'the oats are too hot, letting it cool first.',
+        'protein oatmeal proats curdle hot chunks mix cool stir trick'),
+    (   'Cinnamon on everything: adding cinnamon to oats, sweet potatoes, and '
+        'yogurt for glucose control and taste.',
+        'cinnamon oats yogurt sweet potato glucose insulin flavor spice'),
+    (   'BCAA powders: whether anyone still buys flavored BCAAs when EAA or '
+        'plain whey protein exists.',
+        'bcaa eaa amino acids waste money whey protein hydration drink'),
+    (   'Pre-workout face wash: washing gym sweat off face immediately to '
+        'prevent clogged pores and sweat breakouts.',
+        'face wash post workout sweat pores acne skin care shower gym'),
+    (   'Cold shower after morning workout: pure adrenaline shock, waking up '
+        'system before entering corporate meetings.',
+        'cold shower morning wake adrenaline shock energy focus corporate'),
+    (   'Evening stretching before bed: 10 minutes of hamstrings and lower '
+        'back decompression to ease sleep tension.',
+        'stretching evening bed hamstrings back decompression relax sleep'),
+    (   'Hydration tracking apps: logging water vs just drinking when thirsty '
+        'and checking urine color.',
+        'hydration tracking water apps urine color simple rule hydration'),
+    (   'Weekend meal prep containers stacking: fridge looking like a military '
+        'supply depot, ready for the week.',
+        'meal prep fridge containers stacked military clean organized week '
+        'ready'),
+    (   'Lifting partner form checks: sending 5-second video clips of squat '
+        'depth or bench bar path on WhatsApp.',
+        'form check video squat bench bar path depth feedback partner lift'),
+    (   'Ego lifting reality checks: dropping the weight 20% to actually feel '
+        'the target muscle stretch and contract.',
+        'ego lift drop weight target muscle mind muscle stretch contract '
+        'growth'),
+    (   'Mind-muscle connection: pausing at peak contraction on cable rows vs '
+        'just yanking the stack with momentum.',
+        'mind muscle connection pause contraction cable row momentum form'),
+    (   'Tempo training: 3-second eccentric descent on bench press, building '
+        'tendon strength and hypertrophy.',
+        'tempo eccentric 3 seconds descent bench control hypertrophy tendon'),
+    (   'Rest-pause sets: hitting failure, resting 15 seconds, squeezing out 3 '
+        'more reps, ultimate intensity technique.',
+        'rest pause sets failure 15 sec reps intensity overload hypertrophy'),
+    (   'Drop sets on lateral raises: running the dumbbell rack down from 35s '
+        'to 15s until delts feel like lava.',
+        'drop set lateral raise run rack delts burn lava intensity volume'),
+    (   'Myofascial trigger points: using a lacrosse ball on glutes and upper '
+        'back, painful knots releasing.',
+        'lacrosse ball trigger point glutes upper back knots release mobility '
+        'pain')]
 
-# Session 3: Pop Culture, UFC Fight Recaps, Sports, Crypto/Tech & Late-Night Thoughts (90 themes)
-SESSION_3_THEMES = [
-    ("Hollywood superhero physiques: Hugh Jackman Wolverine dry-cut, Chris Hemsworth Thor bulk, dehydration before filming scenes.", "hollywood jackman wolverine hemsworth thor superhero actor"),
-    ("The Rock natty debate: Joe Rogan calling on Dwayne Johnson to admit TRT, 'just cod and 4am workouts' joke, public perception.", "the rock dwayne johnson natty trt rogan cod"),
-    ("Alan Ritchson (Reacher) being refreshingly honest: talking openly about TRT saving his fatigue, shoulder reconstruction, brutal filming schedules.", "reacher alan ritchson trt honest actor series hollywood"),
-    ("Kumail Nanjiani Eternals transformation: vascular jawline, internet memes, dramatic shift in body composition in his 40s.", "kumail nanjiani marvel eternals transformation memes jawline"),
-    ("Zac Efron Baywatch physical toll: how awful he felt running zero carbs and water pills, mental burnout, lasting respect for the look.", "zac efron baywatch cut water pills depleted mental"),
-    ("Joe Rogan podcast clips & health obsession: Joe talking about peptides (BPC-157), cold plunge, TRT, carnivore month, stem cells.", "rogan podcast jre peptides cold plunge bpc trt elk"),
-    ("Derek from More Plates More Dates (MPMD): classic breakdowns, 'supraphysiological doses', gorilla mind, diagnosing Hollywood lies.", "derek mpmd more plates supraphysiological gorilla breakdown"),
-    ("Andrew Huberman morning routine memes: 15 minutes of direct sunlight, cold shower, waiting 90 minutes for coffee, optimizing everything.", "huberman sunlight coffee morning routine dopamine cold shower"),
-    ("Sam Sulek phenomenon: gallon of chocolate milk, Krispy Kreme pre-workout, heavy lifting style, relaxed cardio bike chats.", "sam sulek chocolate milk krispy kreme bulk cardio youtube"),
-    ("Alex Pereira stone-cold UFC aura: two-division Glory & UFC kickboxing legend, devastating left hook, stepping in on short notice to save fight cards.", "alex pereira ufc poatan glory kickboxing left hook champion"),
-    ("Bradley Martyn 'Could you beat me in a street fight?': asking UFC champs and boxers, Zoo Culture gym antics, internet comedy.", "bradley martyn street fight zoo culture ufc meme"),
-    ("Max Holloway UFC BMF legacy: pointing to the canvas in round 5 against Gaethje, iron chin, high-volume Hawaiian boxing.", "max holloway ufc bmf gaethje canvas knockout boxing volume hawaii"),
-    ("Mark Wahlberg insane 3:30 AM daily routine: cryo chamber, prayer, 4am workout, family time, whether anyone actually lives like that.", "mark wahlberg routine 4am cryo schedule early"),
-    ("Celebrity Ozempic / Tirzepatide epidemic: everyone in Hollywood suddenly dropping 30 lbs, sunken faces, public denial vs reality.", "ozempic hollywood celebrity weight loss tirzepatide face red carpet"),
-    ("Bodybuilding Olympia predictions & drama: Hadi Choopan, Derek Lunsford, Samson Dauda, Chris Bumstead (CBum) Classic Physique dominance.", "olympia cbum classic physique lunsford samson bodybuilder"),
-    ("Strongman & Powerlifting feats: Eddie Hall vs Thor Bjornsson 500kg deadlift history, Hafthor, Mitchell Hooper modern dominance.", "strongman eddie hall thor deadlift hooper powerlifting world record"),
-    ("UFC Fight Night recap & brutal knockouts: Alex Pereira's left hook of death, Jon Jones status, crazy spinning wheel kicks.", "ufc pereira knockout fight night jon jones mma"),
-    ("Boxing spectacles & influencer cards: Jake Paul fighting veterans, Mike Tyson return, circus show vs genuine entertainment.", "boxing jake paul tyson knockout fight card ppv"),
-    ("Premier League & Champions League football madness: title race drama, red card controversies, late stoppage time winners.", "football soccer premier league champions league goal red card"),
-    ("NFL season & physical collisions: quarterback injuries, fantasy football collapses, defensive monster tackles.", "nfl football quarterback fantasy game touchdown hits"),
-    ("Formula 1 race weekend chaos: tire pit-stop disasters, qualifying speed, Max Verstappen, team radio arguments.", "f1 formula 1 racing pitstop verstappen grand prix"),
-    ("Crypto market volatility & wild swings: Bitcoin hitting new records or crashing overnight, memecoins, hilarious wallet losses.", "crypto bitcoin btc dip bull bear wallet memecoin"),
-    ("Stock market & inflation complaints: grocery store shocks, ribeye steak prices, cost of living.", "stocks inflation eggs groceries meat steak cost economy"),
-    ("Crazy viral internet news: bizarre Florida man headlines, wild viral TikTok trends, unbelievable real-world stories.", "viral news florida man crazy headlines internet story"),
-    ("Artificial Intelligence & humanoid robots: Boston Dynamics backflips, ChatGPT replacing office tasks, robot anxiety.", "ai tech robot openai chatgpt future humanoid automation"),
-    ("Blockbuster movies & binge TV shows: new cinema releases, sci-fi series, HBO dramas, what people are watching during cardio.", "movies show hbo cinema netflix watch cardio series"),
-    ("Severe weather extremes: heatwaves melting asphalt, blizzard snowed-in gym cancellations, working out in unheated garages.", "weather storm heatwave blizzard winter garage gym freeze"),
-    ("Music releases & gym playlist culture: new album drops, death metal vs phonk vs 90s hip hop for hitting heavy PRs.", "music album playlist phonk metal hip hop beats gym"),
-    ("Viral TikTok gym cringe & public filming: influencers setting up tripods in walkways, getting mad when someone walks by.", "tiktok cringe tripod filming walkway gym public etiquette"),
-    ("Gaming & late night PC sessions: new game releases, staying up till 3 AM gaming while on a cut, discord banter.", "gaming pc steam console late night game release setup"),
-    ("Random 2 AM shower thoughts: could a silverback gorilla bench press 1,500 lbs, how many 5th graders could you fight off.", "shower thoughts gorilla bench 2am funny debate silly thoughts"),
-    ("Zombie apocalypse gym squad: picking 3 members of the group chat for the survival team based on physical attributes.", "zombie apocalypse squad team survival bunker gym group chat"),
-    ("Unserious food debates: is a hot dog technically a sandwich, pineapple on pizza, ranking fast food french fries.", "hot dog sandwich debate pineapple pizza fries fast food stupid"),
-    ("Apple Watch & fitness tracker obsession: closing rings, checking sleep tracking scores, obsessing over resting heart rate.", "apple watch whoop oura sleep score rings tracker steps heart"),
-    ("Alex Pereira's terrifying left hook & stone face: Chama energy, knocking out light heavyweights without blinking, heavyweight move?", "alex pereira chama ufc knockout left hook poatan light heavyweight"),
-    ("Jon Jones heavyweight legacy vs Tom Aspinall: the ducking accusations, legacy preservation, undisputed champion debate.", "jon jones aspinall heavyweight ufc undisputed belt ducking legacy"),
-    ("Ilia Topuria knockout power & aura: cleaning out featherweight legends, pinpoint boxing, UFC stardom trajectory.", "topuria featherweight ufc boxing knockout volkanovski holloway aura"),
-    ("Islam Makhachev & Dagestani wrestling dominance: handcuffs on the ground, cardio engine, pound-for-pound king debate.", "makhachev dagestani wrestling smesh ufc p4p sambo handcuffs"),
-    ("BMF belt spectacles & last-second knockouts: Max Holloway pointing to the center of the cage against Gaethje at UFC 300.", "bmf belt holloway gaethje ufc 300 last second knockout center cage"),
-    ("Boxing judging robberies: three blind judges scoring a clean boxing clinic as a split draw, corruption in combat sports.", "boxing judges robbery split decision scorecard corruption combat"),
-    ("BKFC (Bare Knuckle Fighting Championship) chaos: brutal cuts, tooth loss, raw grit vs refined sweet science.", "bkfc bare knuckle cuts teeth blood grit combat fight sport"),
-    ("F1 cockpit endurance & 50°C heat: drivers losing 8 lbs of water per race, pulling 5G braking forces, extreme neck harness training.", "f1 driver cockpit heat gforce neck training endurance race"),
-    ("Sean O'Malley precision striking & movement: switch-hitting stance changes, feints, distance traps, bantamweight title fights.", "sean omalley ufc precision striking switch stance movement bantamweight"),
-    ("Tom Aspinall heavyweight explosiveness: moving like a middleweight with heavyweight power, lightning quick sub-2 minute finishes.", "tom aspinall heavyweight ufc speed power interim title finish"),
-    ("Champions League penalty shootout drama: goalkeeper mind games, stutter steps, sudden death tension under stadium lights.", "champions league penalty shootout goalkeeper soccer football tension"),
-    ("MotoGP 220mph cornering physics: dragging knees and elbows on asphalt at 60-degree lean angles, zero margin for error.", "motogp motorcycle racing 220mph cornering asphalt lean angle physics"),
-    ("Tour de France brutal mountain stages: burning 8,000 calories climbing the Pyrenees, suffering in the lactate threshold zone.", "tour de france cycling mountains alps climbing endurance calories suffering"),
-    ("High altitude mountaineering VO2 max: summiting 8,000-meter peaks without supplemental oxygen, physiological limits of hypoxia.", "mountaineering everest k2 oxygen hypoxia vo2 max altitude extreme"),
-    ("Olympic 100m sprint biomechanics: ground reaction force, explosive block starts, tendon stiffness and sub-10 second speed.", "olympic sprint 100m ground reaction force blocks tendon speed biomechanics"),
-    ("World Rally Championship (WRC) insane gravel slides: blind crest jumps at 110 mph on dirt roads through dense Scandinavian forests.", "wrc rally racing gravel blind crest jumps dirt slide scandinavia"),
-    ("Rugby collisions vs American football: continuous 80-minute aerobic warfare with zero pads, brutal rucks, cauliflower ears.", "rugby american football collisions pads rucks physical aerobic warfare"),
-    ("Chess grandmaster heart rates during blitz: burning 6,000 calories during world championship matches from extreme cognitive stress.", "chess grandmaster cognitive stress heart rate calories blitz focus"),
-    ("Freediving ocean depths on a single breath: diving 100 meters unassisted, mammalian dive reflex, spleen contraction.", "freediving breath hold depth ocean mammalian dive reflex spleen lungs"),
-    ("Extreme Finnish sauna championships & heat shock: 100°C steam endurance, freezing ice lake immersion, mental grit.", "sauna finnish heat shock ice lake cold plunge steam mental grit"),
-    ("CrossFit Games brutal endurance tests: Murph workout with 20lb weighted vest in 95-degree heat, grip fatigue and pacing.", "crossfit murph weighted vest endurance heat grip fatigue pacing"),
-    ("The psychology of flow state in high-risk sports: complete time dilation during downhill mountain biking or wingsuit flights.", "flow state adrenaline downhill mountain bike wingsuit speed time dilation"),
-    ("Hydration bladder tech vs classic gym gallon jugs: carrying a battered plastic milk jug vs insulated stainless steel bottles.", "gallon jug gym hydration water bottle insulated stainless steel carry"),
-    ("Classic action movie stunts without CGI: Tom Cruise hanging off an airplane wing, Jackie Chan broken bones and ladder fights.", "action movie stunts cgi tom cruise jackie chan stuntman practical effects"),
-    ("Deep sea oceanic exploration: Mariana Trench pitch black abyss, hydrothermal vents, bizarre undiscovered deep-sea life.", "deep sea mariana trench ocean abyss hydrothermal vents creatures submarine"),
-    ("Apple Vision Pro headset zombies: people wearing spatial computing goggles in coffee shops looking like sci-fi characters.", "apple vision pro spatial headset coffee shop sci fi zombie gadgets"),
-    ("Late-night Discord gaming sessions: playing tactical shooters until 3 AM with the boys, laughing so hard you get a headache.", "discord gaming tactical shooter 3am boys laughter headache night"),
-    ("Could an average gym bro survive 30 seconds with a chimpanzee? The definitive biology debate on ape muscle density.", "chimpanzee ape muscle density gym bro 30 seconds survival fight debate"),
-    ("Why commercial gyms play soft 2014 acoustic pop during 800lb deadlifts: the psychological torture of elevator music.", "commercial gym acoustic pop deadlift elevator music psychological torture"),
-    ("Zombie apocalypse group chat ranking: picking which friend gets sacrificed first based on their cardio and sprint speed.", "zombie apocalypse sacrifice friend cardio sprint speed survival ranking"),
-    ("Unserious food debate: is a hot dog a taco, a sandwich, or an open sub? Blood-feud intensity over useless definitions.", "hot dog taco sandwich open sub food debate useless argument"),
-    ("Ranking fast food french fries with life-or-death seriousness: McDonald's fresh out of the fryer vs Wendy's sea salt vs Five Guys grease.", "french fries mcdonalds wendys five guys grease ranking tier list fast food"),
-    ("Would you rather have 20-inch arms forever or unlimited free international first-class flights? The ultimate bro dilemma.", "20 inch arms free flights first class bro dilemma hypothetical choice"),
-    ("Weird Florida man news headlines: riding an alligator through a drive-thru, fighting a hurricane with a sword.", "florida man alligator drive thru hurricane sword news weird headlines"),
-    ("Movies we watch exclusively during cardio: fast-paced action films that make 45 minutes of stairmaster feel like 10 minutes.", "cardio movies action films stairmaster 45 min pass time fast watch"),
-    ("The eternal cereal ranking tier list: Cinnamon Toast Crunch S-tier supremacy vs wet cardboard fiber cereals.", "cinnamon toast crunch cereal tier list cardboard fiber breakfast ranking"),
-    ("Sleep paralysis demons vs heavy squat nightmares: waking up in a cold sweat dreaming the barbell rolled down your neck.", "sleep paralysis demon squat nightmare barbell neck cold sweat waking up"),
-    ("Ancient Roman gladiators vs modern gym lifters: who would win in hand-to-hand combat, diet differences, barley porridge vs whey protein.", "roman gladiators modern lifters combat barley porridge whey protein fight"),
-    ("The mystery of the single lost AirPod: searching gym crevices, under weight benches, knowing it's gone to another dimension.", "lost airpod gym bench crevice dimension one earphone missing"),
-    ("Sci-fi movie dystopias vs reality: flying cars vs just having 14 different streaming subscriptions and subscription heated seats in cars.", "scifi dystopia flying cars streaming subscriptions heated seat fee reality"),
-    ("Fast and Furious physics laws: Vin Diesel shifting gears 19 times in a single 1/4 mile drag race, family memes.", "fast furious vin diesel 19 gears quarter mile family physics meme car"),
-    ("The absurdity of modern luxury watches: spending 20k on an automatic watch that loses 4 seconds a day while a 15 Casio is atomic.", "luxury watch rolex casio atomic time 20k vs 15 loss seconds funny"),
-    ("Bizarre historical facts that sound fake: Napoleon being attacked by thousands of bunnies, the Great Emu War in Australia.", "historical facts napoleon bunnies emu war australia weird trivia fake"),
-    ("Gaming chair ergonomics scam: bucket seats designed for race cars in a stationary bedroom causing catastrophic posture.", "gaming chair bucket seat ergonomics posture scam office chair racecar"),
-    ("Coffee brewing snobbery vs instant coffee: measuring water temp to the decimal point vs dumping Nescafé into cold water at 5 AM.", "coffee snob pour over scale instant nescafe 5am caffeine debate"),
-    ("The illusion of free time on weekends: waking up Saturday with 15 planned tasks and suddenly it's 8 PM Sunday night.", "weekend illusion free time saturday sunday night chores vanishing week"),
-    ("Unsolved ocean mysteries: giant squids, Mariana Trench depths, why we know more about outer space than the bottom of the sea.", "ocean mariana trench giant squid deep sea space mystery unexplored"),
-    ("The psychology of driving with loud bass: vibrating the entire rearview mirror at traffic lights with dark phonk or 90s hip hop.", "car bass phonk subwoofer rearview mirror vibration traffic lights music"),
-    ("Extinct prehistoric megafauna: Megalodon sharks, Titanoboa giant snakes, terror birds, and whether humanity would survive them today.", "megalodon titanoboa terror birds prehistoric megafauna survive monsters"),
-    ("Conspiracy theories that are hilarious: the moon landing staged by Stanley Kubrick, simulation glitches, birds aren't real memes.", "conspiracy theory kubrick moon landing simulation birds arent real meme"),
-    ("Why adult friendships are so hard: trying to coordinate a dinner with 3 friends taking 6 weeks of calendar negotiations.", "adult friendships dinner schedule calendar weeks busy life friends"),
-    ("The satisfaction of a clean workspace: perfectly cable-managed desk setup lasting exactly 14 minutes before wires take over.", "cable management desk clean setup wires clutter workspace tech"),
-    ("The paradox of resting heart rate: being thrilled your Apple Watch says 46 bpm while the doctor asks if you're passing out.", "resting heart rate 46 bpm bradycardia apple watch doctor athlete funny"),
-    ("Nostalgia for early 2000s internet: MSN messenger nudges, dial-up screech, custom forum signatures with animated GIFs.", "early 2000s internet msn messenger dialup forums signatures nostalgia"),
-    ("The greatest video game intros of all time: Skyrim carriage ride, Halo Gregorian chant, GTA San Andreas opening bike ride.", "skyrim hey you youre finally awake halo chant gta san andreas game intro"),
-    ("Why every dad becomes obsessed with lawn care and WWII documentaries the exact day they turn 40.", "dad lawn care grass wwii history documentary 40 birthday phenomenon"),
-]
+SESSION_3_THEMES = [   (   'Nootropic focus stacks: Semax vs Selank nasal drops, laser focus vs '
+        'calming social anxiety, work productivity.',
+        'semax selank nasal spray nootropic focus anxiety work'),
+    (   'Bromantane dopamine upregulation: conquering afternoon workplace '
+        'brain fog, physical stamina without jittery crash.',
+        'bromantane dopamine focus stamina afternoon fog energy nootropic'),
+    (   'Modafinil / Armodafinil for brutal work sprints: staying locked into '
+        'spreadsheets for 10 hours, hydration discipline.',
+        'modafinil armodafinil focus work sprint spreadsheet tunnel vision'),
+    (   'Phenylpiracetam for cold weather workouts: intense physical drive, '
+        'sharp mental clarity, tolerance cycling rules.',
+        'phenylpiracetam piracetam racetam cold focus drive tolerance cycle'),
+    (   'Alpha-GPC & Choline sources: fueling acetylcholine for heavy lifting '
+        'focus, avoiding choline depression by dialing dose.',
+        'alpha gpc choline acetylcholine focus lifting depression dose'),
+    (   'L-Tyrosine + Caffeine synergy: taking 1.5g L-Tyrosine with morning '
+        'espresso, acute dopamine precursor for deep work.',
+        'tyrosine caffeine espresso dopamine deep work morning focus stack'),
+    (   'L-Theanine smoothing out caffeine: 2:1 theanine to caffeine ratio, '
+        'stopping heart jitters and keeping clean focus.',
+        'theanine caffeine ratio jitters smooth calm focus desk energy'),
+    (   'Magnesium L-Threonate for brain & sleep: crossing blood-brain '
+        'barrier, vivid dreams, waking up with clear head.',
+        'magnesium threonate brain blood barrier sleep dreams clarity'),
+    (   'Lion’s Mane mushroom extract: NGF stimulation, memory recall, '
+        'checking for beta-glucan percentages on labels.',
+        'lions mane mushroom ngf memory recall beta glucan quality'),
+    (   'Noopept fast-acting sublingual: acute 2-hour focus window for '
+        'presentations and exams, tiny 10mg-20mg scoops.',
+        'noopept sublingual scoop acute focus presentation exam dose fast'),
+    (   'Conquering the 2pm corporate afternoon crash: ditching heavy carb '
+        'lunches for fats/protein, light walking outside.',
+        'afternoon crash 2pm lunch carbs fats protein walk sunlight energy'),
+    (   'Dopamine detox weekends: turning off notifications, no social media '
+        'scrolling, resetting baseline motivation.',
+        'dopamine detox screen time phone scroll baseline reset motivation '
+        'weekend'),
+    (   'Deep work 90-minute blocks: phone in another room, noise-cancelling '
+        'headphones, getting 8 hours of work done in 3.',
+        'deep work blocks focus phone away headphones productivity sprint'),
+    (   'Oura Ring sleep staging accuracy: tracking deep sleep vs REM '
+        'percentages, why late night meals crush recovery scores.',
+        'oura ring sleep staging deep rem late meal heart rate recovery'),
+    (   'Whoop recovery score obsession: waking up in the yellow vs green, '
+        'deciding whether to hit heavy deadlifts or deload.',
+        'whoop recovery score strain green yellow deadlift workout decision'),
+    (   'Sleep latency issues: lying in bed with racing mind, 4-7-8 breathing '
+        'technique, turning off phone screen 1 hour before.',
+        'sleep latency racing thoughts breathing 478 screen off sleep '
+        'insomnia'),
+    (   'Ashwagandha KSM-66 vs Sensoril: reducing cortisol, emotional numbness '
+        '/ anhedonia after months of continuous use.',
+        'ashwagandha ksm66 sensoril cortisol anhedonia emotional blunt cycle'),
+    (   'Rhodiola Rosea adaptogen: beating physical and mental burnout, '
+        'salidrosides vs rosavins, clean morning energy.',
+        'rhodiola rosea adaptogen burnout fatigue energy salidroside morning'),
+    (   'UFC fight night main event breakdown: analyzing striking matchups, '
+        'takedown defense, championship round pacing.',
+        'ufc fight night main event breakdown striking takedown cardio pace'),
+    (   'UFC championship title fight debates: goat status discussions, '
+        'judging controversies, 10-8 round criteria.',
+        'ufc title goat debates judging robbery 108 round decision scoring'),
+    (   'BJJ open mat culture: survive vs submit, the 50-year-old black belt '
+        'destroying 25-year-old bodybuilders with technique.',
+        'bjj open mat survive submit black belt technique leverage rolls'),
+    (   'Cauliflower ear prevention: draining fluid with insulin pins, wearing '
+        'headgear, the badge of grappling honor.',
+        'cauliflower ear drain needle headgear grappling bjj wrestling ear'),
+    (   'Rib subluxation & intercostal tears from grappling: having a 220lb '
+        'brown belt knee-on-belly you, recovery timelines.',
+        'rib injury subluxation knee on belly bjj grappling healing bpc '
+        'recovery'),
+    (   'Finger tape and grip arthritis in BJJ: spider guard grip wear and '
+        'tear, buddy taping fingers before rolling.',
+        'finger tape bjj grip arthritis spider guard gi joints hand care'),
+    (   'Weight cuts in combat sports: water loading, hot salt baths, sauna '
+        'suits, the mental warfare of hitting weight.',
+        'weight cut combat mma sauna salt bath water load weigh in sweat'),
+    (   'Boxing sparring etiquette: learning to pull punches at 50% vs gym '
+        'wars with guys trying to knock heads off.',
+        'boxing sparring etiquette 50 percent gym wars control head trauma '
+        'safety'),
+    (   'Neck training for concussion prevention: harness extensions, neck '
+        'curls on bench, protecting cervical spine in combat.',
+        'neck training harness curls concussion protection cervical spine '
+        'combat'),
+    (   'Grip strength training: captain of crush grippers, farmer carries, '
+        'towel pullups, transfer to grappling control.',
+        'grip strength captain crush farmer carry towel pullup grappling hold'),
+    (   'Zone 2 cardio for combat gas tanks: 45 minutes on Airdyne bike at '
+        'nose-breathing pace, building aerobic base.',
+        'zone2 cardio airdyne bike aerobic base gas tank combat rounds '
+        'stamina'),
+    (   'HIIT sprints on assault bike: 10 seconds all-out, 20 seconds rest, '
+        'tasting copper in your mouth after 8 rounds.',
+        'assault bike hiit sprints tabata copper taste lung burn anaerobic'),
+    (   'Khabib style ground control vs modern guard play: top pressure, leg '
+        'triangles, breaking opponents willpower.',
+        'khabib dagestan top pressure ground control bjj wrestling wrist ride'),
+    (   'MMA striking transitions: level changes, fake jabs into double leg '
+        'takedowns, distance management.',
+        'mma striking level change takedown double leg distance timing cage'),
+    (   'Knee injuries in grappling: meniscus twists, heel hook defense, '
+        'knowing when to tap immediately without ego.',
+        'knee injury heel hook meniscus tap early bjj submission defense '
+        'safety'),
+    (   'Shin conditioning in Muay Thai: heavy bag kicking, conditioning shin '
+        'bones through microfractures over years.',
+        'muay thai shin conditioning heavy bag kicking bone density kicks'),
+    (   'Pre-fight anxiety and adrenaline dumps: legs feeling heavy walking to '
+        'the cage, breathing to calm heart rate.',
+        'fight anxiety adrenaline dump cage walk breathing tunnel vision calm'),
+    (   'Ice bath post-combat session: numbing battered shins and bruised '
+        'ribs, reducing whole-body inflammation.',
+        'ice bath combat bruised shins ribs inflammation recovery cold '
+        'session'),
+    (   'Turmeric & Curcumin with Piperine: natural joint anti-inflammatory, '
+        'taking 1000mg with healthy fats.',
+        'curcumin turmeric piperine black pepper inflammation joints natural'),
+    (   'Boswellia Serrata for joint mobility: 5-LOX inhibition, soothing '
+        'inflamed knees and elbows naturally.',
+        'boswellia joint mobility 5lox inflammation knees elbows natural herb'),
+    (   'Apigenin chamomile extract: GABA receptor calming before bed, '
+        'drifting off without morning grogginess.',
+        'apigenin chamomile gaba sleep natural relaxation night unwind'),
+    (   'GABA + L-Arginine for GH release: taking on empty stomach before bed, '
+        'warm tingling flush, deep sleep enhancement.',
+        'gaba arginine sleep gh release flush tingles deep sleep night'),
+    (   'Melatonin microdosing: why 300mcg works better than 10mg megadoses '
+        'without daytime grogginess or nightmare spikes.',
+        'melatonin microdose 300mcg dreams sleep groggy dose timing'),
+    (   'Tart cherry juice for sleep: natural melatonin and anthocyanins, '
+        'drinking 4oz with sparkling water post-dinner.',
+        'tart cherry juice melatonin sleep recovery soreness anthocyanin '
+        'night'),
+    (   'Late-night shower thought: why does every gym playlist sound like it '
+        'was made in 2013 by an angry teenager.',
+        'shower thought gym playlist angry teenager 2013 edm music funny'),
+    (   'Late-night thought: how crazy is it that humans lift heavy metal bars '
+        'off the floor just to put them right back down.',
+        'shower thought deadlift heavy metal floor put down existential '
+        'lifting'),
+    (   'Late-night thought: imagine explaining to someone in 1500 that we run '
+        'on treadmills going nowhere inside air-conditioned rooms.',
+        'shower thought treadmill running nowhere air conditioning modern '
+        'life'),
+    (   'Late-night thought: protein synthesis is literally your body '
+        'rebuilding torn muscle fibers with chicken atoms.',
+        'shower thought muscle rebuild chicken atoms hypertrophy biology food'),
+    (   'Late-night thought: the weird bond between two guys who nod at each '
+        'other in the gym at 6am for 3 years without speaking.',
+        'shower thought gym nod 6am regulars silent brotherhood bond'),
+    (   'Late-night thought: pre-workout caffeine doses would give an '
+        '18th-century peasant a spiritual awakening.',
+        'shower thought peasant preworkout caffeine heart attack Victorian '
+        'times'),
+    (   'Late-night thought: our ancestors walked 20 miles hunting woolly '
+        'mammoths and we get tired walking up 3 flights of stairs.',
+        'shower thought ancestors mammoth hunt steps stairs cardio laziness'),
+    (   'Late-night thought: the psychological relief when you finally sit '
+        'down in the car after an absolute monster workout.',
+        'shower thought car seat sit post workout relief exhaustion peace '
+        'drive'),
+    (   'Late-night thought: the strange comfort of drinking cold water from a '
+        'shaker cup at 3am.',
+        'shower thought cold water 3am night shaker cup thirst bedroom'),
+    (   'Late-night thought: why does gym lighting look 10x better in '
+        'commercial gyms than in your own bathroom.',
+        'shower thought downlight gym lighting mirror bathroom body '
+        'dysmorphia'),
+    (   'Late-night thought: your body is an engine that turns steak, rice, '
+        'and water into 400lb barbell squats.',
+        'shower thought engine steak rice barbell squat physics human machine'),
+    (   'Creatine monohydrate cognitive boost: brain bioenergetics, memory '
+        'retention in sleep-deprived conditions.',
+        'creatine brain cognitive focus memory sleep deprivation energy atp'),
+    (   'Huperzine A acetylcholine preservation: inhibiting '
+        'acetylcholinesterase, acute memory focus, cycling 2 days on 1 off.',
+        'huperzine memory acetylcholine focus cycle nootropic brain sharp'),
+    (   'Choline bitartrate vs Citicoline (CDP-Choline): why CDP-Choline '
+        'provides uridine for dopamine receptors and focus.',
+        'cdp choline citicoline uridine dopamine receptors nootropic memory'),
+    (   'Sulbutiamine synthetic B1 derivative: conquering chronic fatigue and '
+        'social anxiety, dopaminergic boost.',
+        'sulbutiamine vitamin b1 fatigue social energy focus dopamine drive'),
+    (   'Fasoracetam GABA-B upregulation: resetting tolerance to Phenibut or '
+        'prescription anxiolytics, mental clarity.',
+        'fasoracetam gaba tolerance reset anxiolytic mental focus calm'),
+    (   'Aniracetam mood elevation & creativity: AMPA receptor modulation, '
+        'social fluidity in meetings, fat-soluble with meal.',
+        'aniracetam racetam mood creativity social meeting ampa fat soluble'),
+    (   'Oxiracetam logical reasoning drive: clean cognitive stimulant, '
+        'tackling heavy math, coding, and technical workflows.',
+        'oxiracetam logic math coding technical focus clean stimulant racetam'),
+    (   'Centrophenoxine DMAE derivative: clearing cellular lipofuscin brain '
+        'waste, mental speed, membrane fluidity.',
+        'centrophenoxine dmae lipofuscin brain clean memory speed aging'),
+    (   'Uridine monophosphate + DHA stack: synaptogenesis, neuroplasticity, '
+        'rebuilding dopamine receptor sensitivity.',
+        'uridine dha fish oil synaptogenesis neuroplasticity dopamine '
+        'receptors'),
+    (   'N-Acetyl L-Cysteine (NAC) for OCD and intrusive thoughts: glutamate '
+        'regulation in the brain, mental calm.',
+        'nac glutamate intrusive thoughts mental calm brain obsessive anxiety'),
+    (   'Inositol for night anxiety: 2g-5g inositol powder in water, calming '
+        'central nervous system, stopping panic wakeups.',
+        'inositol sleep anxiety panic nervous system powder night calm'),
+    (   'Glycine 3g before bed: lowering core body temperature, improving '
+        'subjective sleep quality and morning alertness.',
+        'glycine sleep core temperature body rem recovery alertness morning'),
+    (   'L-Tryptophan vs 5-HTP: serotonin precursors, why tryptophan provides '
+        'steadier sleep support without serotonin syndrome.',
+        'tryptophan 5htp serotonin sleep mood synthesis natural night'),
+    (   'Theobromine cocoa extract: smoother and longer-lasting than caffeine, '
+        'gentle bronchodilator for cardio training.',
+        'theobromine cocoa caffeine smooth energy cardio bronchodilator mild'),
+    (   'Dynamine (Methylliberine) clean energy: fast onset, zero crash, '
+        'pairing with caffeine for high-paced work mornings.',
+        'dynamine methylliberine caffeine stack energy fast focus no crash'),
+    (   'Teacrine (Theacrine) non-habit-forming energy: 6-hour smooth energy '
+        'curve, no tolerance buildup, pre-workout boost.',
+        'teacrine theacrine tolerance clean energy caffeine booster endurance'),
+    (   'Cordyceps mushroom for ATP output: increasing VO2 max, oxygen '
+        'utilization during intense combat rounds or intervals.',
+        'cordyceps mushroom vo2 max oxygen atp endurance cardio stamina'),
+    (   'Reishi mushroom for evening winding down: immune modulating '
+        'triterpenes, calming nervous system before sleep.',
+        'reishi mushroom evening unwind nervous system calm immune sleep'),
+    (   'Chaga antioxidant powerhouse: cellular health, brewing wild chaga tea '
+        'with raw honey and cinnamon.',
+        'chaga tea antioxidant cellular immunity wild mushroom morning'),
+    (   'Shilajit fulvic acid trace minerals: increasing natural testosterone, '
+        'cellular energy, testing for heavy metal purity.',
+        'shilajit fulvic acid trace minerals energy test purity lab test'),
+    (   'Pine pollen phytoandrogens: natural DHEA and androgens, sublingual '
+        'alcohol tinctures, energy boost.',
+        'pine pollen phytoandrogens dhea tincture energy natural hormonal'),
+    (   'Tongkat Ali (Eurycoma Longifolia): lowering SHBG, free testosterone '
+        'boost, cycling 5 days on 2 days off to prevent tolerance.',
+        'tongkat ali eurycoma shbg free test herbal libido energy cycle'),
+    (   'Fadogia Agrestis LH mimicry: stimulating Leydig cells, cycling rules '
+        'to protect testicular and kidney tissue.',
+        'fadogia agrestis lh leydig testicle herbal test booster cycle safe'),
+    (   'Boron 10mg cycling for free test: taking 10mg daily for 2 weeks to '
+        'drop SHBG, pausing 1 week to avoid estrogen rebound.',
+        'boron shbg free test cycle estrogen balance minerals'),
+    (   'Zinc Picolinate + Copper balance: 30mg zinc with 2mg copper, '
+        'preventing zinc-induced copper deficiency and anemia.',
+        'zinc picolinate copper balance immunity testosterone minerals ratio'),
+    (   'Vitamin D3 + K2 (MK-7) mega-optimization: 5000-10000 IU daily with '
+        'fatty meal, calcium absorption, immune health.',
+        'vitamin d3 k2 mk7 calcium bone immunity sunshine energy blood levels'),
+    (   'Vitamin B12 methylcobalamin: sublingual lozenges for nerve health, '
+        'red blood cell production, beating fatigue.',
+        'vitamin b12 methylcobalamin nerve rbc energy sublingual fatigue'),
+    (   'CoQ10 Ubiquinol vs Ubiquinone: mitochondrial ATP production, heart '
+        'muscle support, reversing statin muscle fatigue.',
+        'coq10 ubiquinol ubiquinone heart atp mitochondria cardio stamina'),
+    (   'PQQ (Pyrroloquinoline Quinone): stimulating mitochondrial biogenesis, '
+        'creating new cellular power plants with CoQ10.',
+        'pqq mitochondria biogenesis cellular energy coq10 brain health'),
+    (   'Resveratrol + NMN longevity stack: NAD+ boosting, sirtuin activation, '
+        'morning energy and DNA repair protocols.',
+        'nmn resveratrol nad sirtuins longevity dna repair cellular energy'),
+    (   'Metformin vs Berberine for glucose disposal: 500mg berberine before '
+        'carb meals, AMPK activation, fat loss support.',
+        'berberine metformin glucose disposal ampk carbs insulin sensitivity'),
+    (   'Apple cider vinegar with mother before heavy meals: blunting '
+        'postprandial glucose spikes, aiding stomach acid.',
+        'apple cider vinegar glucose spike digestion stomach acid prebiotic'),
+    (   'Digestive enzymes with ox bile: breaking down 300g protein and 100g '
+        'fats without bloating or toilet emergencies.',
+        'digestive enzymes ox bile protein fat breakdown bloat digestion '
+        'relief'),
+    (   'Betaine HCl for low stomach acid: fixing acid reflux by increasing '
+        'stomach acid, ensuring complete protein breakdown.',
+        'betaine hcl stomach acid acid reflux digestion protein absorption'),
+    (   'Probiotics & Prebiotics: fermented kimchi, kefir, building diverse '
+        'gut microbiome for neurotransmitter synthesis.',
+        'probiotics kefir kimchi gut microbiome serotonin digestion health'),
+    (   'Bone broth collagen for gut lining: drinking warm bone broth with '
+        'ginger and turmeric on empty stomach.',
+        'bone broth collagen gut lining ginger turmeric joint stomach soothe'),
+    (   'Glutamine 10g-15g daily: healing intestinal permeability (leaky gut), '
+        'muscle glycogen recovery, zero taste.',
+        'glutamine leaky gut intestines recovery immune powder carbs clean'),
+    (   'BJJ Gi vs No-Gi conditioning: why No-Gi is lightning fast pace while '
+        'Gi is grueling isometric grip battle.',
+        'bjj gi nogi pace grip isometric cardio speed technique wrestling'),
+    (   'Wrestling single leg vs double leg defense: sprawls, underhooks, '
+        'whizzers, heavy hips stopping takedowns.',
+        'wrestling sprawl underhook takedown defense hips combat mma'),
+    (   'MMA striking footwork: cutting angles, ring generalship, avoiding '
+        'straight-line retreats into the cage.',
+        'footwork angles cage ring generalship movement head combat boxing'),
+    (   'Shin guards selection: Hayabusa vs Fairtex for heavy sparring, instep '
+        'protection, stopping bone bruises.',
+        'shin guards hayabusa fairtex muay thai sparring protection padding'),
+    (   'Mouthguard custom dental molds vs boil-and-bite: breathing ease '
+        'during round 5, teeth protection.',
+        'mouthguard dental mold custom boil bite breathing teeth combat '
+        'protection'),
+    (   'Boxing hand wrap technique: 180-inch wraps, protecting knuckles, '
+        'locking wrist bones into solid cast.',
+        'hand wraps boxing 180 inch knuckles wrist cast punch protection'),
+    (   'Speed bag training: shoulder endurance, rhythmic timing, keeping '
+        'hands up when exhausted in late rounds.',
+        'speed bag rhythm shoulder endurance timing hands up boxing cardio'),
+    (   'Heavy bag power punching: hip torque, breathing out on impact, '
+        'turning hips over on rear hook.',
+        'heavy bag power punch hip torque breath impact hooks boxing'),
+    (   'Muay Thai clinch knee strikes: head control, plum grip, turning '
+        'opponent into heavy knee strikes.',
+        'muay thai clinch plum knee strikes head control leverage combat'),
+    (   'Sambo leg locks vs modern American BJJ: saddle position, inside heel '
+        'hooks, leg entanglement race.',
+        'sambo leg locks bjj saddle heel hook entanglement submission fast'),
+    (   'Judo throws in No-Gi: harai goshi, uchi mata, using opponent forward '
+        'momentum to launch them.',
+        'judo throws uchi mata harai goshi nogi momentum takedown combat'),
+    (   'End of workout endorphin rush: lying on the gym mat staring at the '
+        'ceiling, feeling completely at peace with life.',
+        'endorphins post workout mat ceiling peace calm life reset heavy lift')]
 
 DEFAULT_DAILY_THEMES = SESSION_1_THEMES + SESSION_2_THEMES + SESSION_3_THEMES
 
@@ -820,50 +1487,28 @@ class DailyBatchEngine:
             persona_str += f"\n\nINTER-PERSONA RELATIONSHIP DYNAMICS:\n{rel_graph}\n(Personas banter, reference shared history, and chat like close peers without using @tags!)"
 
             system_prompt = (
-                "You orchestrate realistic, organic human conversations in specialist Telegram communities.\n"
+                "You orchestrate realistic, organic human conversations in a specialist private Telegram group.\n"
                 "You write authentic, casual group chat exchanges between real people texting from their phones.\n\n"
-                "CRITICAL GUIDELINES FOR AUTHENTIC HUMAN MESSAGING:\n"
-                "AUTHENTIC CONVERSATIONAL FRICTION & ASYMMETRIC TEMPERAMENTS (MANDATORY):\n"
-                "CRITICAL DEMOGRAPHIC & KNOWLEDGE BOUNDARIES (ANTI-OMNISCIENCE MANDATE):\n"
-                "- Real humans ONLY know topics that align with their life stage, background, and demographics!\n"
-                "- Young female personas (e.g. 20s women like Kami, Leila, etc.) MUST NEVER speak like 45-year-old veteran male bodybuilding historians!\n"
-                "- They DO NOT have deep encyclopedic knowledge of vintage 1970s/1980s Mr. Olympia contests (Frank Zane, Serge Nubret, golden era vacuum contests) or heavy male steroid blast cycles.\n"
-                "- If vintage bodybuilding, veteran contest history, or heavy male androgen protocols come up, young/female personas MUST react authentically from their own perspective: e.g. asking who that is ('who is Zane lol', 'the vacuum pose guy?'), making a casual observation about aesthetics vs bloat, cracking a joke about guys obsessing over 1970s bodybuilders, or letting the guys debate it.\n"
-                "- NEVER make everyone sound like identical old-school bodybuilding gurus.\n\n"
-                "- Group chats are NEVER unanimous or polite corporate meetings! Members have completely different social temperaments:\n"
-                "  * LOW-PATIENCE / RAW VERNACULAR PERSONAS: When they speak, they have zero corporate filter and low patience. Use dismissive sharp internet vernacular ('bro what are you even saying rn', 'who told you that garbage💀', 'lol nah', 'stop overcomplicating basic shit and just train').\n"
-                "  * DRY / SARCASTIC PERSONAS: Deadpan, cynical one-liners, rolling eyes at hype ('sure bro whatever you say', 'rip your sleep schedule', 'fascinating theory💀').\n"
-                "  * CHILL / GROUNDED PERSONAS: Calm, experienced, give straightforward practical answers without getting heated.\n"
-                "- This asymmetrical friction is what makes the group feel authentic and alive!\n\n"
-                "BANNED MEME TROPES (PERMANENT ZERO-TOLERANCE):\n" \
-                "- NEVER under any circumstance mention Liver King, raw liver ancestral tenets, duck eggs memes, or tired 2021 meme personalities. These are permanently banned from the community.\n\n" \
-                "CONTINUITY WITH PAST CONVERSATIONS & NOVELTY MANDATE:\n" \
-                "- You are given RECENT CONVERSATION HISTORY & ESTABLISHED CONTEXT and EARLIER SESSIONS TODAY.\n" \
-                "- NEVER repeat questions, advice, anecdotes, or facts already discussed in prior sessions or recent chat.\n" \
-                "- Real group members remember what was said earlier today and yesterday. If someone already asked about PCT timing, do not start a debate asking about PCT timing again—move the discussion forward, discuss another compound, or share a real-world workout observation.\n" \
-                "- Avoid formulaic starter lines ('anyone here tried X?'). Real active group members jump in with opinions, quick updates, or observations.\n\n" \
-                "CRITICAL: ABSOLUTE ZERO REPETITION MANDATE (STRICTLY ENFORCED):\n"
+                "CRITICAL TELEGRAM TEXTING RULES (ZERO AI DIALECT):\n"
+                "- TEXT LIKE REAL PEOPLE ON THEIR PHONES: Use lowercase by default, casual phrasing, contractions, and minimal punctuation.\n"
+                "- ZERO GREETINGS OR FORMAL INTRODUCTIONS: Never say 'Hey guys', 'What is up everyone', or 'Has anyone tried X?'. Real people jump straight in with an observation, update, or quick complaint ('pip on this new batch is nonexistent', 'bench felt heavy as hell today', 'finally broke 200lbs').\n"
+                "- NEVER DEFINE COMPOUNDS OR LECTURE: Everyone here is already an experienced regular. Never explain what BPC, test, tirz, or modafinil does like a Wikipedia article. Talk about real-world use ('running 500mcg daily for elbow', 'pinning ventroglute', 'down 3lbs this week').\n"
+                "- SHORT, PUNCHY MESSAGING CADENCE:\n"
+                "  * 70-80% of messages are 3 to 12 words! Real people do not write long paragraphs on Telegram.\n"
+                "  * Quick reactions ('same honestly', 'clean numbers', 'definitely not', 'which compound?', 'lol nah').\n"
+                "  * Occasional 1-2 sentence elaboration when sharing personal experience.\n"
+                "- ASYMMETRICAL PERSONALITY FRICTION:\n"
+                "  * Low-patience members roast bad form, call out overcomplication ('stop overthinking basic shit and just train', 'who told you that garbage💀').\n"
+                "  * Dry/sarcastic members roll their eyes at hype ('sure bro whatever you say', 'rip your sleep schedule').\n"
+                "  * Grounded peers give practical, level-headed tips without corporate fluff.\n"
+                "- TELEGRAM NATIVE EMOJI REACTIONS (15-25% OF TURNS):\n"
+                "  * Real members frequently react with emojis (🔥, 😂, 💀, 👍, 👀, 💯, 💪, ❤️) instead of typing text!\n"
+                "  * Format: {\"reaction\": \"🔥\", \"reply_to_step\": <target step number>, \"text\": \"\"}\n"
+                "- CONTINUITY & ZERO REPETITION MANDATE:\n"
                 f"{forbidden_block}\n"
-                "- Do NOT re-ask questions that were already discussed.\n"
-                "- Introduce 100% fresh angles, new exercises, novel questions, or everyday banter.\n\n"
-                "TELEGRAM NATIVE EMOJI REACTIONS (15-25% OF TURNS):\n"
-                "- Real people frequently react with emojis (🔥, 😂, 💀, 👍, 👀, 💯, 💪, ❤️) instead of typing text!\n"
-                "- Set: \"reaction\": \"🔥\", \"reply_to_step\": <target step number>, \"text\": \"\"\n\n"
-                "1. ASYMMETRICAL LENGTH & NATURAL CADENCE (ANTI-PATTERN MANDATE):\n"
-                "   - DO NOT MAKE EVERYONE SOUND LIKE THE SAME AUTHOR!\n"
-                "   - NO MECHANICAL 2-MESSAGE BURSTS: 75-80% of messages MUST be single standalone bubbles. Real people do NOT send 2 back-to-back texts on every turn!\n"
-                "   - Only occasionally (15-25%), when reacting quickly and then adding an afterthought, use ' ||| ' between two short bubbles.\n"
-                "   - FORBID UNIFORM OPENERS: Consecutive messages MUST NOT start with the same reaction words ('nah', 'bro', 'wait'). Mix up sentence beginnings: start with verbs, direct answers, questions, or short gym shorthand.\n"
-                "   - WILD LENGTH ASYMMETRY:\n"
-                "     * ULTRA-SHORT (25-30% of turns): 1 to 5 words ('same honestly', 'clean numbers', 'definitely not', 'which compound?', 'zero pip for me').\n"
-                "     * QUICK TAKES & QUESTIONS (45-50% of turns): 6 to 14 words.\n"
-                "     * OCCASIONAL ELABORATION (20-25% of turns): 15 to 30 words.\n"
-                "   - NO CANNED SLANG CLUSTERS: Avoid cramming generic internet clichés ('fr tho', 'ngl tbh', skull emojis) into every turn. Personas have their own distinct vocabulary based on their Demographics & Speech Profile.\n\n"
-                "2. GENUINE TELEGRAM REPLIES & THREADING:\n"
-                "   - When responding or bantering, specify 'reply_to_step': <0-indexed step of target message in this session>.\n"
-                "   - If starting a new point or opening remark, set 'reply_to_step': null.\n\n"
-                "3. ZERO @TAGS OR NAMES (STRICT): Never type @handles or call people by name. Address someone ONLY by setting reply_to_step.\n\n"
-                "4. OUTPUT FORMAT: Return ONLY a valid JSON array of message objects matching this exact format:\n"
+                "- Do NOT re-ask questions that were already discussed in recent chat or earlier sessions today. Advance the discussion naturally.\n"
+                "- ZERO @TAGS OR USERNAMES: Address someone ONLY by setting reply_to_step.\n\n"
+                "OUTPUT FORMAT: Return ONLY a valid JSON array of message objects matching this exact format:\n"
                 "[\n"
                 "  {\n"
                 "    \"persona_id\": <int>,\n"
@@ -871,7 +1516,7 @@ class DailyBatchEngine:
                 "    \"sender_name\": \"<string>\",\n"
                 "    \"reply_to_step\": <int or null>,\n"
                 "    \"text\": \"<exact telegram message text>\",\n"
-                "    \"reaction\": \"<optional emoji like 🔥, 😂, 💀, 👍, 👀, 💯, 💪, ❤️ or null>\"\n"
+                "    \"reaction\": \"<optional emoji or null>\"\n"
                 "  }\n"
                 "]"
             )
@@ -882,12 +1527,12 @@ class DailyBatchEngine:
                 f"DOMAIN TOPICS: {group_domain}\n\n"
                 f"RECENT CONVERSATION HISTORY & ESTABLISHED CONTEXT:\n{condensed_history}\n\n"
                 f"{intra_day_context}\n\n"
-                f"AVAILABLE PERSONAS:\n{persona_str}\n\n"
+                f"AVAILABLE PERSONAS IN THIS CHAT:\n{persona_str}\n\n"
                 f"CONVERSATIONAL FOCUS: {topic_prompt}\n\n"
                 f"TASK:\n"
-                f"Create a natural {th_count}-message conversational thread for this session ({s_label}) between these personas.\n"
-                f"Vary message lengths wildly, embrace casual mobile texting shorthand, and never mention Liver King or tired internet memes.\n"
-                "CONTINUITY MANDATE: Connect organically with the RECENT CONVERSATION HISTORY and EARLIER SESSIONS TODAY. Advance the conversation forward—do NOT repeat topics, advice, or questions already asked. Ensure dialogue strictly adheres to each persona's demographic reality and knowledge boundaries. Return strictly the JSON array."
+                f"Generate a {th_count}-message fast-paced authentic Telegram group chat thread for {s_label}.\n"
+                f"Text like real lifters on mobile phones: fast, punchy, lowercase default, blunt banter, zero AI disclaimers, zero Wikipedia explanations.\n"
+                "Advance the conversation organically without repeating past points. Return strictly the JSON array."
             )
 
             th_items = []

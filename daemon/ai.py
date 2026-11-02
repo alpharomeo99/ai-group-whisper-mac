@@ -377,9 +377,9 @@ def resolve_persona_temperament(name=None, details=None, prompt=None, trigger_te
     cynicism = int(dt.get("cynicism", 0))
     slang = str(dt.get("slang_tier", "")).lower()
 
-    if combative >= 60 or unhinged >= 65 or slang in ("crypto_degen", "gym_bro_aggressive", "raw_internet", "unfiltered"):
+    if combative >= 60 or unhinged >= 65 or slang in ("crypto_degen", "gym_bro_aggressive", "gym_bro_direct", "combat_grappler", "raw_internet", "unfiltered"):
         tier = "aggressive_low_patience"
-    elif cynicism >= 55 or combative >= 40 or unhinged >= 40 or slang in ("tech_founder", "gen_z_internet"):
+    elif cynicism >= 55 or combative >= 40 or unhinged >= 40 or slang in ("tech_founder", "gen_z_internet", "nootropic_corporate", "casual_internet", "female_fitness", "veteran_lifter", "peptide_biohacker"):
         tier = "dry_sarcastic"
     elif unhinged > 0 or combative > 0 or cynicism > 0:
         tier = "chill_grounded"
