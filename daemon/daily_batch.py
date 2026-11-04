@@ -1064,19 +1064,20 @@ class DailyBatchEngine:
         local_hour = local_dt.hour + (local_dt.minute / 60.0)
 
         # Daytime hours (08:00 to 23:30) are 100% active and awake for all personas
-        if 8.0 <= local_hour < 23.5:
+        # Daytime and late evening hours (07:00 to 00:30) are 100% active and awake for all personas
+        if 7.0 <= local_hour or local_hour < 0.5:
             return True
 
         p_seed_str = str(cand.get("persona_id") or cand.get("id") or cand.get("persona_name") or "default")
         seed_hash = sum(ord(c) for c in p_seed_str)
         archetype_idx = seed_hash % 6
         SCHEDULES = [
-            (23.5, 6.5),  # early_bird
-            (0.5, 7.5),   # standard
-            (1.5, 8.0),   # moderate_night_owl
-            (2.0, 8.5),   # late_night_owl
-            (2.5, 8.5),   # night_owl_bro
-            (23.0, 6.0),  # morning_athlete
+            (23.0, 6.5),  # early_bird
+            (23.5, 7.0),  # standard
+            (0.5, 7.5),   # moderate_night_owl
+            (1.0, 7.5),   # night_owl
+            (1.5, 8.0),   # flexible_sleeper
+            (22.5, 6.0),  # morning_athlete
         ]
         s_start, s_end = SCHEDULES[archetype_idx]
         if s_start <= s_end:
@@ -1501,9 +1502,14 @@ class DailyBatchEngine:
                 "  * Low-patience members roast bad form, call out overcomplication ('stop overthinking basic shit and just train', 'who told you that garbage💀').\n"
                 "  * Dry/sarcastic members roll their eyes at hype ('sure bro whatever you say', 'rip your sleep schedule').\n"
                 "  * Grounded peers give practical, level-headed tips without corporate fluff.\n"
-                "- TELEGRAM NATIVE EMOJI REACTIONS (15-25% OF TURNS):\n"
-                "  * Real members frequently react with emojis (🔥, 😂, 💀, 👍, 👀, 💯, 💪, ❤️) instead of typing text!\n"
-                "  * Format: {\"reaction\": \"🔥\", \"reply_to_step\": <target step number>, \"text\": \"\"}\n"
+                "- FULL ROSTER PARTICIPATION (MANDATORY):\n"
+                "  * EVERY SINGLE persona listed under AVAILABLE PERSONAS MUST speak at least 1-2 times in this session!\n"
+                "  * Do NOT create a 2-person dialogue where everyone else is silent. Multiple members must chime in, react, roast, or offer their take.\n"
+                "  * Distribute speaking turns across ALL available personas so that every member participates.\n"
+                "- MINIMAL EMOJI USAGE (REAL PHONE TEXTING):\n"
+                "  * 85%+ of messages must contain ZERO emojis! Do NOT pepper emojis into every message.\n"
+                "  * Native emoji reactions must be rare (under 3-5% of turns at most, e.g. a rare 👍 or 😂 reaction to a punchline).\n"
+                "  * Absolutely NEVER use AI emojis: NO 💡, ✨, 📊, 🧪, 📉, 🩸, 💅, 🧠, 🤖, 🚀.\n"
                 "- CONTINUITY & ZERO REPETITION MANDATE:\n"
                 f"{forbidden_block}\n"
                 "- Do NOT re-ask questions that were already discussed in recent chat or earlier sessions today. Advance the discussion naturally.\n"
@@ -1612,6 +1618,31 @@ class DailyBatchEngine:
                         m_time += random.uniform(0.18, 0.55)
                     session_offsets.append(m_time)
 
+            # Guarantee roster participation: ensure every candidate in the group speaks in this session if message count allows
+            if len(candidates) >= 2 and len(s_items) >= len(candidates):
+                session_pids = set()
+                for it in s_items:
+                    it_pid = it.get("persona_id")
+                    if it_pid:
+                        session_pids.add(it_pid)
+                missing_cands = [c for c in candidates if c["persona_id"] not in session_pids]
+                if missing_cands:
+                    pid_counts = {}
+                    for it in s_items:
+                        it_pid = it.get("persona_id")
+                        pid_counts[it_pid] = pid_counts.get(it_pid, 0) + 1
+                    for missing in missing_cands:
+                        for it_idx in range(1, len(s_items)):
+                            target_it = s_items[it_idx]
+                            spk_pid = target_it.get("persona_id")
+                            if pid_counts.get(spk_pid, 0) > 1:
+                                target_it["persona_id"] = missing["persona_id"]
+                                target_it["account_id"] = missing["account_id"]
+                                target_it["sender_name"] = missing["persona_name"]
+                                pid_counts[spk_pid] -= 1
+                                pid_counts[missing["persona_id"]] = 1
+                                break
+
             session_created = []
             for item_idx, item in enumerate(s_items):
                 pid = item.get("persona_id")
@@ -1681,7 +1712,9 @@ class DailyBatchEngine:
                             break
                 batch_bubbles = self.ai.split_burst_bubbles(text, names=cand_names, burstiness_pct=c_burst)
                 if not batch_bubbles:
-                    batch_bubbles = [text]
+                    batch_bubbles = [text] if text else []
+                batch_bubbles = [b for b in batch_bubbles if not (b.strip().startswith("[reaction:") and b.strip().endswith("]"))]
+                actual_text = "" if (reaction and not item.get("text")) else text
                 self.store.enqueue(
                     "batch_scheduled_send",
                     chat_id,
@@ -1689,7 +1722,7 @@ class DailyBatchEngine:
                         "batch_item_id": item_id,
                         "account_id": aid,
                         "persona_id": pid,
-                        "text": text,
+                        "text": actual_text,
                         "bubbles": batch_bubbles,
                         "reaction": reaction if reaction else None,
                         "reply_to_item_id": parent_item_id

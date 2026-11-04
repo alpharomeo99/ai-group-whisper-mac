@@ -84,12 +84,12 @@ class PersonaCadenceOrchestrator:
         archetype_idx = seed_hash % 6
         SCHEDULES = [
             # (sleep_start, sleep_end, peak_hour, sigma, label)
-            (22.5, 6.0, 13.0, 4.5, "early_bird"),
-            (23.5, 7.5, 15.0, 5.0, "standard"),
-            (1.0, 8.5, 17.0, 5.0, "moderate_night_owl"),
-            (3.0, 10.5, 20.0, 4.5, "late_night_owl"),
-            (5.0, 12.5, 22.0, 4.5, "graveyard_shift"),
-            (21.5, 5.0, 12.0, 4.0, "morning_athlete"),
+            (23.0, 6.5, 13.0, 4.5, "early_bird"),
+            (23.5, 7.0, 15.0, 5.0, "standard"),
+            (0.5, 7.5, 17.0, 5.0, "moderate_night_owl"),
+            (1.0, 7.5, 19.0, 4.5, "night_owl"),
+            (1.5, 8.0, 20.0, 4.5, "flexible_sleeper"),
+            (22.5, 6.0, 12.0, 4.0, "morning_athlete"),
         ]
         base = SCHEDULES[archetype_idx]
         sleep_start = float(details.get("sleep_start", base[0]))
@@ -114,8 +114,8 @@ class PersonaCadenceOrchestrator:
         local_dt = datetime.fromtimestamp(ts)
         local_hour = local_dt.hour + (local_dt.minute / 60.0)
 
-        # Daytime hours (08:00 to 23:30) are 100% active and awake for all personas
-        if 8.0 <= local_hour < 23.5:
+        # Daytime and late evening hours (07:00 to 00:30) are active for all community members
+        if 7.0 <= local_hour or local_hour < 0.5:
             return True
 
         prof = self.get_persona_circadian_profile(persona)
@@ -136,7 +136,7 @@ class PersonaCadenceOrchestrator:
         local_hour = local_dt.hour + (local_dt.minute / 60.0)
 
         if not self.is_persona_awake(persona, ts=ts):
-            return 0.15
+            return 0.55
 
         prof = self.get_persona_circadian_profile(persona)
         diff = abs(local_hour - prof["peak_hour"])
@@ -348,10 +348,12 @@ class PersonaCadenceOrchestrator:
             total_speeches = sum(counts.values()) or 1
             speech_share = counts.get(pid, 0) / total_speeches
 
-            if speech_share > 0.40 and len(candidate_personas) >= 2:
-                balance_mod = -0.25  # Lightly suppress over-represented persona
-            elif counts.get(pid, 0) == 0 or speech_share < 0.20:
-                balance_mod = 0.45   # Strong boost for quiet / under-represented personas
+            if counts.get(pid, 0) == 0:
+                balance_mod = 0.85   # Massive priority for unrepresented / quiet personas
+            elif speech_share < 0.15:
+                balance_mod = 0.50   # Strong boost for under-represented personas
+            elif speech_share > 0.35 and len(candidate_personas) >= 3:
+                balance_mod = -0.35  # Suppress over-represented dominant speaker
             else:
                 balance_mod = 0.10
 
@@ -359,7 +361,7 @@ class PersonaCadenceOrchestrator:
             freshness_boost = 0.30 if fatigue < 0.05 else (0.15 if fatigue < 0.20 else 0.0)
 
             # 6. Total probability utility score with individual sleep awareness
-            sleep_mod = 0.0 if (is_awake or is_direct_mention or is_admin) else -0.45
+            sleep_mod = 0.0 if (is_awake or is_direct_mention or is_admin) else -0.15
             utility = ((rel_score + salience_boost) * circadian_mod) - fatigue_penalty + freshness_boost + balance_mod + sleep_mod
 
             # Add stochastic perturbation to break ties

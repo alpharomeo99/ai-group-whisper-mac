@@ -690,7 +690,7 @@ class Store:
                         "tone_desc": "Knowledgeable, seasoned gym vet, no fluff, straight to the point, gives practical dosing math and lifting advice with dry humor.",
                         "typing_style": "quick mobile texting, short direct bursts, lowercase or relaxed phone casing, uses lifting lingo (RPE, PR, PPL, hypertrophy)",
                         "emoji_habit": "moderate",
-                        "signature_emojis": "💪, 🤷‍♂️, 🤝",
+                        "signature_emojis": "💪, 👍, 💀",
                         "typo_rate": 2.0,
                         "interests": ["strength training", "lifting technique", "helping members with dosing", "recovery protocols", "hypertrophy", "gym banter"]
                     },
@@ -710,7 +710,7 @@ class Store:
                         "tone_desc": "Curious biohacker, tests cognitive focus stacks (Semax, Bromantane, L-Tyrosine), sleep metrics (Oura, magnesium), eager to help beginners with reconstitution math and syringe units.",
                         "typing_style": "clear, friendly, casual lowercase texting, no medical textbook jargon, practical tips, occasional quick abbreviations",
                         "emoji_habit": "moderate",
-                        "signature_emojis": "👀, 🧠, 💡, ✨",
+                        "signature_emojis": "👀, 💀, 👍",
                         "typo_rate": 1.8,
                         "interests": ["nootropics & focus", "reconstitution math & dosing", "sleep architecture", "magnesium & recovery", "biohacking", "helping out"]
                     },
@@ -720,7 +720,7 @@ class Store:
                         "tone_desc": "Relaxed, friendly, checks in on peers, shares everyday workouts and diet struggles, supportive and easygoing.",
                         "typing_style": "relaxed lowercase phone texting, skips periods, uses common abbreviations (rn, prob, idk, kinda, yeah, legit)",
                         "emoji_habit": "moderate",
-                        "signature_emojis": "🙌, 🔥, ☕, 🤝",
+                        "signature_emojis": "👍, 🔥, 😂",
                         "typo_rate": 3.2,
                         "interests": ["everyday lifting", "joint health & sauna", "nutrition & meal prep", "routine check-ins", "wellness", "friendly banter"]
                     },

@@ -398,7 +398,7 @@ def compile_industrial_prompt(data):
     L.append(f"- Punctuation Habit: {punctuation} (often omit terminal periods, use '...' for trailing thoughts).")
     L.append(f"- Typo Rate: {typo_rate}% mobile typo frequency (e.g. natural phone slips like 'teh', 'dont', 'woudl', missing commas).")
     L.append(f"- Slang / Subculture Tier: {slang}.")
-    L.append(f"- Emoji Usage: {emoji_habit} habit. Signature emojis to use sparingly: {emojis}.")
+    L.append(f"- Emoji Usage: {emoji_habit} habit. Phone texting rule: 85%+ of your messages have ZERO emojis. Real lifters text in words and shorthand, never emoji storms. NEVER use AI emojis like 💡, ✨, 📊, 🧪, 📉, 🩸, 💅, 🧠, 🤖, 🚀. When you rarely use one, stick strictly to: {emojis}.")
     L.append(f"- Burstiness: {burstiness}% (tendency to fire off 2 rapid short messages instead of one combined block).")
     L.append("")
 
@@ -432,7 +432,7 @@ INDUSTRIAL_ARCHETYPES = {   'clinical_peptide_biohacker': {   'age': 31,
                                       'cynicism': 50,
                                       'education_vibe': 'university',
                                       'emoji_habit': 'rare',
-                                      'emojis': '🧪, 📊, 💡',
+                                      'emojis': '💀, 👍',
                                       'emotional_volatility': 20,
                                       'gender': 'man',
                                       'hot_takes': [   'bpc-157 works 10x '
@@ -487,7 +487,7 @@ INDUSTRIAL_ARCHETYPES = {   'clinical_peptide_biohacker': {   'age': 31,
                                    'cynicism': 65,
                                    'education_vibe': 'street_smart',
                                    'emoji_habit': 'moderate',
-                                   'emojis': '🥋, 💀, 🥊, 🩸',
+                                   'emojis': '💀, 😂, 🥊',
                                    'emotional_volatility': 60,
                                    'gender': 'man',
                                    'hot_takes': [   'half of UFC fighters are '
@@ -541,7 +541,7 @@ INDUSTRIAL_ARCHETYPES = {   'clinical_peptide_biohacker': {   'age': 31,
                                        'cynicism': 80,
                                        'education_vibe': 'university',
                                        'emoji_habit': 'rare',
-                                       'emojis': '☕, 💀, 🫠',
+                                       'emojis': '💀, 😂',
                                        'emotional_volatility': 50,
                                        'gender': 'man',
                                        'hot_takes': [   'modafinil is a cheat '
@@ -598,7 +598,7 @@ INDUSTRIAL_ARCHETYPES = {   'clinical_peptide_biohacker': {   'age': 31,
                                  'cynicism': 70,
                                  'education_vibe': 'university',
                                  'emoji_habit': 'moderate',
-                                 'emojis': '📉, 💀, 🥩, 🥤',
+                                 'emojis': '💀, 😭, 🤡',
                                  'emotional_volatility': 40,
                                  'gender': 'man',
                                  'hot_takes': [   'the moral panic around '
@@ -647,7 +647,7 @@ INDUSTRIAL_ARCHETYPES = {   'clinical_peptide_biohacker': {   'age': 31,
                                      'cynicism': 90,
                                      'education_vibe': 'state_school',
                                      'emoji_habit': 'rare',
-                                     'emojis': '👀, 💀, 🤡',
+                                     'emojis': '👀, 💀',
                                      'emotional_volatility': 45,
                                      'gender': 'man',
                                      'hot_takes': [   'commercial gym music is '
@@ -707,7 +707,7 @@ INDUSTRIAL_ARCHETYPES = {   'clinical_peptide_biohacker': {   'age': 31,
                                     'cynicism': 65,
                                     'education_vibe': 'state_school',
                                     'emoji_habit': 'moderate',
-                                    'emojis': '💅, 😭, 💀, ✨',
+                                    'emojis': '😭, 😂, 💀, 💪',
                                     'emotional_volatility': 45,
                                     'gender': 'woman',
                                     'hot_takes': [   'guys obsessing over '
@@ -758,7 +758,7 @@ INDUSTRIAL_ARCHETYPES = {   'clinical_peptide_biohacker': {   'age': 31,
                                'cynicism': 75,
                                'education_vibe': 'street_smart',
                                'emoji_habit': 'rare',
-                               'emojis': '☕, 🤝, 💯',
+                               'emojis': '👍, 🤝, 💯',
                                'emotional_volatility': 25,
                                'gender': 'man',
                                'hot_takes': [   'half the guys running 800mg '
@@ -806,7 +806,7 @@ INDUSTRIAL_ARCHETYPES = {   'clinical_peptide_biohacker': {   'age': 31,
                                    'cynicism': 70,
                                    'education_vibe': 'street_smart',
                                    'emoji_habit': 'frequent',
-                                   'emojis': '💀, 😭, 🔥, 🦍',
+                                   'emojis': '💀, 🔥, 😂',
                                    'emotional_volatility': 75,
                                    'gender': 'man',
                                    'hot_takes': [   'if your squat depth is 4 '
@@ -925,10 +925,10 @@ def fallback_industrial_persona(params=None):
             "max_seconds": max_s,
             "burstiness_percent": burstiness
         },
-        "sleep_start": float([22.5, 23.5, 1.0, 3.0, 5.0, 21.5][sum(ord(c) for c in name) % 6]),
-        "sleep_end": float([6.0, 7.5, 8.5, 10.5, 12.5, 5.0][sum(ord(c) for c in name) % 6]),
+        "sleep_start": float([23.0, 23.5, 0.5, 1.0, 1.5, 22.5][sum(ord(c) for c in name) % 6]),
+        "sleep_end": float([6.5, 7.0, 7.5, 7.5, 8.0, 6.0][sum(ord(c) for c in name) % 6]),
         "tz_offset": float(((sum(ord(c) for c in name) % 7) - 3) * 1.0),
-        "chronotype": ["early_bird", "standard", "moderate_night_owl", "late_night_owl", "graveyard_shift", "morning_athlete"][sum(ord(c) for c in name) % 6],
+        "chronotype": ["early_bird", "standard", "moderate_night_owl", "night_owl", "flexible_sleeper", "morning_athlete"][sum(ord(c) for c in name) % 6],
         "peak_hour": int(params.get("peak_hour") or [13, 15, 17, 20, 22, 12][sum(ord(c) for c in name) % 6])
     }
 

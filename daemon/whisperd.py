@@ -105,6 +105,15 @@ class Daemon:
         except Exception as e:
             log.debug("startup pacing tuning notice: %s", e)
 
+
+        # Proactively ensure all personas and accounts are reconciled and linked to watched groups on startup
+        try:
+            self.store.reconcile_personas_and_accounts()
+            g_rows = self.store.rows("SELECT chat_id FROM groups WHERE watched=1")
+            for gr in g_rows:
+                self.ensure_group_personas_assigned(gr["chat_id"])
+        except Exception as e:
+            log.debug("startup reconcile notice: %s", e)
     async def memory_pruner_loop(self):
         """Autonomous Agent that wakes up every 12 hours to prune expired, useless, and overextended memories."""
         while True:
@@ -1648,7 +1657,7 @@ class Daemon:
                     bubbles = ai.split_burst_bubbles(clean_txt or p.get("text", ""), names=cand_names, burstiness_pct=burstiness)
                 if not bubbles:
                     bubbles = [p.get("text", "")]
-                bubbles = [b.strip() for b in bubbles if b and b.strip()]
+                bubbles = [b.strip() for b in bubbles if b and b.strip() and not (b.strip().startswith("[reaction:") and b.strip().endswith("]"))]
 
                 reply_to_msg_id = p.get("reply_to")
                 if not reply_to_msg_id and p.get("reply_to_item_id"):
@@ -1678,8 +1687,14 @@ class Daemon:
                             self.store.finish(job["id"], True)
                             return
                         except Exception as react_err:
-                            log.warning("Safe reaction fallback (%s): %s. Proceeding to text bubbles.", react_emoji, react_err)
+                            log.warning("Safe reaction fallback (%s): %s.", react_emoji, react_err)
+                            if not bubbles:
+                                self.store.finish(job["id"], True, "Reaction completed or safe fallback")
+                                return
 
+                if not bubbles:
+                    self.store.finish(job["id"], True, "No text bubbles to send")
+                    return
                 async with self.account_session(aid) as cl:
                     sent_msg = None
                     for b_idx, bubble_text in enumerate(bubbles):
@@ -1795,7 +1810,7 @@ class Daemon:
                     bubbles = ai.split_burst_bubbles(clean_txt or p.get("text", ""), names=cand_names, burstiness_pct=burstiness)
                 if not bubbles:
                     bubbles = [p.get("text", "")]
-                bubbles = [b.strip() for b in bubbles if b and b.strip()]
+                bubbles = [b.strip() for b in bubbles if b and b.strip() and not (b.strip().startswith("[reaction:") and b.strip().endswith("]"))]
 
                 reply_to_msg_id = p.get("reply_to")
                 if not reply_to_msg_id and p.get("reply_to_item_id"):
@@ -1825,8 +1840,14 @@ class Daemon:
                             self.store.finish(job["id"], True)
                             return
                         except Exception as react_err:
-                            log.warning("Safe reaction fallback (%s): %s. Proceeding to text bubbles.", react_emoji, react_err)
+                            log.warning("Safe reaction fallback (%s): %s.", react_emoji, react_err)
+                            if not bubbles:
+                                self.store.finish(job["id"], True, "Reaction completed or safe fallback")
+                                return
 
+                if not bubbles:
+                    self.store.finish(job["id"], True, "No text bubbles to send")
+                    return
                 async with self.account_session(aid) as cl:
                     sent_msg = None
                     for b_idx, bubble_text in enumerate(bubbles):
