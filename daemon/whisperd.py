@@ -799,9 +799,8 @@ class Daemon:
         if not g:
             self.store.q("INSERT OR IGNORE INTO groups(chat_id, title, watched, auto_reply) VALUES(?,?,1,1)", (chat_id, f"Group {chat_id}"))
             g = self.store.rows("SELECT * FROM groups WHERE chat_id=?", (chat_id,))
-        elif not g[0].get("watched") or not g[0].get("auto_reply"):
-            self.store.q("UPDATE groups SET watched=1, auto_reply=1 WHERE chat_id=?", (chat_id,))
-            g = self.store.rows("SELECT * FROM groups WHERE chat_id=?", (chat_id,))
+        if not g[0].get("watched"):
+            return
 
         sender = None
         try:
@@ -852,12 +851,11 @@ class Daemon:
             )
         }
         is_admin_sender = bool(
-            "xbiolabs" in sender_username
-            or "xbiolabs" in name.lower()
-            or (configured_admin and (sender_username == configured_admin or configured_admin in sender_username))
+            sender_username == "xbiolabs"
+            or (configured_admin and sender_username == configured_admin)
             or is_chat_admin
             or (sender_id and sender_id in admin_u_ids)
-            or any(a.get("user_id") == sender_id and (a.get("is_admin") or "xbiolabs" in (a.get("username") or "").lower() or (configured_admin and (a.get("username") or "").lower().lstrip("@") == configured_admin)) for a in all_accounts)
+            or any(a.get("user_id") == sender_id and (a.get("is_admin") or (a.get("username") or "").lower().lstrip("@") == "xbiolabs" or (configured_admin and (a.get("username") or "").lower().lstrip("@") == configured_admin)) for a in all_accounts)
         )
 
         # Check if sender is an internal bot persona (strictly excluding admin, xbiolabs, and chat admins)
@@ -1012,9 +1010,9 @@ class Daemon:
                 except Exception as e:
                     log.debug("Proactive batch postponement: %s", e)
 
-                # Hard budget cap guard (bash.20/day for human replies) - Admin messages always bypass cap!
+                # Hard budget cap guard ($0.20/day for human AND admin replies)
                 can_reply, r_spent, r_cap = self.store.check_reply_budget_available()
-                if not is_admin_sender and not can_reply:
+                if not can_reply:
                     log.warning(
                         "[BUDGET CAP] Daily human reply budget cap ($%.2f) reached ($%.4f spent today). "
                         "Skipping reply to %s in group %s until midnight reset.",
@@ -1484,7 +1482,7 @@ class Daemon:
             elif job["kind"] == "draft_reply":
                 is_admin_job = bool(p.get("is_admin"))
                 can_reply, r_spent, r_cap = self.store.check_reply_budget_available()
-                if not is_admin_job and not can_reply:
+                if not can_reply:
                     log.warning(
                         "[BUDGET CAP] Daily reply budget cap ($%.2f) reached ($%.4f spent). Cancelling reply job %s.",
                         r_cap, r_spent, job["id"]
@@ -1550,24 +1548,23 @@ class Daemon:
                                 dt = None
 
                 primary_reply_text = p.get("primary_reply_text")
-                if not primary_reply_text and p.get("is_teammate_chime") and p.get("trigger"):
-                    trig_id = p.get("trigger")
+                if not primary_reply_text and p.get("is_teammate_chime"):
                     rep_rows = self.store.rows(
-                        "SELECT text FROM messages WHERE chat_id=? AND reply_to_msg_id=? AND is_bot=1 ORDER BY id DESC LIMIT 1",
-                        (job["chat_id"], trig_id)
+                        "SELECT text FROM messages WHERE chat_id=? AND is_bot=1 ORDER BY ts DESC LIMIT 1",
+                        (job["chat_id"],)
                     )
                     if rep_rows and rep_rows[0].get("text"):
                         primary_reply_text = rep_rows[0]["text"]
                     else:
                         q_sends = self.store.rows(
-                            "SELECT payload FROM queue WHERE chat_id=? AND kind='send' AND status IN ('pending', 'completed') "
+                            "SELECT payload FROM queue WHERE chat_id=? AND kind='send' AND status IN ('pending', 'done') "
                             "ORDER BY id DESC LIMIT 5",
                             (job["chat_id"],)
                         )
                         for qs in q_sends:
                             try:
                                 q_p = json.loads(qs["payload"]) if isinstance(qs["payload"], str) else qs["payload"]
-                                if q_p.get("reply_to") == trig_id and q_p.get("text"):
+                                if q_p.get("text"):
                                     primary_reply_text = q_p.get("text")
                                     break
                             except Exception:
@@ -1592,9 +1589,9 @@ class Daemon:
                     persona_details=dt,
                     primary_reply_text=primary_reply_text
                 )
-                # Log AI token & latency usage (teammate banter logs under ai_batch to protect human reply allowance)
+                # Log AI token & latency usage (human/admin triggered follow-ups count under ai_chat, spontaneous bot banter under ai_batch)
                 is_teammate = bool(p.get("is_teammate_chime"))
-                evt_type = "ai_batch" if is_teammate else "ai_chat"
+                evt_type = "ai_chat" if (p.get("trigger") or not is_teammate) else "ai_batch"
                 self.usage.log_ai(evt_type, persona_id=p.get("persona_id"), account_id=p.get("account_id"),
                                   chat_id=job["chat_id"], tokens_prompt=meta.get("prompt_tokens"),
                                   tokens_completion=meta.get("completion_tokens"), latency_ms=meta.get("latency_ms"),
@@ -1612,6 +1609,10 @@ class Daemon:
                         persona_name=p_disp_name, persona_details=dt,
                         primary_reply_text=primary_reply_text
                     )
+                    self.usage.log_ai(evt_type, persona_id=p.get("persona_id"), account_id=p.get("account_id"),
+                                      chat_id=job["chat_id"], tokens_prompt=meta.get("prompt_tokens"),
+                                      tokens_completion=meta.get("completion_tokens"), latency_ms=meta.get("latency_ms"),
+                                      model=meta.get("model"))
                 if not (text or "").strip():
                     raise RuntimeError("AI returned an empty reply twice")
 
@@ -1689,7 +1690,7 @@ class Daemon:
                         except Exception as react_err:
                             log.warning("Safe reaction fallback (%s): %s.", react_emoji, react_err)
                             if not bubbles:
-                                self.store.finish(job["id"], True, "Reaction completed or safe fallback")
+                                self.store.finish(job["id"], False, f"Reaction send failed: {react_err}", retry_in=30)
                                 return
 
                 if not bubbles:

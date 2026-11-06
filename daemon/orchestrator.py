@@ -108,23 +108,20 @@ class PersonaCadenceOrchestrator:
         }
 
     def is_persona_awake(self, persona, ts=None):
-        """Returns True if this persona is currently awake according to their personal night schedule."""
+        """Returns True if this persona is currently awake according to their personal night schedule and timezone."""
         if ts is None:
             ts = time.time()
         local_dt = datetime.fromtimestamp(ts)
         local_hour = local_dt.hour + (local_dt.minute / 60.0)
 
-        # Daytime and late evening hours (07:00 to 00:30) are active for all community members
-        if 7.0 <= local_hour or local_hour < 0.5:
-            return True
-
         prof = self.get_persona_circadian_profile(persona)
+        tz_hour = (local_hour + float(prof.get("tz_offset") or 0.0)) % 24.0
         s_start = prof["sleep_start"]
         s_end = prof["sleep_end"]
         if s_start <= s_end:
-            asleep = (s_start <= local_hour < s_end)
+            asleep = (s_start <= tz_hour < s_end)
         else:
-            asleep = (local_hour >= s_start or local_hour < s_end)
+            asleep = (tz_hour >= s_start or tz_hour < s_end)
         return not asleep
 
     def persona_circadian_factor(self, persona, ts=None):
@@ -343,8 +340,19 @@ class PersonaCadenceOrchestrator:
             fatigue = self.compute_fatigue(chat_id, pid, tau=cfg["fatigue_decay_tau"])
             fatigue_penalty = fatigue * (cfg["fatigue_increment"] * 0.4 if (is_direct_mention or is_admin) else cfg["fatigue_increment"])
 
-            # 4. Equal Participation / Anti-Monopoly Balancer:
-            counts = self.persona_speaker_counts.get(chat_id, {})
+            # 4. Equal Participation / Anti-Monopoly Balancer (SQLite-backed persistence):
+            counts = {}
+            try:
+                day_ago = int(now - 86400)
+                db_rows = self.store.rows(
+                    "SELECT persona_id, COUNT(*) as cnt FROM messages WHERE chat_id=? AND is_bot=1 AND ts >= ? GROUP BY persona_id",
+                    (chat_id, day_ago)
+                )
+                for r in db_rows:
+                    if r.get("persona_id"):
+                        counts[r["persona_id"]] = int(r["cnt"] or 0)
+            except Exception:
+                counts = self.persona_speaker_counts.get(chat_id, {})
             total_speeches = sum(counts.values()) or 1
             speech_share = counts.get(pid, 0) / total_speeches
 

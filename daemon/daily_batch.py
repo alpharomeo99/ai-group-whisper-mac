@@ -1063,11 +1063,6 @@ class DailyBatchEngine:
         local_dt = _dt.fromtimestamp(ts)
         local_hour = local_dt.hour + (local_dt.minute / 60.0)
 
-        # Daytime hours (08:00 to 23:30) are 100% active and awake for all personas
-        # Daytime and late evening hours (07:00 to 00:30) are 100% active and awake for all personas
-        if 7.0 <= local_hour or local_hour < 0.5:
-            return True
-
         p_seed_str = str(cand.get("persona_id") or cand.get("id") or cand.get("persona_name") or "default")
         seed_hash = sum(ord(c) for c in p_seed_str)
         archetype_idx = seed_hash % 6
@@ -1080,10 +1075,12 @@ class DailyBatchEngine:
             (22.5, 6.0),  # morning_athlete
         ]
         s_start, s_end = SCHEDULES[archetype_idx]
+        tz_offset = float(((seed_hash % 7) - 3) * 1.0)
+        tz_hour = (local_hour + tz_offset) % 24.0
         if s_start <= s_end:
-            asleep = (s_start <= local_hour < s_end)
+            asleep = (s_start <= tz_hour < s_end)
         else:
-            asleep = (local_hour >= s_start or local_hour < s_end)
+            asleep = (tz_hour >= s_start or tz_hour < s_end)
         return not asleep
 
     def __init__(self, store, ai_module, memory_engine=None):
@@ -1502,10 +1499,9 @@ class DailyBatchEngine:
                 "  * Low-patience members roast bad form, call out overcomplication ('stop overthinking basic shit and just train', 'who told you that garbage💀').\n"
                 "  * Dry/sarcastic members roll their eyes at hype ('sure bro whatever you say', 'rip your sleep schedule').\n"
                 "  * Grounded peers give practical, level-headed tips without corporate fluff.\n"
-                "- FULL ROSTER PARTICIPATION (MANDATORY):\n"
-                "  * EVERY SINGLE persona listed under AVAILABLE PERSONAS MUST speak at least 1-2 times in this session!\n"
-                "  * Do NOT create a 2-person dialogue where everyone else is silent. Multiple members must chime in, react, roast, or offer their take.\n"
-                "  * Distribute speaking turns across ALL available personas so that every member participates.\n"
+                "- NATURAL GROUP DYNAMICS:\n"
+                "  * Feature 2 to 4 active members naturally conversing in this exchange.\n"
+                "  * Members chime in, share personal updates, or roast bad ideas without forcing an artificial roll call.\n"
                 "- MINIMAL EMOJI USAGE (REAL PHONE TEXTING):\n"
                 "  * 85%+ of messages must contain ZERO emojis! Do NOT pepper emojis into every message.\n"
                 "  * Native emoji reactions must be rare (under 3-5% of turns at most, e.g. a rare 👍 or 😂 reaction to a punchline).\n"
@@ -1618,30 +1614,8 @@ class DailyBatchEngine:
                         m_time += random.uniform(0.18, 0.55)
                     session_offsets.append(m_time)
 
-            # Guarantee roster participation: ensure every candidate in the group speaks in this session if message count allows
-            if len(candidates) >= 2 and len(s_items) >= len(candidates):
-                session_pids = set()
-                for it in s_items:
-                    it_pid = it.get("persona_id")
-                    if it_pid:
-                        session_pids.add(it_pid)
-                missing_cands = [c for c in candidates if c["persona_id"] not in session_pids]
-                if missing_cands:
-                    pid_counts = {}
-                    for it in s_items:
-                        it_pid = it.get("persona_id")
-                        pid_counts[it_pid] = pid_counts.get(it_pid, 0) + 1
-                    for missing in missing_cands:
-                        for it_idx in range(1, len(s_items)):
-                            target_it = s_items[it_idx]
-                            spk_pid = target_it.get("persona_id")
-                            if pid_counts.get(spk_pid, 0) > 1:
-                                target_it["persona_id"] = missing["persona_id"]
-                                target_it["account_id"] = missing["account_id"]
-                                target_it["sender_name"] = missing["persona_name"]
-                                pid_counts[spk_pid] -= 1
-                                pid_counts[missing["persona_id"]] = 1
-                                break
+            # Natural cluster validation: keep items mapped to authentic personas without identity swapping
+            pass
 
             session_created = []
             for item_idx, item in enumerate(s_items):

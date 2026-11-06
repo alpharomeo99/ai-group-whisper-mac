@@ -466,9 +466,9 @@ async def draft_reply_with_meta(settings, title, persona, msgs, trigger_sender=N
         if p_low_pat and not (is_admin or (trigger_sender and "xbiolabs" in trigger_sender.lower())):
             tone_instruction = (
                 "- RAW, DIRECT & LOW-PATIENCE PEER (ACTIVE): "
-                "You have zero patience for overthinking, hand-holding, or repetitive questions right now. "
-                "Be blunt and cut straight through nonsense with concise reality checks ('stop overcomplicating simple shit and just train', "
-                "'why would you even touch that dosage', 'zero chance that works', 'you are overthinking it'). "
+                "You have zero patience for overthinking or hand-holding right now. "
+                "Be blunt and cut straight through nonsense with concise, punchy reality checks. "
+                "Point out the obvious flaw, suggest a simpler approach, or question the logic directly. "
                 "Never comfort, sugarcoat, or use polite customer-support phrasing. "
                 "Keep it short, direct, and punchy (1 to 2 direct sentences). No polite preamble."
             )
@@ -480,14 +480,14 @@ async def draft_reply_with_meta(settings, title, persona, msgs, trigger_sender=N
     elif p_tier == "dry_sarcastic":
         tone_instruction = (
             "- DRY, DEADPAN & SKEPTICAL: You are unimpressed by hype, drama, or bro-science. "
-            "Drop short, deadpan one-liners or weary reality checks ('good luck with that sleep schedule', 'sure, if you enjoy wasting money', "
-            "'wild theory honestly', 'let us know how that works out'). "
+            "Drop short, deadpan reality checks or weary observations without corporate cheerfulness. "
+            "Understate your reaction and keep it casual, grounded, and 1 to 2 sentences max. "
             "Don't get openly furious, but have zero patience for hype or drama."
         )
     else:  # chill_grounded
         tone_instruction = (
             "- CHILL, GROUNDED & PRACTICAL PEER: You are relaxed, level-headed, and helpful without being a bot. "
-            "You explain things clearly peer-to-peer ('yeah 2ml bac water is standard, 10 units on the insulin pin gives you 250mcg', 'shoulder tendonitis takes a minute to heal, back off heavy pressing'). "
+            "You share practical experience peer-to-peer in plain conversational language. "
             "Never sound like corporate support or an AI disclaimer."
         )
 

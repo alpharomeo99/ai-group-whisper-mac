@@ -223,6 +223,7 @@ class Store:
             "ALTER TABLE human_memories ADD COLUMN is_active INTEGER DEFAULT 1",
             "ALTER TABLE human_memories ADD COLUMN status TEXT DEFAULT 'open'",
             "ALTER TABLE accounts ADD COLUMN is_admin INTEGER DEFAULT 0",
+            "ALTER TABLE messages ADD COLUMN reply_to_msg_id INTEGER",
             "CREATE INDEX IF NOT EXISTS idx_hm_chat_sender_slot ON human_memories(chat_id, sender, slot_key, is_active)",
             "CREATE TABLE IF NOT EXISTS processed_incoming (chat_id INTEGER NOT NULL, msg_id INTEGER NOT NULL, ts INTEGER NOT NULL, PRIMARY KEY(chat_id, msg_id))",
             "CREATE TABLE IF NOT EXISTS persona_protocols (id INTEGER PRIMARY KEY AUTOINCREMENT, persona_id INTEGER NOT NULL UNIQUE, chat_id INTEGER, compound_name TEXT NOT NULL, category TEXT NOT NULL, goal TEXT NOT NULL, dosing TEXT NOT NULL, reconstitution_notes TEXT DEFAULT '', start_ts INTEGER NOT NULL, duration_weeks INTEGER NOT NULL, status TEXT DEFAULT 'active', notes TEXT DEFAULT '', details TEXT DEFAULT '{}')",
@@ -993,7 +994,7 @@ class Store:
         except (ValueError, TypeError):
             cap = 0.05
         spent = self.get_daily_batch_spend()
-        return (spent < cap), spent, cap
+        return (spent < (cap - 0.0005)), spent, cap
 
     def check_reply_budget_available(self):
         """Checks if today's interactive human/admin reply spend is under the hard cap (default $0.20/day).
@@ -1004,7 +1005,7 @@ class Store:
         except (ValueError, TypeError):
             cap = 0.20
         spent = self.get_daily_reply_spend()
-        return (spent < cap), spent, cap
+        return (spent < (cap - 0.0005)), spent, cap
 
     def checkpoint_wal(self):
         """Executes a passive WAL checkpoint to prevent -wal log files from accumulating unboundedly."""

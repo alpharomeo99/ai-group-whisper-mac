@@ -49,8 +49,20 @@ class UsageTracker:
         c_tok = max(0, int(tokens_completion or 0))
         total_tok = p_tok + c_tok
 
-        # Rough blended rate estimate: ~$0.0003 per 1K tokens
-        cost_est = (total_tok / 1000.0) * 0.0003
+        # Accurate model-aware pricing (per 1K tokens)
+        m_str = str(model or "").lower()
+        if "gpt-4o-mini" in m_str:
+            cost_est = (p_tok / 1000.0) * 0.00015 + (c_tok / 1000.0) * 0.00060
+        elif "gpt-4o" in m_str:
+            cost_est = (p_tok / 1000.0) * 0.0025 + (c_tok / 1000.0) * 0.010
+        elif "claude-3-5-haiku" in m_str:
+            cost_est = (p_tok / 1000.0) * 0.0008 + (c_tok / 1000.0) * 0.004
+        elif "claude" in m_str:
+            cost_est = (p_tok / 1000.0) * 0.003 + (c_tok / 1000.0) * 0.015
+        elif "fal" in m_str or "any-llm" in m_str:
+            cost_est = (p_tok / 1000.0) * 0.0002 + (c_tok / 1000.0) * 0.0008
+        else:
+            cost_est = (p_tok / 1000.0) * 0.00025 + (c_tok / 1000.0) * 0.00075
 
         with self.store.lock:
             cur = self.store.db.cursor()
