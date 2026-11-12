@@ -3140,10 +3140,10 @@ class Daemon:
 
             if not turns:
                 turns = [
-                    {"sender": part_a.get("name"), "text": "hey, did you catch the latest updates?"},
-                    {"sender": part_b.get("name"), "text": "yeah was just reading through, looking good so far"},
-                    {"sender": part_a.get("name"), "text": "nice, wanted to make sure we're on the same page"},
-                    {"sender": part_b.get("name"), "text": "definitely, let's keep it moving "}
+                    {"sender": part_a.get("name"), "text": "bench felt heavy as hell today"},
+                    {"sender": part_b.get("name"), "text": "how much sleep did you get lol"},
+                    {"sender": part_a.get("name"), "text": "like 5 hours rip"},
+                    {"sender": part_b.get("name"), "text": "yeah that explains it"}
                 ][:turns_cnt]
 
             for t in turns:

@@ -40,18 +40,56 @@ COMMON_TYPOS = {
     "about": "abotu",
 }
 
-def maybe_inject_typo_correction(text, chance=0.07):
-    """Introduces realistic fast thumb typos with an immediate follow-up asterisk bubble."""
-    if not text or len(text) < 18 or random.random() > chance or " ||| " in text:
+def maybe_inject_typo_correction(text, candidate=None, chance=None):
+    """Introduces realistic fast thumb typos with persona-specific texting fingerprint.
+    - Clinical biohackers & veteran mentors type cleanly with virtually zero sloppy typos and never send asterisk bubble spam.
+    - Dry deadpan observers leave occasional lowercase slips uncorrected.
+    - Rapid-fire mobile posters (young powerlifters, grapplers) make occasional phone slips and sometimes send a quick *word bubble.
+    """
+    if not text or len(text) < 16 or " ||| " in text:
         return text
+
+    archetype_key = ""
+    c_tone = ""
+    if candidate:
+        dt = {}
+        try:
+            dt = json.loads(candidate.get("details") or "{}") if isinstance(candidate.get("details"), str) else (candidate.get("details") or {})
+        except Exception:
+            dt = {}
+        archetype_key = str(dt.get("archetype") or dt.get("archetype_key") or "").lower()
+        c_tone = str(dt.get("tone_and_vibe") or dt.get("role_in_group") or "").lower()
+
+    if any(k in archetype_key or k in c_tone for k in ("clinical", "researcher", "veteran", "mentor")):
+        effective_chance = 0.01 if chance is None else chance
+        style = "clean"
+    elif any(k in archetype_key or k in c_tone for k in ("dry", "cynical", "observer")):
+        effective_chance = 0.04 if chance is None else chance
+        style = "uncorrected"
+    elif any(k in archetype_key or k in c_tone for k in ("powerlifter", "young", "grappler", "combat", "aesthetics")):
+        effective_chance = 0.07 if chance is None else chance
+        style = "fast_correction"
+    else:
+        effective_chance = 0.04 if chance is None else chance
+        style = "standard"
+
+    if random.random() > effective_chance:
+        return text
+
     words = text.split()
     for idx, w in enumerate(words):
-        clean_w = re.sub(r'[^\w]', '', w.lower())
+        clean_w = re.sub(r"[^\w]", "", w.lower())
         if clean_w in COMMON_TYPOS:
             typo_word = COMMON_TYPOS[clean_w]
             words[idx] = re.sub(clean_w, typo_word, w, flags=re.IGNORECASE)
-            correction = f"*{clean_w}" if random.random() < 0.65 else f"*{clean_w} lol"
-            return " ".join(words) + " ||| " + correction
+            typo_text = " ".join(words)
+            if style in ("uncorrected", "clean"):
+                return typo_text
+            elif style == "fast_correction":
+                return typo_text + " ||| " + f"*{clean_w}"
+            else:
+                corr = f"*{clean_w}" if random.random() < 0.60 else f"*{clean_w} lol"
+                return typo_text + " ||| " + corr
     return text
 
 def format_relationship_graph(candidates):
@@ -1490,7 +1528,21 @@ class DailyBatchEngine:
                 "CRITICAL TELEGRAM TEXTING RULES (ZERO AI DIALECT):\n"
                 "- TEXT LIKE REAL PEOPLE ON THEIR PHONES: Use lowercase by default, casual phrasing, contractions, and minimal punctuation.\n"
                 "- ZERO GREETINGS OR FORMAL INTRODUCTIONS: Never say 'Hey guys', 'What is up everyone', or 'Has anyone tried X?'. Real people jump straight in with an observation, update, or quick complaint ('pip on this new batch is nonexistent', 'bench felt heavy as hell today', 'finally broke 200lbs').\n"
-                "- NEVER DEFINE COMPOUNDS OR LECTURE: Everyone here is already an experienced regular. Never explain what BPC, test, tirz, or modafinil does like a Wikipedia article. Talk about real-world use ('running 500mcg daily for elbow', 'pinning ventroglute', 'down 3lbs this week').\n"
+                "- ASYMMETRICAL CHAT FLOW (ANTI-PANEL & ANTI-Q&A LOOP):\n"
+                "  * Real Telegram groups NEVER operate like an orderly Q&A panel, support ticket, or round-table seminar.\n"
+                "  * Do NOT have every member take turns validating or offering helpful advice on the same topic.\n"
+                "  * At MOST ONE member gives practical advice. Other members react naturally: 1-4 word dismissive banter ('cap', 'nah fr', 'rip', 'lmao why', 'definitely not'), roasting, dry skepticism, or fixating on a minor incidental detail ('wait what gym?', 'who said that bs').\n"
+                "  * Questions frequently go UNANSWERED or are deflected. Real people leave questions hanging and change the subject.\n"
+                "  * Mix in raw 1-4 word reactive turns. Real group texting is heavily weighted toward quick fragments mixed with occasional sentences.\n"
+                "- NATURAL TOPIC DRIFT & SPLINTERING:\n"
+                "  * In a thread of 8-16 messages, conversation does NOT stay locked to one single topic from start to finish.\n"
+                "  * Around turn 4-7, let the conversation naturally splinter or drift: someone drops an off-topic side remark (what they are eating, terrible gym music, bad traffic, sleep/energy complaint, work frustration), and members banter about that before wrapping up.\n"
+                "- NEVER DEFINE COMPOUNDS OR RECITE DOSING RECIPES:\n"
+                "  * Everyone here is already an experienced regular. Never explain basic concepts or lecture like an encyclopedia.\n"
+                "  * Talk about lived gym realities: recovery, joint soreness, workout intensity, sleep quality, appetite, or personal gym progress ('elbow feels 100x better', 'down 3lbs this week', 'sleep has been brutal'). NEVER recite clinical dosages or formulaic recipe templates ('running X mcg daily').\n"
+                "- ZERO ARTIFICIAL VALIDATION OR OPENERS:\n"
+                "  * NEVER open messages with 'I agree', 'Good point', 'Spot on', 'Exactly', 'Solid advice', or '100% true'.\n"
+                "  * Jump straight into the raw thought, disagreement, roast, or personal update.\n"
                 "- SHORT, PUNCHY MESSAGING CADENCE:\n"
                 "  * 70-80% of messages are 3 to 12 words! Real people do not write long paragraphs on Telegram.\n"
                 "  * Quick reactions ('same honestly', 'clean numbers', 'definitely not', 'which compound?', 'lol nah').\n"
@@ -1533,7 +1585,8 @@ class DailyBatchEngine:
                 f"CONVERSATIONAL FOCUS: {topic_prompt}\n\n"
                 f"TASK:\n"
                 f"Generate a {th_count}-message fast-paced authentic Telegram group chat thread for {s_label}.\n"
-                f"Text like real lifters on mobile phones: fast, punchy, lowercase default, blunt banter, zero AI disclaimers, zero Wikipedia explanations.\n"
+                f"Text like real lifters on mobile phones: fast, punchy, lowercase default, blunt banter, zero AI disclaimers, zero Wikipedia explanations, zero Q&A seminar loops.\n"
+                "Incorporate natural topic drift around turn 4-7 and authentic asymmetrical participation.\n"
                 "Advance the conversation organically without repeating past points. Return strictly the JSON array."
             )
 
@@ -1576,7 +1629,10 @@ class DailyBatchEngine:
                     for it in th_items:
                         if it.get("text") and not it.get("reaction"):
                             cleaned = self.ai.format_telegram_message(it["text"], names=cand_names, max_chars=360)
-                            it["text"] = maybe_inject_typo_correction(cleaned, chance=0.07)
+                            pid = it.get("persona_id")
+                            aid = it.get("account_id")
+                            c_item = next((c for c in candidates if (pid and c.get("persona_id") == pid) or (aid and c.get("account_id") == aid)), None)
+                            it["text"] = maybe_inject_typo_correction(cleaned, candidate=c_item)
                 except Exception as e:
                     log.warning("Formatting error in session %d: %s", th_idx + 1, e)
                 sessions_items.append(th_items)
